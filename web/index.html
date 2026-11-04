@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>Atlas Exchange — CLOB Workbench</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { ink: '#0b1220', panel: '#111b2b', line: '#223047', mint: '#39d6a0', coral: '#ff7185', blueglow: '#4ca6ff' }, fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'] } } } };
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    * { scrollbar-width: thin; scrollbar-color: #34445d #111b2b; }
+    body { background: radial-gradient(ellipse at 47% -20%, #1a3150 0, #0b1220 46%); min-height: 100vh; }
+    .panel { background: rgba(17,27,43,.91); border: 1px solid #223047; box-shadow: 0 14px 40px rgba(0,0,0,.16); }
+    .eyebrow { color: #8da2bd; font-size: .65rem; letter-spacing: .15em; text-transform: uppercase; font-weight: 700; }
+    .metric { font-variant-numeric: tabular-nums; }
+    .field { background:#0b1422; border:1px solid #2a3b53; color:#e6eef8; outline:none; }
+    .field:focus { border-color:#4ca6ff; box-shadow:0 0 0 2px rgba(76,166,255,.12); }
+    .btn { transition:transform .12s,background .12s,border-color .12s; }
+    .btn:active { transform:translateY(1px); }
+    .scroll-area { max-height: 320px; overflow:auto; }
+    .depth-cell { position:relative; isolation:isolate; }
+    .depth-bar { position:absolute; z-index:-1; top:2px; bottom:2px; opacity:.14; border-radius:3px; }
+    .trade-flash { animation:flash .6s ease-out; }
+    @keyframes flash { from { background:rgba(76,166,255,.22); } to { background:transparent; } }
+    @media(max-width:1100px) { .dashboard { grid-template-columns:1fr 1fr; } .book-panel { grid-column:span 2; grid-row:1; } }
+    @media(max-width:720px) { .dashboard { grid-template-columns:1fr; } .book-panel { grid-column:span 1; } }
+  </style>
+</head>
+<body class="text-slate-100 font-sans antialiased">
+  <div class="max-w-[1800px] mx-auto px-4 py-5 lg:px-7">
+    <header class="flex flex-wrap items-center justify-between gap-4 mb-5">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-blueglow to-mint flex items-center justify-center text-ink font-black text-lg shadow-lg shadow-blue-900/30">A</div>
+        <div><div class="text-sm font-bold tracking-[.18em]">ATLAS <span class="text-slate-500 font-medium">/ EXCHANGE</span></div><div class="text-xs text-slate-400 mt-0.5">Single instrument · Continuous limit order book</div></div>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-slate-400"><span class="inline-flex items-center gap-2"><i id="statusDot" class="h-2 w-2 rounded-full bg-amber-400"></i><span id="connectionStatus">Connecting</span></span><span class="hidden sm:inline border-l border-line pl-4">100 ticks = $1.00</span><span id="clock" class="metric font-mono text-slate-300"></span></div>
+    </header>
+
+    <section class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2.5 mb-4" aria-label="Market telemetry">
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Best bid</div><div id="bestBid" class="metric text-lg font-semibold text-mint mt-1">—</div><div id="bestBidQty" class="text-[11px] text-slate-500">—</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Best ask</div><div id="bestAsk" class="metric text-lg font-semibold text-coral mt-1">—</div><div id="bestAskQty" class="text-[11px] text-slate-500">—</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Spread</div><div id="spread" class="metric text-lg font-semibold mt-1">—</div><div id="spreadTicks" class="text-[11px] text-slate-500">—</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Last trade</div><div id="lastTrade" class="metric text-lg font-semibold text-blueglow mt-1">—</div><div id="lastTradeQty" class="text-[11px] text-slate-500">No executions yet</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Volume traded</div><div id="volumeTraded" class="metric text-lg font-semibold mt-1">0</div><div id="tradeCount" class="text-[11px] text-slate-500">0 trades</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Active orders</div><div id="activeOrders" class="metric text-lg font-semibold mt-1">0</div><div id="levelCounts" class="text-[11px] text-slate-500">0 bid / 0 ask levels</div></div>
+      <div class="panel rounded-xl p-3"><div class="eyebrow">Engine</div><div class="mt-2 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-mint"></span><span class="text-sm font-semibold">LIVE</span></div><div class="text-[11px] text-slate-500 mt-1">Deterministic · single thread</div></div>
+    </section>
+
+    <main class="dashboard grid grid-cols-[minmax(240px,.85fr)_minmax(480px,1.65fr)_minmax(280px,1fr)] gap-3.5">
+      <aside class="space-y-3.5">
+        <section class="panel rounded-xl p-4">
+          <div class="flex items-center justify-between mb-4"><div><div class="eyebrow">Order entry</div><h2 class="font-semibold mt-1">Place an order</h2></div><span class="text-[10px] rounded-full border border-line px-2 py-1 text-slate-400">TICKS</span></div>
+          <form id="orderForm" class="space-y-3">
+            <div class="grid grid-cols-2 gap-2"><label class="text-xs text-slate-400">Side<select id="orderSide" class="field rounded-lg w-full mt-1.5 px-3 py-2.5 text-sm"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></label><label class="text-xs text-slate-400">Order type<select id="orderType" class="field rounded-lg w-full mt-1.5 px-3 py-2.5 text-sm"><option value="LIMIT">LIMIT</option><option value="MARKET">MARKET</option></select></label></div>
+            <div class="grid grid-cols-2 gap-2"><label class="text-xs text-slate-400">Price · ticks<input id="priceTicks" class="field rounded-lg w-full mt-1.5 px-3 py-2.5 text-sm metric" type="number" min="1" step="1" value="10000"></label><label class="text-xs text-slate-400">Approx. dollars<input id="priceDollars" class="field rounded-lg w-full mt-1.5 px-3 py-2.5 text-sm metric" type="number" min="0.01" step="0.01" value="100.00"></label></div>
+            <label class="block text-xs text-slate-400">Quantity<input id="orderQty" class="field rounded-lg w-full mt-1.5 px-3 py-2.5 text-sm metric" type="number" min="1" max="1000000000" step="1" value="100" required></label>
+            <button class="btn w-full rounded-lg bg-blueglow hover:bg-blue-400 text-ink font-bold py-2.5 text-sm" type="submit">Submit order</button>
+          </form>
+          <div id="orderMessage" class="hidden mt-3 rounded-lg border border-line bg-slate-950/60 p-2.5 text-xs"></div>
+        </section>
+
+        <section class="panel rounded-xl p-4">
+          <div class="eyebrow">Simulation controls</div><h2 class="font-semibold mt-1 mb-3">Drive the market</h2>
+          <div class="grid grid-cols-2 gap-2"><button id="seedButton" class="btn rounded-lg border border-line hover:border-blueglow px-3 py-2 text-xs font-semibold">Seed demo book</button><button id="resetButton" class="btn rounded-lg border border-coral/40 text-coral hover:bg-coral/10 px-3 py-2 text-xs font-semibold">Reset empty</button></div>
+          <div class="grid grid-cols-2 gap-2 mt-2"><button id="stepOne" class="btn rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-xs font-semibold">Step +1 order</button><button id="stepTen" class="btn rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-xs font-semibold">Step +10 orders</button></div>
+          <button id="autoButton" class="btn mt-2 w-full rounded-lg border border-mint/40 text-mint hover:bg-mint/10 px-3 py-2 text-xs font-semibold">▶ Start auto-sim · 5 orders/sec</button>
+          <div class="mt-3 flex justify-between text-[11px] text-slate-500"><span>Generated orders</span><span id="simCount" class="metric">0</span></div>
+        </section>
+      </aside>
+
+      <section class="book-panel panel rounded-xl p-4 min-w-0">
+        <div class="flex items-center justify-between gap-3 mb-3"><div><div class="eyebrow">Market depth</div><h2 class="font-semibold mt-1">Order book ladder</h2></div><div class="text-[10px] text-slate-500">Price priority · FIFO within each level</div></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><div class="flex justify-between border-b border-line pb-2 mb-1 text-[10px] eyebrow"><span>Bids · BUY</span><span>Qty / Orders</span></div><div id="bidLadder" class="space-y-0.5 min-h-14"></div></div>
+          <div><div class="flex justify-between border-b border-line pb-2 mb-1 text-[10px] eyebrow"><span>Asks · SELL</span><span>Qty / Orders</span></div><div id="askLadder" class="space-y-0.5 min-h-14"></div></div>
+        </div>
+        <div class="mt-4 border-t border-line pt-4">
+          <div class="flex items-center justify-between mb-2"><div><div class="eyebrow">Resting queue</div><h3 class="text-sm font-semibold mt-1">Active orders <span id="queueCount" class="text-slate-500 font-normal">(0)</span></h3></div><span class="text-[10px] text-slate-500">Cancel any order by ID</span></div>
+          <div class="scroll-area max-h-[280px]"><table class="w-full text-left text-xs"><thead class="sticky top-0 bg-panel text-slate-500"><tr><th class="py-2 font-medium">Order ID</th><th class="font-medium">Side</th><th class="font-medium">Price</th><th class="font-medium">Remaining</th><th class="font-medium">FIFO seq</th><th></th></tr></thead><tbody id="ordersTable"></tbody></table></div>
+        </div>
+      </section>
+
+      <aside class="space-y-3.5 min-w-0">
+        <section class="panel rounded-xl p-4"><div class="flex justify-between items-start mb-2"><div><div class="eyebrow">Executions</div><h2 class="font-semibold mt-1">Live trade feed</h2></div><span id="tradeFeedCount" class="text-[10px] text-slate-500">0 records</span></div><div id="tradeFeed" class="scroll-area space-y-2"></div></section>
+        <section class="panel rounded-xl p-4"><div class="flex justify-between items-start mb-2"><div><div class="eyebrow">Engine events</div><h2 class="font-semibold mt-1">Activity log</h2></div><span class="text-[10px] text-slate-500">Newest first</span></div><div id="activityLog" class="scroll-area space-y-1.5 max-h-[260px]"></div></section>
+      </aside>
+    </main>
+
+    <section class="panel rounded-xl p-4 mt-3.5">
+      <div class="flex flex-wrap items-end justify-between gap-4 mb-4"><div><div class="eyebrow">Empirical performance</div><h2 class="font-semibold mt-1">C++ benchmark suite</h2><p class="text-xs text-slate-500 mt-1">Pre-generated workloads · nanosecond latency distributions</p></div><div class="flex flex-wrap items-end gap-2"><label class="text-[11px] text-slate-400">Profile<select id="benchProfile" class="field rounded-lg block mt-1 px-2.5 py-2 text-xs"><option value="ALL">All 7 profiles</option><option>BALANCED</option><option>BUY_HEAVY</option><option>SELL_HEAVY</option><option>AGGRESSIVE_MATCHING</option><option>CANCEL_HEAVY</option><option>CONCENTRATED_LEVELS</option><option>WIDE_DISTRIBUTION</option></select></label><label class="text-[11px] text-slate-400">Operations<select id="benchOrders" class="field rounded-lg block mt-1 px-2.5 py-2 text-xs"><option value="10000">10,000</option><option value="50000" selected>50,000</option><option value="100000">100,000</option></select></label><label class="flex items-center gap-2 pb-2 text-[11px] text-slate-400"><input id="compareBaseline" type="checkbox" checked class="accent-blueglow"> Compare vector baseline</label><button id="runBenchmark" class="btn rounded-lg bg-blueglow hover:bg-blue-400 text-ink font-bold px-4 py-2 text-xs">Run C++ benchmark</button></div></div>
+      <div id="benchmarkStatus" class="hidden mb-3 text-xs text-blue-300"></div>
+      <div class="overflow-x-auto"><table class="w-full min-w-[940px] text-left text-[11px]"><thead class="border-y border-line text-slate-500"><tr><th class="py-2.5 font-medium">Workload</th><th class="font-medium">Implementation</th><th class="font-medium">Throughput ops/s</th><th class="font-medium">Avg ns</th><th class="font-medium">p50 ns</th><th class="font-medium">p95 ns</th><th class="font-medium">p99 ns</th><th class="font-medium">p99.9 ns</th></tr></thead><tbody id="benchmarkRows"><tr><td colspan="8" class="py-5 text-center text-slate-500">Run a benchmark to populate empirical results.</td></tr></tbody></table></div>
+      <div class="mt-3 flex items-center gap-2 text-[10px] text-slate-500"><span class="inline-block h-2 w-20 rounded bg-gradient-to-r from-blueglow/80 to-mint/80"></span>Relative throughput within each workload</div>
+    </section>
+
+    <footer class="flex flex-wrap justify-between gap-2 py-5 text-[10px] text-slate-600"><span>PROJECT ATLAS · C++20 MATCHING ENGINE</span><span>Deterministic replay · fixed-point ticks · price-time priority</span></footer>
+  </div>
+
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const fmtPrice = (ticks) => ticks == null ? '—' : `$${(ticks / 100).toFixed(2)}`;
+    const fmtNumber = (value) => Number(value || 0).toLocaleString();
+    let autoTimer = null;
+    let simCount = 0;
+    let lastTradeId = 0;
+
+    function setConnected(connected) {
+      $('connectionStatus').textContent = connected ? 'Connected' : 'Reconnecting';
+      $('statusDot').className = `h-2 w-2 rounded-full ${connected ? 'bg-mint' : 'bg-amber-400'}`;
+    }
+    function setMessage(text, good = true) {
+      const node = $('orderMessage');
+      node.textContent = text;
+      node.className = `mt-3 rounded-lg border p-2.5 text-xs ${good ? 'border-mint/30 text-mint bg-mint/5' : 'border-coral/30 text-coral bg-coral/5'}`;
+      node.classList.remove('hidden');
+      setTimeout(() => node.classList.add('hidden'), 5000);
+    }
+    async function api(path, options = {}) {
+      const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+      return data;
+    }
+    function renderLadder(target, levels, side, bestPrice) {
+      const root = $(target); root.replaceChildren();
+      const max = Math.max(1, ...levels.map((level) => level.total_volume));
+      levels.forEach((level) => {
+        const row = document.createElement('div');
+        row.className = 'depth-cell grid grid-cols-[1fr_auto] gap-2 px-2 py-1.5 rounded text-xs metric';
+        const bar = document.createElement('span');
+        bar.className = `depth-bar ${side === 'BUY' ? 'bg-mint right-0' : 'bg-coral left-0'}`;
+        bar.style.width = `${Math.max(3, level.total_volume / max * 100)}%`;
+        const price = document.createElement('span');
+        price.className = `${side === 'BUY' ? 'text-mint' : 'text-coral'} ${level.price === bestPrice ? 'font-bold' : ''}`;
+        price.textContent = `${fmtPrice(level.price)}  ·  ${level.price}`;
+        const qty = document.createElement('span'); qty.className = 'text-slate-300';
+        qty.textContent = `${fmtNumber(level.total_volume)} / ${level.order_count}`;
+        row.append(bar, price, qty); root.append(row);
+      });
+      if (!levels.length) { const empty = document.createElement('div'); empty.className = 'py-3 text-xs text-slate-600'; empty.textContent = 'No resting liquidity'; root.append(empty); }
+    }
+    function renderOrders(orders) {
+      const body = $('ordersTable'); body.replaceChildren();
+      $('queueCount').textContent = `(${orders.length})`;
+      orders.forEach((order) => {
+        const row = document.createElement('tr'); row.className = 'border-b border-line/60 hover:bg-white/[.025]';
+        const values = [order.id, order.side, `${fmtPrice(order.price)} · ${order.price}`, fmtNumber(order.remaining_quantity), order.sequence];
+        values.forEach((value, index) => {
+          const cell = document.createElement('td'); cell.className = `py-2 ${index === 1 ? (order.side === 'BUY' ? 'text-mint' : 'text-coral') : 'text-slate-300'} metric`;
+          cell.textContent = String(value); row.append(cell);
+        });
+        const action = document.createElement('td'); action.className = 'py-1 text-right';
+        const cancel = document.createElement('button'); cancel.className = 'rounded border border-coral/30 px-2 py-1 text-[10px] text-coral hover:bg-coral/10'; cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', async () => { try { await api(`/api/orders/${order.id}`, { method: 'DELETE' }); await refresh(); } catch (error) { setMessage(error.message, false); } });
+        action.append(cancel); row.append(action); body.append(row);
+      });
+    }
+    function renderTrades(trades) {
+      const root = $('tradeFeed'); root.replaceChildren();
+      $('tradeFeedCount').textContent = `${trades.length} records`;
+      trades.forEach((trade) => {
+        const card = document.createElement('div'); card.className = 'rounded-lg border border-line/70 bg-slate-950/30 p-2.5 text-[11px]';
+        const top = document.createElement('div'); top.className = 'flex justify-between items-center';
+        const id = document.createElement('span'); id.className = 'text-slate-500 metric'; id.textContent = `#${trade.trade_id} · seq ${trade.sequence}`;
+        const side = document.createElement('span'); side.className = trade.aggressor_side === 'BUY' ? 'text-mint font-semibold' : 'text-coral font-semibold'; side.textContent = `${trade.aggressor_side} aggressor`;
+        const detail = document.createElement('div'); detail.className = 'mt-1.5 flex justify-between text-slate-300 metric';
+        const px = document.createElement('span'); px.textContent = `${fmtPrice(trade.price)} × ${fmtNumber(trade.quantity)}`;
+        const ids = document.createElement('span'); ids.className = 'text-slate-500'; ids.textContent = `B${trade.buy_order_id} / S${trade.sell_order_id}`;
+        top.append(id, side); detail.append(px, ids); card.append(top, detail);
+        if (trade.trade_id > lastTradeId) { card.classList.add('trade-flash'); lastTradeId = trade.trade_id; }
+        root.append(card);
+      });
+      if (!trades.length) { const empty = document.createElement('div'); empty.className = 'py-4 text-xs text-slate-600'; empty.textContent = 'Trades will appear here as orders cross.'; root.append(empty); }
+    }
+    function renderActivity(records) {
+      const root = $('activityLog'); root.replaceChildren();
+      records.forEach((record) => {
+        const row = document.createElement('div'); row.className = 'grid grid-cols-[48px_48px_1fr] gap-2 rounded-md px-2 py-1.5 bg-slate-950/25 text-[10px]';
+        const seq = document.createElement('span'); seq.className = 'metric text-slate-500'; seq.textContent = record.sequence;
+        const action = document.createElement('span'); action.className = record.action === 'REJECT' ? 'text-coral' : record.action === 'TRADE' ? 'text-blueglow' : record.action === 'CANCEL' ? 'text-amber-300' : 'text-slate-300'; action.textContent = record.action;
+        const detail = document.createElement('span'); detail.className = 'text-slate-400 truncate'; detail.title = record.message; detail.textContent = record.message;
+        row.append(seq, action, detail); root.append(row);
+      });
+      if (!records.length) { const empty = document.createElement('div'); empty.className = 'py-3 text-xs text-slate-600'; empty.textContent = 'No engine events yet.'; root.append(empty); }
+    }
+    function renderState(state) {
+      const m = state.market; const b = state.book;
+      $('bestBid').textContent = m.has_best_bid ? fmtPrice(m.best_bid) : '—';
+      $('bestBidQty').textContent = m.has_best_bid ? `${fmtNumber(m.best_bid_volume)} units · ${m.best_bid} ticks` : 'No bid liquidity';
+      $('bestAsk').textContent = m.has_best_ask ? fmtPrice(m.best_ask) : '—';
+      $('bestAskQty').textContent = m.has_best_ask ? `${fmtNumber(m.best_ask_volume)} units · ${m.best_ask} ticks` : 'No ask liquidity';
+      $('spread').textContent = m.has_spread ? fmtPrice(m.spread) : '—';
+      $('spreadTicks').textContent = m.has_spread ? `${m.spread} ticks` : 'Spread unavailable';
+      $('lastTrade').textContent = m.has_last_trade_price ? fmtPrice(m.last_trade_price) : '—';
+      $('lastTradeQty').textContent = m.has_last_trade_price ? `${fmtNumber(m.last_trade_quantity)} units · ${m.last_trade_price} ticks` : 'No executions yet';
+      $('volumeTraded').textContent = fmtNumber(m.total_volume_traded);
+      $('tradeCount').textContent = `${fmtNumber(m.total_trades_executed)} trades`;
+      $('activeOrders').textContent = fmtNumber(m.active_order_count);
+      $('levelCounts').textContent = `${m.bid_level_count} bid / ${m.ask_level_count} ask levels`;
+      renderLadder('bidLadder', b.bids, 'BUY', m.best_bid);
+      renderLadder('askLadder', b.asks, 'SELL', m.best_ask);
+      renderOrders(b.resting_orders);
+      renderTrades(state.trades);
+      renderActivity(state.activity);
+    }
+    async function refresh() {
+      try { const state = await api('/api/state?depth=12'); renderState(state); setConnected(true); }
+      catch (error) { setConnected(false); }
+    }
+    async function step(count) {
+      const result = await api('/api/sim/step', { method: 'POST', body: JSON.stringify({ count }) });
+      simCount += result.executed; $('simCount').textContent = fmtNumber(simCount); await refresh();
+    }
+
+    $('priceTicks').addEventListener('input', () => { const value = Number($('priceTicks').value); if (Number.isFinite(value)) $('priceDollars').value = (value / 100).toFixed(2); });
+    $('priceDollars').addEventListener('input', () => { const value = Number($('priceDollars').value); if (Number.isFinite(value)) $('priceTicks').value = String(Math.round(value * 100)); });
+    $('orderType').addEventListener('change', () => { const market = $('orderType').value === 'MARKET'; $('priceTicks').disabled = market; $('priceDollars').disabled = market; });
+    $('orderForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const type = $('orderType').value;
+      const body = { side: $('orderSide').value, type, price: type === 'MARKET' ? 0 : Number($('priceTicks').value), quantity: Number($('orderQty').value) };
+      try { const result = await api('/api/orders', { method: 'POST', body: JSON.stringify(body) }); setMessage(`Order #${result.order_id}: ${result.status} · filled ${fmtNumber(result.filled_quantity)} / ${fmtNumber(result.initial_quantity)}`); await refresh(); }
+      catch (error) { setMessage(error.message, false); }
+    });
+    $('seedButton').addEventListener('click', async () => { try { await api('/api/reset', { method: 'POST', body: JSON.stringify({ seed_demo: true }) }); await refresh(); } catch (error) { setMessage(error.message, false); } });
+    $('resetButton').addEventListener('click', async () => { try { await api('/api/reset', { method: 'POST', body: JSON.stringify({ seed_demo: false }) }); simCount = 0; $('simCount').textContent = '0'; await refresh(); } catch (error) { setMessage(error.message, false); } });
+    $('stepOne').addEventListener('click', () => step(1).catch((error) => setMessage(error.message, false)));
+    $('stepTen').addEventListener('click', () => step(10).catch((error) => setMessage(error.message, false)));
+    $('autoButton').addEventListener('click', () => {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; $('autoButton').textContent = '▶ Start auto-sim · 5 orders/sec'; $('autoButton').classList.remove('bg-mint/10'); }
+      else { autoTimer = setInterval(() => step(1).catch((error) => setMessage(error.message, false)), 200); $('autoButton').textContent = 'Ⅱ Pause auto-sim'; $('autoButton').classList.add('bg-mint/10'); }
+    });
+    $('runBenchmark').addEventListener('click', async () => {
+      const button = $('runBenchmark'); const status = $('benchmarkStatus'); button.disabled = true; button.textContent = 'Running…'; status.textContent = 'Running isolated C++ workloads. This can take a few seconds.'; status.classList.remove('hidden');
+      try {
+        const profile = $('benchProfile').value;
+        const result = await api('/api/benchmark', { method: 'POST', body: JSON.stringify({ profile, order_count: Number($('benchOrders').value), compare_baseline: $('compareBaseline').checked }) });
+        renderBenchmarks(result.results); status.textContent = `Completed ${result.results.length} benchmark runs.`;
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; button.textContent = 'Run C++ benchmark'; }
+    });
+    function renderBenchmarks(results) {
+      const body = $('benchmarkRows'); body.replaceChildren();
+      const peak = Math.max(1, ...results.map((result) => result.throughput_ops_per_sec));
+      results.forEach((result) => {
+        const row = document.createElement('tr'); row.className = 'border-b border-line/50';
+        const workload = document.createElement('td'); workload.className = 'py-2.5 pr-3 text-slate-300'; workload.textContent = result.profile_name;
+        const impl = document.createElement('td'); impl.className = 'pr-3 text-slate-400'; impl.textContent = result.implementation;
+        const throughput = document.createElement('td'); throughput.className = 'pr-3 metric text-blueglow'; throughput.textContent = fmtNumber(Math.round(result.throughput_ops_per_sec));
+        const bar = document.createElement('div'); bar.className = 'h-1 rounded bg-gradient-to-r from-blueglow to-mint mt-1'; bar.style.width = `${Math.max(2, result.throughput_ops_per_sec / peak * 100)}%`; throughput.append(bar);
+        const values = [Math.round(result.avg_latency_ns), result.p50_latency_ns, result.p95_latency_ns, result.p99_latency_ns, result.p999_latency_ns];
+        row.append(workload, impl, throughput);
+        values.forEach((value) => { const cell = document.createElement('td'); cell.className = 'pr-3 metric text-slate-300'; cell.textContent = fmtNumber(value); row.append(cell); });
+        body.append(row);
+      });
+    }
+    function updateClock() { $('clock').textContent = new Date().toLocaleTimeString(); }
+    updateClock(); setInterval(updateClock, 1000); refresh(); setInterval(refresh, 1000);
+  })();
+  </script>
+</body>
+</html>

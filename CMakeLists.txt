@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 set(FETCHCONTENT_QUIET OFF)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 if(WIN32 AND MSVC)
     set(gtest_force_shared_crt ON CACHE BOOL "Use the shared MSVC runtime" FORCE)
 endif()
@@ -26,6 +27,7 @@ FetchContent_Declare(nlohmann_json
     GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(googletest)
+FetchContent_MakeAvailable(httplib nlohmann_json)
 if(NOT MSVC)
     # GoogleTest enables extra diagnostics that report warnings in its own upstream source.
     target_compile_options(gtest PRIVATE -Wno-undef -Wno-character-conversion)
@@ -67,5 +69,22 @@ if(MSVC)
     target_compile_options(atlas_bench PRIVATE /W4 /WX)
 else()
     target_compile_options(atlas_bench PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html" ATLAS_WEB_HTML)
+configure_file(src/server/embedded_ui.hpp.in
+               "${CMAKE_CURRENT_BINARY_DIR}/generated/atlas_embedded_ui.hpp" @ONLY)
+
+add_executable(atlas_server src/server/http_server.cpp src/server/main_server.cpp)
+target_include_directories(atlas_server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(atlas_server PRIVATE atlas_core httplib::httplib nlohmann_json::nlohmann_json)
+if(WIN32)
+    target_link_libraries(atlas_server PRIVATE ws2_32)
+endif()
+if(MSVC)
+    target_compile_options(atlas_server PRIVATE /W4 /WX)
+else()
+    target_compile_options(atlas_server PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
