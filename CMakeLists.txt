@@ -25,7 +25,10 @@ FetchContent_Declare(nlohmann_json
     GIT_TAG v3.11.3
     GIT_SHALLOW TRUE)
 
-add_library(atlas_core STATIC src/core/types.cpp)
+add_library(atlas_core STATIC
+    src/core/types.cpp
+    src/core/order_book.cpp
+)
 target_include_directories(atlas_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(atlas_core PUBLIC cxx_std_20)
 if(MSVC)
@@ -36,4 +39,7 @@ endif()
 
 add_executable(atlas_phase1_smoke src/phase1_smoke.cpp)
 target_link_libraries(atlas_phase1_smoke PRIVATE atlas_core)
+
+add_executable(atlas_phase2_smoke src/phase2_smoke.cpp)
+target_link_libraries(atlas_phase2_smoke PRIVATE atlas_core)
 
