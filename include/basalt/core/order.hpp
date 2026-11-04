@@ -1,11 +1,11 @@
 #pragma once
 
-#include "atlas/core/types.hpp"
+#include "basalt/core/types.hpp"
 
 #include <cstddef>
 #include <list>
 
-namespace atlas {
+namespace basalt {
 
 struct OrderRequest {
     OrderId id{0};
@@ -48,4 +48,4 @@ struct OrderLocation {
     std::list<Order>::iterator iterator{};
 };
 
-} // namespace atlas
+} // namespace basalt

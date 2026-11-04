@@ -1,12 +1,12 @@
 #pragma once
 
-#include "atlas/core/order_book.hpp"
+#include "basalt/core/order_book.hpp"
 
 #include <deque>
 #include <string>
 #include <vector>
 
-namespace atlas {
+namespace basalt {
 
 class MatchingEngine {
 public:
@@ -36,4 +36,4 @@ private:
     void refresh_book_stats() noexcept;
 };
 
-} // namespace atlas
+} // namespace basalt

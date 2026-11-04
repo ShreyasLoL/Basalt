@@ -1,4 +1,4 @@
-#include "atlas/core/order_book.hpp"
+#include "basalt/core/order_book.hpp"
 
 #include <algorithm>
 #include <iterator>
@@ -6,7 +6,7 @@
 #include <sstream>
 #include <utility>
 
-namespace atlas {
+namespace basalt {
 namespace {
 
 template <typename Levels>
@@ -361,4 +361,4 @@ bool OrderBook::verify_invariants(std::string* error_out) const {
     return true;
 }
 
-} // namespace atlas
+} // namespace basalt

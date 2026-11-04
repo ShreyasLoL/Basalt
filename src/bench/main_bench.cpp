@@ -1,4 +1,4 @@
-#include "atlas/bench/benchmark_runner.hpp"
+#include "basalt/bench/benchmark_runner.hpp"
 
 #include <charconv>
 #include <cstdlib>
@@ -17,7 +17,7 @@ bool parse_size(const std::string_view text, std::size_t& value) {
 }
 
 void print_usage() {
-    std::cout << "Usage: atlas_bench [--orders N] [--profile ID] [--no-baseline]\n"
+    std::cout << "Usage: basalt_bench [--orders N] [--profile ID] [--no-baseline]\n"
                  "Profiles: BALANCED, BUY_HEAVY, SELL_HEAVY, AGGRESSIVE_MATCHING,\n"
                  "          CANCEL_HEAVY, CONCENTRATED_LEVELS, WIDE_DISTRIBUTION\n";
 }
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     std::size_t order_count = 50000;
     bool compare_baseline = true;
     bool all_profiles = true;
-    atlas::bench::WorkloadProfile selected = atlas::bench::WorkloadProfile::Balanced;
+    basalt::bench::WorkloadProfile selected = basalt::bench::WorkloadProfile::Balanced;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
             }
         } else if (argument == "--profile") {
             if (i + 1 >= argc ||
-                !atlas::bench::parse_profile(argv[++i], selected)) {
+                !basalt::bench::parse_profile(argv[++i], selected)) {
                 std::cerr << "--profile must name one of the seven workload IDs\n";
                 return 2;
             }
@@ -58,12 +58,12 @@ int main(int argc, char** argv) {
     }
 
     try {
-        const atlas::bench::BenchmarkRunner runner;
+        const basalt::bench::BenchmarkRunner runner;
         const auto results = all_profiles
             ? runner.run_all(order_count, compare_baseline)
             : runner.run(selected, order_count, compare_baseline);
-        std::cout << "Project Atlas benchmark | operations per profile: " << order_count << '\n';
-        std::cout << atlas::bench::format_ascii_table(results);
+        std::cout << "BASALT benchmark | operations per profile: " << order_count << '\n';
+        std::cout << basalt::bench::format_ascii_table(results);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Benchmark failed: " << error.what() << '\n';

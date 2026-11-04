@@ -1,10 +1,10 @@
-#include "atlas/bench/workload_generator.hpp"
+#include "basalt/bench/workload_generator.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <random>
 
-namespace atlas::bench {
+namespace basalt::bench {
 namespace {
 
 constexpr Price MID_PRICE = 10000;
@@ -163,4 +163,4 @@ std::vector<WorkloadCommand> WorkloadGenerator::generate(const WorkloadProfile p
     return commands;
 }
 
-} // namespace atlas::bench
+} // namespace basalt::bench

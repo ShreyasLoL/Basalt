@@ -1,4 +1,4 @@
-#include "atlas/core/matching_engine.hpp"
+#include "basalt/core/matching_engine.hpp"
 
 #include <gtest/gtest.h>
 
@@ -11,7 +11,7 @@
 
 namespace {
 
-using namespace atlas;
+using namespace basalt;
 
 OrderResult submit(MatchingEngine& engine, const OrderId id, const Side side,
                    const Quantity quantity, const Price price,

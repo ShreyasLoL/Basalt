@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace atlas {
+namespace basalt {
 
 using OrderId = std::uint64_t;
 using TradeId = std::uint64_t;
@@ -33,4 +33,4 @@ enum class ActionType : std::uint8_t { Submit = 0, Cancel = 1, Trade = 2, Reject
 [[nodiscard]] std::string_view to_string(OrderStatus value) noexcept;
 [[nodiscard]] std::string_view to_string(ActionType value) noexcept;
 
-} // namespace atlas
+} // namespace basalt

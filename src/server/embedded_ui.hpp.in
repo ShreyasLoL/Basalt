@@ -1,5 +1,5 @@
 #pragma once
 
-namespace atlas::server::embedded {
-inline constexpr char INDEX_HTML[] = R"ATLASUI(@ATLAS_WEB_HTML@)ATLASUI";
-} // namespace atlas::server::embedded
+namespace basalt::server::embedded {
+inline constexpr char INDEX_HTML[] = R"BASALTUI(@BASALT_WEB_HTML@)BASALTUI";
+} // namespace basalt::server::embedded

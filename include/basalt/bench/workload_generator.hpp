@@ -1,13 +1,13 @@
 #pragma once
 
-#include "atlas/core/trade.hpp"
+#include "basalt/core/trade.hpp"
 
 #include <array>
 #include <cstdint>
 #include <string_view>
 #include <vector>
 
-namespace atlas::bench {
+namespace basalt::bench {
 
 enum class WorkloadProfile : std::uint8_t {
     Balanced,
@@ -51,4 +51,4 @@ public:
         WorkloadProfile profile, std::size_t count, std::uint64_t seed = 42);
 };
 
-} // namespace atlas::bench
+} // namespace basalt::bench

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "atlas/bench/benchmark_runner.hpp"
-#include "atlas/core/matching_engine.hpp"
+#include "basalt/bench/benchmark_runner.hpp"
+#include "basalt/core/matching_engine.hpp"
 
 #include <httplib.h>
 
@@ -9,7 +9,7 @@
 #include <mutex>
 #include <random>
 
-namespace atlas::server {
+namespace basalt::server {
 
 class HttpServer {
 public:
@@ -34,4 +34,4 @@ private:
     [[nodiscard]] static std::string ui_html();
 };
 
-} // namespace atlas::server
+} // namespace basalt::server

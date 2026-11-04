@@ -1,10 +1,10 @@
 #pragma once
 
-#include "atlas/core/trade.hpp"
+#include "basalt/core/trade.hpp"
 
 #include <vector>
 
-namespace atlas {
+namespace basalt {
 
 struct VectorPriceLevel {
     Price price{0};
@@ -43,4 +43,4 @@ private:
                                    const Order& order, bool descending);
 };
 
-} // namespace atlas
+} // namespace basalt

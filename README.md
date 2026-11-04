@@ -1,6 +1,6 @@
-# Project Atlas
+# BASALT
 
-Project Atlas is a deterministic, single instrument continuous limit order book and matching engine written in C++20. It accepts limit and market orders, enforces price time priority, records executions at the resting order's price, supports partial fills and cancellation, and exposes the engine through a local HTTP dashboard.
+BASALT is a deterministic, single instrument continuous limit order book and matching engine written in C++20. It accepts limit and market orders, enforces price time priority, records executions at the resting order's price, supports partial fills and cancellation, and exposes the engine through a local HTTP dashboard.
 
 The matching core uses fixed point integer ticks and has no HTTP or JSON dependency. A GoogleTest suite checks matching behavior and structural invariants. The synthetic benchmark compares the primary map and list book with a sorted vector baseline across seven reproducible workloads.
 
@@ -18,7 +18,7 @@ flowchart LR
 
 ### Core model
 
-- `atlas_core` is a C++20 static library with no external runtime dependency.
+- `basalt_core` is a C++20 static library with no external runtime dependency.
 - Prices use `int64_t` ticks; `10000` ticks represent `$100.00`. Quantities are whole units stored as `uint64_t`.
 - Bids use a descending `std::map`, asks use an ascending `std::map`, and every price level holds a FIFO `std::list<Order>`.
 - An `std::unordered_map<OrderId, OrderLocation>` points directly to each resting order's list iterator. Cancellation is average O(1) for the lookup and erase, plus O(log P) only when the last order removes its price level.
@@ -52,7 +52,7 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-The first configure downloads the dependencies into the ignored `build/_deps` directory. On Windows, `atlas_server` links `Ws2_32` for cpp-httplib.
+The first configure downloads the dependencies into the ignored `build/_deps` directory. On Windows, `basalt_server` links `Ws2_32` for cpp-httplib.
 
 The repository includes VS Code CMake settings, build/test/benchmark/server tasks, and launch configurations under `.vscode/`.
 
@@ -63,7 +63,7 @@ For the Visual Studio generator above, executables are under `build/Release/` ra
 Start the local server:
 
 ```powershell
-.\build\atlas_server.exe --port 8080
+.\build\basalt_server.exe --port 8080
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080). The server seeds a five level bid and ask ladder at startup. Use **Reset empty** to clear it or **Seed demo book** to restore it.
@@ -71,9 +71,9 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). The server seeds a five lev
 Run the benchmark suite:
 
 ```powershell
-.\build\atlas_bench.exe --orders 50000
-.\build\atlas_bench.exe --orders 100000 --profile CANCEL_HEAVY
-.\build\atlas_bench.exe --orders 50000 --no-baseline
+.\build\basalt_bench.exe --orders 50000
+.\build\basalt_bench.exe --orders 100000 --profile CANCEL_HEAVY
+.\build\basalt_bench.exe --orders 50000 --no-baseline
 ```
 
 Supported profile IDs are `BALANCED`, `BUY_HEAVY`, `SELL_HEAVY`, `AGGRESSIVE_MATCHING`, `CANCEL_HEAVY`, `CONCENTRATED_LEVELS`, and `WIDE_DISTRIBUTION`. The CLI default is 50,000 operations per profile; valid sizes range from 1 through 5,000,000.
@@ -117,7 +117,7 @@ Price fields are integer ticks, not floating point dollars.
 
 ## Eight step live interview demonstration
 
-1. **Start with a live book.** Launch `atlas_server` and show the seeded five level bid and ask ladder, best prices, spread, and active order count.
+1. **Start with a live book.** Launch `basalt_server` and show the seeded five level bid and ask ladder, best prices, spread, and active order count.
 2. **Explain fixed point pricing.** Enter `10000` ticks and show the paired `$100.00` helper. Explain that integer keys avoid floating point rounding in price comparisons.
 3. **Add passive liquidity.** Submit a buy limit below the best ask and a sell limit above the best bid. Point out the book remains uncrossed and the levels aggregate quantity.
 4. **Show FIFO priority.** Add multiple orders at the same price and inspect their sequence numbers in the resting queue.
@@ -155,9 +155,9 @@ Matching one instrument is inherently ordered: every command must observe the st
 ## Repository map
 
 ```text
-include/atlas/core/       Domain types, order books, matching engine
-include/atlas/bench/      Workload and benchmark interfaces
-include/atlas/server/     HTTP gateway interface
+include/basalt/core/       Domain types, order books, matching engine
+include/basalt/bench/      Workload and benchmark interfaces
+include/basalt/server/     HTTP gateway interface
 src/core/                 Engine implementations
 src/bench/                Workloads, profiler, CLI
 src/server/               HTTP routes and executable entry point

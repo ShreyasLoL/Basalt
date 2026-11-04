@@ -1,6 +1,6 @@
-#include "atlas/core/types.hpp"
+#include "basalt/core/types.hpp"
 
-namespace atlas {
+namespace basalt {
 
 std::string_view to_string(const Side value) noexcept {
     switch (value) {
@@ -39,4 +39,4 @@ std::string_view to_string(const ActionType value) noexcept {
     return "UNKNOWN";
 }
 
-} // namespace atlas
+} // namespace basalt

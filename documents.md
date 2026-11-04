@@ -1,4 +1,4 @@
-# PROJECT ATLAS: Miniature Exchange Matching Engine
+# BASALT: Miniature Exchange Matching Engine
 **Document Type:** Master System Architecture, Technical Specification & Autonomous Codex Execution Blueprint  
 **Target Platform:** Windows (x64), VS Code, CMake, C++20  
 **System Classification:** Deterministic Continuous Limit Order Book (CLOB) & Matching Engine  
@@ -7,16 +7,16 @@
 
 ## 1. Executive Summary
 
-**Project Atlas** is a deterministic, single-instrument Continuous Limit Order Book (CLOB) and financial exchange matching engine written in modern **C++20**. It implements the core price-time priority (FIFO) mechanics used by institutional electronic exchanges (such as NASDAQ, CME, and NYSE) to ingest buy and sell orders, organize resting liquidity across discrete price levels, match compatible aggressive orders against passive resting orders, and emit immutable trade execution records.
+**BASALT** is a deterministic, single-instrument Continuous Limit Order Book (CLOB) and financial exchange matching engine written in modern **C++20**. It implements the core price-time priority (FIFO) mechanics used by institutional electronic exchanges (such as NASDAQ, CME, and NYSE) to ingest buy and sell orders, organize resting liquidity across discrete price levels, match compatible aggressive orders against passive resting orders, and emit immutable trade execution records.
 
-Rather than optimizing prematurely for sub-microsecond kernel-bypass networking or lock-free distributed topologies, Project Atlas optimizes for **algorithmic correctness, architectural clarity, empirical observability, and verifiable systems engineering**.
+Rather than optimizing prematurely for sub-microsecond kernel-bypass networking or lock-free distributed topologies, BASALT optimizes for **algorithmic correctness, architectural clarity, empirical observability, and verifiable systems engineering**.
 
 ### Overall Architecture Summary
 The system is structured into four cleanly decoupled layers:
-1. **Core Domain & Order Book Layer (`atlas::core`):** Pure, zero-dependency C++20 library implementing fixed-point tick pricing, the `OrderBook` data structure (price-ordered maps backed by intrusive/doubly-linked FIFO queues and an $\mathcal{O}(1)$ iterator lookup table), and the `MatchingEngine` state machine.
-2. **Verification & Invariant Layer (`atlas::test`):** A comprehensive GoogleTest suite paired with a deterministic `OrderBook::verify_invariants()` auditor that mathematically validates book integrity after state mutations.
-3. **Synthetic Workload & Benchmarking Layer (`atlas::bench`):** A deterministic workload generator (`std::mt19937_64` with fixed seeds) that pre-allocates 7 distinct market workload profiles in memory prior to timing, measuring nanosecond-level latency distributions ($\text{Mean}$, $p_{50}$, $p_{95}$, $p_{99}$, $p_{99.9}$) and comparing our primary $\mathcal{O}(1)$-cancellation hybrid book against a baseline contiguous-vector book.
-4. **Local Gateway & Observability UI Layer (`atlas::server` & `web/`):** A lightweight C++ HTTP server (`cpp-httplib`) that wraps the engine and serves a zero-build, single-page HTML5/Tailwind/Canvas visual interface. The frontend never simulates market mechanics; it renders live snapshots, trade feeds, depth charts, and benchmark reports directly from the C++ engine.
+1. **Core Domain & Order Book Layer (`basalt::core`):** Pure, zero-dependency C++20 library implementing fixed-point tick pricing, the `OrderBook` data structure (price-ordered maps backed by intrusive/doubly-linked FIFO queues and an $\mathcal{O}(1)$ iterator lookup table), and the `MatchingEngine` state machine.
+2. **Verification & Invariant Layer (`basalt::test`):** A comprehensive GoogleTest suite paired with a deterministic `OrderBook::verify_invariants()` auditor that mathematically validates book integrity after state mutations.
+3. **Synthetic Workload & Benchmarking Layer (`basalt::bench`):** A deterministic workload generator (`std::mt19937_64` with fixed seeds) that pre-allocates 7 distinct market workload profiles in memory prior to timing, measuring nanosecond-level latency distributions ($\text{Mean}$, $p_{50}$, $p_{95}$, $p_{99}$, $p_{99.9}$) and comparing our primary $\mathcal{O}(1)$-cancellation hybrid book against a baseline contiguous-vector book.
+4. **Local Gateway & Observability UI Layer (`basalt::server` & `web/`):** A lightweight C++ HTTP server (`cpp-httplib`) that wraps the engine and serves a zero-build, single-page HTML5/Tailwind/Canvas visual interface. The frontend never simulates market mechanics; it renders live snapshots, trade feeds, depth charts, and benchmark reports directly from the C++ engine.
 
 ---
 
@@ -39,15 +39,15 @@ Every component in the stack has been selected to guarantee frictionless compila
 ## 3. Architecture
 
 ### 3.1 Architectural Principles & Component Separation
-1. **The Core Engine Knows Nothing About JSON, HTTP, or I/O:** Everything inside `include/atlas/core/` and `src/core/` uses purely native C++ structs and standard containers. It never performs console I/O (`std::cout`), network calls, or JSON parsing.
+1. **The Core Engine Knows Nothing About JSON, HTTP, or I/O:** Everything inside `include/basalt/core/` and `src/core/` uses purely native C++ structs and standard containers. It never performs console I/O (`std::cout`), network calls, or JSON parsing.
 2. **Deterministic State Machine:** The `MatchingEngine` is a pure state machine:
    $$\text{State}_{t+1}, \text{OrderResult}_t = f(\text{State}_t, \text{OrderCommand}_t)$$
    Given an identical initial book state and an identical sequence of commands, the engine is guaranteed to emit the exact same sequence of trades and sequence numbers.
 3. **Unidirectional Dependency Graph:**
-   * `atlas_core` (Static Library) $\leftarrow$ depends only on the C++20 Standard Library.
-   * `atlas_tests` (Executable) $\leftarrow$ depends on `atlas_core` + `GTest`.
-   * `atlas_bench` (Executable / Library module) $\leftarrow$ depends on `atlas_core`.
-   * `atlas_server` (Main Executable) $\leftarrow$ depends on `atlas_core`, `atlas_bench`, `cpp-httplib`, and `nlohmann/json`.
+   * `basalt_core` (Static Library) $\leftarrow$ depends only on the C++20 Standard Library.
+   * `basalt_tests` (Executable) $\leftarrow$ depends on `basalt_core` + `GTest`.
+   * `basalt_bench` (Executable / Library module) $\leftarrow$ depends on `basalt_core`.
+   * `basalt_server` (Main Executable) $\leftarrow$ depends on `basalt_core`, `basalt_bench`, `cpp-httplib`, and `nlohmann/json`.
 
 ### 3.2 System Architecture Diagram
 
@@ -60,21 +60,21 @@ flowchart TB
         UI_Bench["Benchmark Runner & Latency Charts"]
     end
 
-    subgraph Gateway["C++ Gateway Layer (atlas_server)"]
+    subgraph Gateway["C++ Gateway Layer (basalt_server)"]
         HTTP["cpp-httplib REST Server\n(Mutex-Guarded Engine Access)"]
         JSON["nlohmann::json Serializer"]
         SimGen["Interactive Synthetic Order Generator"]
     end
 
-    subgraph Core["C++20 Core Engine Layer (atlas_core)"]
+    subgraph Core["C++20 Core Engine Layer (basalt_core)"]
         ME["MatchingEngine\n(Validation, Sequence Gen, Matching Loop)"]
         OB["OrderBook (MapListOrderBook)\nBids: std::map<Price, PriceLevel, std::greater>\nAsks: std::map<Price, PriceLevel, std::less>\nIndex: std::unordered_map<OrderId, OrderLocation>"]
         TL["TradeLog & Activity RingBuffer\n(std::deque / std::vector)"]
     end
 
     subgraph Verification["Testing & Benchmarking Suite"]
-        GT["GoogleTest Suite (atlas_tests)\n18 Scenarios + Invariant Auditor"]
-        BM["Benchmark Suite (atlas_bench)\n7 Pre-allocated Workloads + Latency Profiler"]
+        GT["GoogleTest Suite (basalt_tests)\n18 Scenarios + Invariant Auditor"]
+        BM["Benchmark Suite (basalt_bench)\n7 Pre-allocated Workloads + Latency Profiler"]
         VOB["VectorOrderBook (Baseline Comparison)"]
     end
 
@@ -161,7 +161,7 @@ sequenceDiagram
     * **Matching Against Front of Queue:** $\mathcal{O}(1)$ via `level.orders.front()`.
     * **Order Insertion at Existing Price Level:** $\mathcal{O}(\log P)$ to find the `PriceLevel` (where $P$ is the number of active price levels, typically $50\text{--}500$, far smaller than total orders $N$) + $\mathcal{O}(1)$ `push_back` into `std::list` + $\mathcal{O}(1)$ average insertion into `std::unordered_map`.
     * **Order Cancellation by ID:** $\mathcal{O}(1)$ average lookup in `std::unordered_map` yields the exact `std::list<Order>::iterator`. Because `std::list` iterators are never invalidated by insertions or deletions of other elements, erasing the order from the queue takes strict $\mathcal{O}(1)$ time! If the `PriceLevel` becomes empty, erasing the level from `std::map` takes $\mathcal{O}(\log P)$.
-  * **Empirical Engineering Lesson (Dual-Book Benchmark):** To turn data structure trade-offs into a concrete demonstration for interviews, Project Atlas also implements a lightweight baseline **`VectorOrderBook`** (using contiguous `std::vector` structures) alongside the primary **`MapListOrderBook`** inside the benchmark suite. Running the benchmark demonstrates firsthand when contiguous memory wins (tiny books with few price levels) and when $\mathcal{O}(1)$ iterator erasure crushes $\mathcal{O}(N)$ vector shifting (deep books with heavy cancellations).
+  * **Empirical Engineering Lesson (Dual-Book Benchmark):** To turn data structure trade-offs into a concrete demonstration for interviews, BASALT also implements a lightweight baseline **`VectorOrderBook`** (using contiguous `std::vector` structures) alongside the primary **`MapListOrderBook`** inside the benchmark suite. Running the benchmark demonstrates firsthand when contiguous memory wins (tiny books with few price levels) and when $\mathcal{O}(1)$ iterator erasure crushes $\mathcal{O}(N)$ vector shifting (deep books with heavy cancellations).
 * **Trade-offs:** `std::list` and `std::map` allocate heap nodes individually, which incurs pointer-chasing and L1/L2 cache misses compared to an intrusive flat pool.
 * **Limitations:** Heap allocation jitter on the `new` path can elevate $p_{99.9}$ tail latency under multi-million-order bursts.
 
@@ -208,22 +208,22 @@ sequenceDiagram
 * **Reasoning:**
   * A React/Vite build adds `package.json`, `node_modules`, npm version mismatches, and CORS headaches that distract from a C++ systems project.
   * Dear ImGui requires OpenGL/DirectX windowing dependencies that complicate headless testing and automated builds on Windows.
-  * Serving a clean, static `web/index.html` directly from the compiled C++ `atlas_server.exe` binary over `http://localhost:8080` gives the best of both worlds: you compile **only C++**, run `atlas_server.exe`, open `http://localhost:8080`, and get a responsive, modern institutional dark-mode interface powered by real REST calls to the C++ engine.
+  * Serving a clean, static `web/index.html` directly from the compiled C++ `basalt_server.exe` binary over `http://localhost:8080` gives the best of both worlds: you compile **only C++**, run `basalt_server.exe`, open `http://localhost:8080`, and get a responsive, modern institutional dark-mode interface powered by real REST calls to the C++ engine.
 
 ---
 
 ## 5. Data Structures and Models
 
-All core types live under `namespace atlas`.
+All core types live under `namespace basalt`.
 
-### 5.1 Fundamental Type Aliases & Enumerations (`include/atlas/core/types.hpp`)
+### 5.1 Fundamental Type Aliases & Enumerations (`include/basalt/core/types.hpp`)
 
 ~~~cpp
 #pragma once
 #include <cstdint>
 #include <string>
 
-namespace atlas {
+namespace basalt {
 
 using OrderId        = uint64_t;
 using TradeId        = uint64_t;
@@ -257,18 +257,18 @@ enum class ActionType : uint8_t {
     Reject = 3
 };
 
-} // namespace atlas
+} // namespace basalt
 ~~~
 
-### 5.2 Core Domain Structures (`include/atlas/core/order.hpp`, `trade.hpp`)
+### 5.2 Core Domain Structures (`include/basalt/core/order.hpp`, `trade.hpp`)
 
 ~~~cpp
 #pragma once
-#include "atlas/core/types.hpp"
+#include "basalt/core/types.hpp"
 #include <vector>
 #include <list>
 
-namespace atlas {
+namespace basalt {
 
 struct OrderRequest {
     OrderId   id{0};
@@ -395,7 +395,7 @@ struct EngineStats {
     std::size_t ask_level_count{0};
 };
 
-} // namespace atlas
+} // namespace basalt
 ~~~
 
 ---
@@ -571,7 +571,7 @@ FUNCTION cancel_order(order_id: OrderId) -> CancelResult:
 
 ## 7. API and Communication
 
-The C++ executable `atlas_server` starts an HTTP server on `http://127.0.0.1:8080` (configurable via CLI `--port`).
+The C++ executable `basalt_server` starts an HTTP server on `http://127.0.0.1:8080` (configurable via CLI `--port`).
 * `GET /` serves the single-page web interface (`web/index.html`, or an embedded fallback HTML string if run from a different working directory so it never fails with a 404).
 * All API routes use `Content-Type: application/json` and CORS headers (`Access-Control-Allow-Origin: *`).
 
@@ -747,7 +747,7 @@ Triggers the in-memory C++ benchmark runner for a selected workload profile (or 
 ## 8. Benchmarking
 
 ### 8.1 Methodology & Isolation Rules
-To ensure the benchmark measures **only** the C++ order book and matching engine—and never accidentally measures random number generation, string formatting, HTTP overhead, or console printing—the benchmark suite (`atlas::bench::BenchmarkRunner`) enforces strict separation:
+To ensure the benchmark measures **only** the C++ order book and matching engine—and never accidentally measures random number generation, string formatting, HTTP overhead, or console printing—the benchmark suite (`basalt::bench::BenchmarkRunner`) enforces strict separation:
 
 1. **Pre-Generation Phase (Untimed):**
    * Using a deterministic 64-bit Mersenne Twister (`std::mt19937_64 rng(42)`), the generator builds a contiguous `std::vector<WorkloadCommand>` of size $N$ (default $N = 100,000$ operations per profile) in memory **before** starting the clock.
@@ -784,7 +784,7 @@ All workloads operate around a reference mid-price of $P_0 = 10,000$ ticks ($\$1
 | **7** | `WIDE_DISTRIBUTION`<br>Distributed Price Levels | $90\%$ Limit Orders uniformly spread across $5,000$ distinct price ticks ($[7500, 12500]$), $10\%$ Cancel. | Deep `std::map` red-black tree traversal ($\mathcal{O}(\log P)$ where $P \approx 2500$ per side) and cache misses. |
 
 ### 8.3 Baseline Comparison (`MapListOrderBook` vs. `VectorOrderBook`)
-To provide a genuine systems programming insight, `atlas_bench` also includes `VectorOrderBook`, which stores price levels in a sorted `std::vector<FlatPriceLevel>` and orders inside each level in a `std::vector<Order>` without an iterator lookup map.
+To provide a genuine systems programming insight, `basalt_bench` also includes `VectorOrderBook`, which stores price levels in a sorted `std::vector<FlatPriceLevel>` and orders inside each level in a `std::vector<Order>` without an iterator lookup map.
 * On **Profile 6 (`CONCENTRATED_LEVELS`)** and **Profile 5 (`CANCEL_HEAVY`)**, the benchmark proves why `std::vector::erase` in the middle of deep queues degrades when thousands of orders rest at the same price or cancel frequently, whereas `MapListOrderBook` sustains consistent $\mathcal{O}(1)$ cancellation latency.
 * On **Profile 4 (`AGGRESSIVE_MATCHING`)** with shallow queues, the comparison highlights the cache locality of contiguous vectors vs. node-based containers.
 
@@ -836,7 +836,7 @@ Every test below must call `EXPECT_TRUE(engine.book().verify_invariants(&err)) <
 ## 10. Repository Structure
 
 ~~~text
-project-atlas/
+project-basalt/
 ├── CMakeLists.txt                          # Root CMake build definition (C++20, FetchContent for GTest, httplib, json)
 ├── README.md                               # User documentation, build instructions, interview talking points
 ├── documents.md                            # This master architecture specification
@@ -844,9 +844,9 @@ project-atlas/
 ├── .vscode/
 │   ├── settings.json                       # CMake & C++20 IntelliSense settings
 │   ├── tasks.json                          # One-click Build, Test, Benchmark, and Run Server tasks
-│   └── launch.json                         # Debug configurations for atlas_server, atlas_tests, atlas_bench
+│   └── launch.json                         # Debug configurations for basalt_server, basalt_tests, basalt_bench
 ├── include/
-│   └── atlas/
+│   └── basalt/
 │       ├── core/
 │       │   ├── types.hpp                   # Fixed-point aliases, Side, OrderType, OrderStatus enums
 │       │   ├── order.hpp                   # OrderRequest, Order, PriceLevel, OrderLocation structs
@@ -885,39 +885,39 @@ Implementation is divided into **6 sequential phases**. Each phase has concrete 
 
 ### Phase 1: Project Scaffolding, CMake Setup & Core Domain Types
 * **Objective:** Configure CMake for C++20 with `FetchContent` (`googletest`, `cpp-httplib`, `nlohmann/json`), create VS Code configuration files, and define all fundamental header types.
-* **Components:** `CMakeLists.txt`, `.vscode/*`, `include/atlas/core/types.hpp`, `order.hpp`, `trade.hpp`.
+* **Components:** `CMakeLists.txt`, `.vscode/*`, `include/basalt/core/types.hpp`, `order.hpp`, `trade.hpp`.
 * **Dependencies:** None.
 * **Acceptance Criteria:** CMake configures cleanly without errors and compiles a minimal target with zero warnings.
 
 ### Phase 2: Primary Order Book (`MapListOrderBook`) & Invariant Auditor
 * **Objective:** Implement `OrderBook` (`bids_`, `asks_`, `order_lookup_`) supporting best-price queries, resting insertions, $\mathcal{O}(1)$ iterator cancellations, snapshot extraction, and the 8-point `verify_invariants()` diagnostic checker.
-* **Components:** `include/atlas/core/order_book.hpp`, `src/core/order_book.cpp`.
+* **Components:** `include/basalt/core/order_book.hpp`, `src/core/order_book.cpp`.
 * **Dependencies:** Phase 1.
-* **Acceptance Criteria:** `OrderBook` compiles cleanly inside `atlas_core` and passes `verify_invariants()` across insertions and cancellations.
+* **Acceptance Criteria:** `OrderBook` compiles cleanly inside `basalt_core` and passes `verify_invariants()` across insertions and cancellations.
 
 ### Phase 3: Deterministic Matching Engine & GoogleTest Verification Suite
 * **Objective:** Implement `MatchingEngine` (order validation, price-time priority matching loop, maker-price execution, partial fills, multi-level sweeps, market-order IOC remainder cancellation, trade & activity ring buffers) and implement all 18 GoogleTest scenarios.
-* **Components:** `include/atlas/core/matching_engine.hpp`, `src/core/matching_engine.cpp`, `tests/test_matching_engine.cpp`.
+* **Components:** `include/basalt/core/matching_engine.hpp`, `src/core/matching_engine.cpp`, `tests/test_matching_engine.cpp`.
 * **Dependencies:** Phase 2.
 * **Acceptance Criteria:** `ctest --output-on-failure` passes 18/18 tests with `verify_invariants()` succeeding after every single test case.
 
 ### Phase 4: Synthetic Workloads, Baseline `VectorOrderBook` & Benchmark Runner
-* **Objective:** Implement the 7 deterministic synthetic workloads, the baseline `VectorOrderBook`, and `BenchmarkRunner` measuring throughput and nanosecond latency percentiles ($\text{Mean}, p_{50}, p_{95}, p_{99}, p_{99.9}$). Build `atlas_bench` CLI executable.
-* **Components:** `include/atlas/core/vector_order_book.hpp`, `src/core/vector_order_book.cpp`, `include/atlas/bench/*`, `src/bench/*`.
+* **Objective:** Implement the 7 deterministic synthetic workloads, the baseline `VectorOrderBook`, and `BenchmarkRunner` measuring throughput and nanosecond latency percentiles ($\text{Mean}, p_{50}, p_{95}, p_{99}, p_{99.9}$). Build `basalt_bench` CLI executable.
+* **Components:** `include/basalt/core/vector_order_book.hpp`, `src/core/vector_order_book.cpp`, `include/basalt/bench/*`, `src/bench/*`.
 * **Dependencies:** Phase 3.
-* **Acceptance Criteria:** Running `atlas_bench` executes all 7 profiles and prints a clean ASCII performance table comparing `MapListOrderBook` and `VectorOrderBook`.
+* **Acceptance Criteria:** Running `basalt_bench` executes all 7 profiles and prints a clean ASCII performance table comparing `MapListOrderBook` and `VectorOrderBook`.
 
 ### Phase 5: HTTP Gateway & Interactive Visual Interface (`web/index.html`)
 * **Objective:** Implement the `cpp-httplib` REST gateway (`GET /api/state`, `POST /api/orders`, `DELETE /api/orders/:id`, `POST /api/sim/step`, `POST /api/reset`, `POST /api/benchmark`) and build the responsive dark-mode `web/index.html` dashboard displaying the two-sided Order Book ladder with depth bars, Market Info cards, Order Entry form, Resting Orders cancellation table, Live Trade Feed, Activity Log, Simulation Mode auto-stepper, and Interactive Benchmark modal.
-* **Components:** `include/atlas/server/http_server.hpp`, `src/server/http_server.cpp`, `src/server/main_server.cpp`, `web/index.html`.
+* **Components:** `include/basalt/server/http_server.hpp`, `src/server/http_server.cpp`, `src/server/main_server.cpp`, `web/index.html`.
 * **Dependencies:** Phase 4.
-* **Acceptance Criteria:** `atlas_server` compiles, passes API smoke tests, and serves the interactive UI at `http://localhost:8080`.
+* **Acceptance Criteria:** `basalt_server` compiles, passes API smoke tests, and serves the interactive UI at `http://localhost:8080`.
 
 ### Phase 6: End-to-End Integration, Polish & Interview Documentation (`README.md`)
-* **Objective:** Run full regression tests, verify zero compiler warnings, run `atlas_bench` to record real empirical metrics, and write a comprehensive `README.md` including quick-start instructions, architecture walk-through, and an "Interview Defense Guide" explaining every design decision.
+* **Objective:** Run full regression tests, verify zero compiler warnings, run `basalt_bench` to record real empirical metrics, and write a comprehensive `README.md` including quick-start instructions, architecture walk-through, and an "Interview Defense Guide" explaining every design decision.
 * **Components:** `README.md`, `PROGRESS.md`.
 * **Dependencies:** Phase 5.
-* **Acceptance Criteria:** All 3 executables (`atlas_tests`, `atlas_bench`, `atlas_server`) build cleanly in `Release` mode, 100% of tests pass, and `PROGRESS.md` marks all phases `[COMPLETED]`.
+* **Acceptance Criteria:** All 3 executables (`basalt_tests`, `basalt_bench`, `basalt_server`) build cleanly in `Release` mode, 100% of tests pass, and `PROGRESS.md` marks all phases `[COMPLETED]`.
 
 ---
 
@@ -927,10 +927,10 @@ Copy and paste the prompt block below directly into **Codex** (or instruct Codex
 
 ~~~text
 SYSTEM DIRECTIVE FOR CODEX: AUTONOMOUS CONTINUOUS IMPLEMENTATION LOOP
-Project: PROJECT ATLAS — Miniature Exchange Matching Engine (C++20)
+Project: BASALT — Miniature Exchange Matching Engine (C++20)
 Specification Source of Truth: ./documents.md
 
-You are an autonomous Staff C++ Systems Engineer. Your task is to implement the entirety of Project Atlas from start to finish in this workspace by strictly following the architecture, data models, algorithms, API schemas, benchmark specifications, and test suite defined in `./documents.md`.
+You are an autonomous Staff C++ Systems Engineer. Your task is to implement the entirety of BASALT from start to finish in this workspace by strictly following the architecture, data models, algorithms, API schemas, benchmark specifications, and test suite defined in `./documents.md`.
 
 ### CRITICAL AUTONOMOUS EXECUTION RULES (NO HUMAN INTERVENTION)
 1. DO NOT STOP TO ASK FOR PERMISSION OR CLARIFICATION. All architectural, data-structure, algorithmic, and UI decisions have already been made in `./documents.md`.
@@ -944,7 +944,7 @@ You are an autonomous Staff C++ Systems Engineer. Your task is to implement the 
 3. WINDOWS & CROSS-PLATFORM TOOLCHAIN DETECTION:
    - At the start of Phase 1, probe available C++ compilers and build tools (`cmake --version`, `cl`, `g++`, `clang++`, `ninja`).
    - Configure CMake in `./build` using `cmake -B build -DCMAKE_BUILD_TYPE=Release` (or `-G "Ninja"` / Visual Studio generator depending on what is installed in the environment).
-   - Ensure on Windows that `ws2_32` (`Ws2_32.lib`) is linked to `atlas_server` in `CMakeLists.txt` via `if(WIN32) target_link_libraries(atlas_server PRIVATE ws2_32) endif()` so `cpp-httplib` compiles and links cleanly on Windows.
+   - Ensure on Windows that `ws2_32` (`Ws2_32.lib`) is linked to `basalt_server` in `CMakeLists.txt` via `if(WIN32) target_link_libraries(basalt_server PRIVATE ws2_32) endif()` so `cpp-httplib` compiles and links cleanly on Windows.
 
 ### EXACT SPECIFICATIONS TO IMPLEMENT PER PHASE
 
@@ -952,22 +952,22 @@ You are an autonomous Staff C++ Systems Engineer. Your task is to implement the 
 1. Create `./PROGRESS.md` with a checklist of Phases 1 through 6.
 2. Create `./CMakeLists.txt`:
    - `cmake_minimum_required(VERSION 3.20)`
-   - `project(ProjectAtlas VERSION 1.0.0 LANGUAGES CXX)`
+   - `project(BASALT VERSION 1.0.0 LANGUAGES CXX)`
    - Set `CMAKE_CXX_STANDARD 20`, `CMAKE_CXX_STANDARD_REQUIRED ON`, `CMAKE_CXX_EXTENSIONS OFF`.
    - Use `FetchContent` to fetch:
      * `googletest` (`https://github.com/google/googletest.git`, tag `v1.14.0`, set `gtest_force_shared_crt ON` for Windows MSVC compatibility).
      * `httplib` (`https://github.com/yhirose/cpp-httplib.git`, tag `v0.15.3`).
      * `nlohmann_json` (`https://github.com/nlohmann/json.git`, tag `v3.11.3`).
    - Define targets:
-     * `atlas_core` (STATIC library: `src/core/order_book.cpp`, `src/core/vector_order_book.cpp`, `src/core/matching_engine.cpp`, `src/bench/workload_generator.cpp`, `src/bench/benchmark_runner.cpp`).
-     * `atlas_tests` (EXECUTABLE: `tests/test_matching_engine.cpp`, linked with `atlas_core` and `GTest::gtest_main`).
-     * `atlas_bench` (EXECUTABLE: `src/bench/main_bench.cpp`, linked with `atlas_core`).
-     * `atlas_server` (EXECUTABLE: `src/server/http_server.cpp`, `src/server/main_server.cpp`, linked with `atlas_core`, `httplib::httplib`, `nlohmann_json::nlohmann_json`, and `ws2_32` on `WIN32`).
-3. Create `.vscode/settings.json`, `.vscode/tasks.json`, and `.vscode/launch.json` configured for CMake build, CTest execution, running `atlas_bench`, and launching `atlas_server`.
-4. Implement `include/atlas/core/types.hpp`, `include/atlas/core/order.hpp`, and `include/atlas/core/trade.hpp` exactly as specified in Section 5 of `documents.md`, including helper string converters (`to_string(Side)`, `to_string(OrderType)`, `to_string(OrderStatus)`, `to_string(ActionType)`).
+     * `basalt_core` (STATIC library: `src/core/order_book.cpp`, `src/core/vector_order_book.cpp`, `src/core/matching_engine.cpp`, `src/bench/workload_generator.cpp`, `src/bench/benchmark_runner.cpp`).
+     * `basalt_tests` (EXECUTABLE: `tests/test_matching_engine.cpp`, linked with `basalt_core` and `GTest::gtest_main`).
+     * `basalt_bench` (EXECUTABLE: `src/bench/main_bench.cpp`, linked with `basalt_core`).
+     * `basalt_server` (EXECUTABLE: `src/server/http_server.cpp`, `src/server/main_server.cpp`, linked with `basalt_core`, `httplib::httplib`, `nlohmann_json::nlohmann_json`, and `ws2_32` on `WIN32`).
+3. Create `.vscode/settings.json`, `.vscode/tasks.json`, and `.vscode/launch.json` configured for CMake build, CTest execution, running `basalt_bench`, and launching `basalt_server`.
+4. Implement `include/basalt/core/types.hpp`, `include/basalt/core/order.hpp`, and `include/basalt/core/trade.hpp` exactly as specified in Section 5 of `documents.md`, including helper string converters (`to_string(Side)`, `to_string(OrderType)`, `to_string(OrderStatus)`, `to_string(ActionType)`).
 
 #### PHASE 2: Primary OrderBook (`MapListOrderBook`) & Invariants
-1. Implement `include/atlas/core/order_book.hpp` and `src/core/order_book.cpp`:
+1. Implement `include/basalt/core/order_book.hpp` and `src/core/order_book.cpp`:
    - `bids_`: `std::map<Price, PriceLevel, std::greater<Price>>`
    - `asks_`: `std::map<Price, PriceLevel, std::less<Price>>`
    - `order_lookup_`: `std::unordered_map<OrderId, OrderLocation>`
@@ -975,25 +975,25 @@ You are an autonomous Staff C++ Systems Engineer. Your task is to implement the 
 2. Ensure `verify_invariants()` rigorously checks all 8 invariants defined in Section 9.1 of `documents.md`.
 
 #### PHASE 3: MatchingEngine & Complete GoogleTest Suite
-1. Implement `include/atlas/core/matching_engine.hpp` and `src/core/matching_engine.cpp`:
+1. Implement `include/basalt/core/matching_engine.hpp` and `src/core/matching_engine.cpp`:
    - Owns `OrderBook book_`, monotonic `next_sequence_{0}`, `next_trade_id_{0}`, `next_auto_order_id_{1}`, `EngineStats stats_`, bounded `std::deque<Trade> recent_trades_` (cap 200), and bounded `std::deque<ActivityRecord> recent_activity_` (cap 200).
    - Implements `submit_order(OrderRequest req)`, `cancel_order(OrderId id)`, `get_snapshot(std::size_t depth = 20) const`, `stats() const`, `recent_trades(std::size_t limit = 50) const`, `recent_activity(std::size_t limit = 50) const`, `reset()`, and `seed_demo_book()` (which populates a realistic initial 5-level Bid and 5-level Ask ladder around $100.00 / `10000` ticks so the UI immediately looks alive when opened or seeded).
 2. Implement `tests/test_matching_engine.cpp` containing all 18 tests specified in Section 9.2 of `documents.md`.
 3. Compile and run `ctest --output-on-failure`. Do not proceed to Phase 4 until all 18 tests pass 100%.
 
 #### PHASE 4: Baseline `VectorOrderBook`, Workload Generator & Benchmark Suite
-1. Implement `include/atlas/core/vector_order_book.hpp` and `src/core/vector_order_book.cpp`:
+1. Implement `include/basalt/core/vector_order_book.hpp` and `src/core/vector_order_book.cpp`:
    - Implements a contiguous `std::vector<VectorPriceLevel>` order book where each level holds a `std::vector<Order>` and cancellations scan for the `OrderId` and erase from the vector.
    - Verify it produces identical trade counts and final book volumes on deterministic workloads as `MapListOrderBook`.
-2. Implement `include/atlas/bench/workload_generator.hpp` and `src/bench/workload_generator.cpp`:
+2. Implement `include/basalt/bench/workload_generator.hpp` and `src/bench/workload_generator.cpp`:
    - Generates all 7 deterministic workload profiles (`BALANCED`, `BUY_HEAVY`, `SELL_HEAVY`, `AGGRESSIVE_MATCHING`, `CANCEL_HEAVY`, `CONCENTRATED_LEVELS`, `WIDE_DISTRIBUTION`) using `std::mt19937_64(42)` into a pre-allocated `std::vector<WorkloadCommand>` prior to timing.
-3. Implement `include/atlas/bench/benchmark_runner.hpp`, `src/bench/benchmark_runner.cpp`, and `src/bench/main_bench.cpp`:
+3. Implement `include/basalt/bench/benchmark_runner.hpp`, `src/bench/benchmark_runner.cpp`, and `src/bench/main_bench.cpp`:
    - Runs timed hot loops for both `MapListOrderBook` and `VectorOrderBook`, computing throughput (orders/sec) and latency percentiles (`avg`, `p50`, `p95`, `p99`, `p99.9` in nanoseconds).
-   - `atlas_bench` CLI must support `--orders <N>` (default `50000` for quick runs, `100000` for full runs) and print a formatted ASCII table to stdout.
-4. Build and run `atlas_bench --orders 25000` to verify accuracy and performance output.
+   - `basalt_bench` CLI must support `--orders <N>` (default `50000` for quick runs, `100000` for full runs) and print a formatted ASCII table to stdout.
+4. Build and run `basalt_bench --orders 25000` to verify accuracy and performance output.
 
-#### PHASE 5: HTTP Gateway (`atlas_server`) & Visual Interface (`web/index.html`)
-1. Implement `include/atlas/server/http_server.hpp`, `src/server/http_server.cpp`, and `src/server/main_server.cpp`:
+#### PHASE 5: HTTP Gateway (`basalt_server`) & Visual Interface (`web/index.html`)
+1. Implement `include/basalt/server/http_server.hpp`, `src/server/http_server.cpp`, and `src/server/main_server.cpp`:
    - Guard all engine access with `std::mutex engine_mutex_`.
    - Implement all 6 REST endpoints from Section 7.1 of `documents.md`:
      * `GET /api/state`
@@ -1024,10 +1024,10 @@ You are an autonomous Staff C++ Systems Engineer. Your task is to implement the 
 #### PHASE 6: End-to-End Verification & Documentation (`README.md`)
 1. Write a comprehensive `README.md` containing:
    - Project overview & architecture diagram.
-   - Exact build & run commands for Windows / VS Code (`atlas_server`, `atlas_tests`, `atlas_bench`).
+   - Exact build & run commands for Windows / VS Code (`basalt_server`, `basalt_tests`, `basalt_bench`).
    - Step-by-step **8-Step Live Interview Demonstration Script** matching the user's demonstration goals.
    - **Engineering Q&A / Interview Defense Guide** explaining why fixed-point ticks were chosen, why `std::map` + `std::list` + `std::unordered_map` achieves $\mathcal{O}(1)$ cancellation, how price-time priority and partial fills work, and what the benchmark results between `MapListOrderBook` and `VectorOrderBook` prove.
-2. Run a final build of all targets, execute `ctest --output-on-failure`, run `atlas_bench`, verify zero errors, and mark all phases `[COMPLETED]` in `PROGRESS.md`.
+2. Run a final build of all targets, execute `ctest --output-on-failure`, run `basalt_bench`, verify zero errors, and mark all phases `[COMPLETED]` in `PROGRESS.md`.
 
 BEGIN AUTONOMOUS EXECUTION IMMEDIATELY AT PHASE 1.
 ~~~

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "atlas/bench/workload_generator.hpp"
+#include "basalt/bench/workload_generator.hpp"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace atlas::bench {
+namespace basalt::bench {
 
 struct BenchmarkResult {
     std::string profile_name{};
@@ -34,4 +34,4 @@ public:
 
 [[nodiscard]] std::string format_ascii_table(const std::vector<BenchmarkResult>& results);
 
-} // namespace atlas::bench
+} // namespace basalt::bench

@@ -1,9 +1,9 @@
-#include "atlas/core/vector_order_book.hpp"
+#include "basalt/core/vector_order_book.hpp"
 
 #include <algorithm>
 #include <limits>
 
-namespace atlas {
+namespace basalt {
 namespace {
 
 bool fail(std::string* error_out, const std::string& message) {
@@ -246,4 +246,4 @@ void VectorOrderBook::clear() noexcept {
     asks_.clear();
 }
 
-} // namespace atlas
+} // namespace basalt

@@ -1,6 +1,6 @@
-#include "atlas/server/http_server.hpp"
+#include "basalt/server/http_server.hpp"
 
-#include "atlas_embedded_ui.hpp"
+#include "basalt_embedded_ui.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -15,7 +15,7 @@
 #include <string>
 #include <system_error>
 
-namespace atlas::server {
+namespace basalt::server {
 namespace {
 
 using json = nlohmann::json;
@@ -61,14 +61,14 @@ json to_json(const Trade& trade) {
                 {"sell_order_id", trade.sell_order_id},
                 {"aggressor_order_id", trade.aggressor_order_id},
                 {"resting_order_id", trade.resting_order_id},
-                {"aggressor_side", std::string(atlas::to_string(trade.aggressor_side))},
+                {"aggressor_side", std::string(basalt::to_string(trade.aggressor_side))},
                 {"price", trade.price}, {"quantity", trade.quantity},
                 {"sequence", trade.sequence}, {"timestamp_ns", trade.timestamp_ns}};
 }
 
 json to_json(const Order& order) {
-    return json{{"id", order.id}, {"side", std::string(atlas::to_string(order.side))},
-                {"type", std::string(atlas::to_string(order.type))}, {"price", order.price},
+    return json{{"id", order.id}, {"side", std::string(basalt::to_string(order.side))},
+                {"type", std::string(basalt::to_string(order.type))}, {"price", order.price},
                 {"initial_quantity", order.initial_quantity},
                 {"remaining_quantity", order.remaining_quantity},
                 {"sequence", order.sequence}, {"timestamp_ns", order.timestamp_ns}};
@@ -81,12 +81,12 @@ json to_json(const PriceLevelSummary& level) {
 
 json to_json(const ActivityRecord& activity) {
     return json{{"sequence", activity.sequence},
-                {"action", std::string(atlas::to_string(activity.action))},
+                {"action", std::string(basalt::to_string(activity.action))},
                 {"order_id", activity.order_id},
-                {"side", std::string(atlas::to_string(activity.side))},
-                {"order_type", std::string(atlas::to_string(activity.order_type))},
+                {"side", std::string(basalt::to_string(activity.side))},
+                {"order_type", std::string(basalt::to_string(activity.order_type))},
                 {"price", activity.price}, {"quantity", activity.quantity},
-                {"status", std::string(atlas::to_string(activity.status))},
+                {"status", std::string(basalt::to_string(activity.status))},
                 {"message", activity.message}};
 }
 
@@ -213,7 +213,7 @@ void HttpServer::register_routes() {
                 const OrderResult result = engine_.submit_order(order);
                 result_json = {
                     {"order_id", result.order_id},
-                    {"status", std::string(atlas::to_string(result.status))},
+                    {"status", std::string(basalt::to_string(result.status))},
                     {"initial_quantity", result.initial_quantity},
                     {"filled_quantity", result.filled_quantity},
                     {"remaining_quantity", result.remaining_quantity},
@@ -247,7 +247,7 @@ void HttpServer::register_routes() {
             }
             send_json(response, {
                 {"order_id", result.order_id}, {"success", result.success},
-                {"status", std::string(atlas::to_string(result.status))},
+                {"status", std::string(basalt::to_string(result.status))},
                 {"cancelled_price", result.cancelled_price},
                 {"cancelled_quantity", result.cancelled_quantity},
                 {"sequence", result.sequence}, {"message", result.message}
@@ -367,4 +367,4 @@ void HttpServer::stop() noexcept {
     server_.stop();
 }
 
-} // namespace atlas::server
+} // namespace basalt::server

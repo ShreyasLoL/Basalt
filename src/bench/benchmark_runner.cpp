@@ -1,7 +1,7 @@
-#include "atlas/bench/benchmark_runner.hpp"
+#include "basalt/bench/benchmark_runner.hpp"
 
-#include "atlas/core/order_book.hpp"
-#include "atlas/core/vector_order_book.hpp"
+#include "basalt/core/order_book.hpp"
+#include "basalt/core/vector_order_book.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -12,7 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace atlas::bench {
+namespace basalt::bench {
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -270,4 +270,4 @@ std::string format_ascii_table(const std::vector<BenchmarkResult>& results) {
     return output.str();
 }
 
-} // namespace atlas::bench
+} // namespace basalt::bench

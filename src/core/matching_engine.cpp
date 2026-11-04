@@ -1,10 +1,10 @@
-#include "atlas/core/matching_engine.hpp"
+#include "basalt/core/matching_engine.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <sstream>
 
-namespace atlas {
+namespace basalt {
 namespace {
 
 bool valid_side(const Side side) noexcept {
@@ -275,4 +275,4 @@ void MatchingEngine::seed_demo_book() {
     }
 }
 
-} // namespace atlas
+} // namespace basalt

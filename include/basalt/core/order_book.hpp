@@ -1,6 +1,6 @@
 #pragma once
 
-#include "atlas/core/trade.hpp"
+#include "basalt/core/trade.hpp"
 
 #include <functional>
 #include <map>
@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace atlas {
+namespace basalt {
 
 class OrderBook {
 public:
@@ -44,4 +44,4 @@ private:
                                std::vector<PriceLevelSummary>& out) const;
 };
 
-} // namespace atlas
+} // namespace basalt

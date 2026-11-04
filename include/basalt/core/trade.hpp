@@ -1,11 +1,11 @@
 #pragma once
 
-#include "atlas/core/order.hpp"
+#include "basalt/core/order.hpp"
 
 #include <string>
 #include <vector>
 
-namespace atlas {
+namespace basalt {
 
 struct Trade {
     TradeId trade_id{0};
@@ -93,4 +93,4 @@ struct EngineStats {
     std::size_t ask_level_count{0};
 };
 
-} // namespace atlas
+} // namespace basalt

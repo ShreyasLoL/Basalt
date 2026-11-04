@@ -1,4 +1,4 @@
-#include "atlas/server/http_server.hpp"
+#include "basalt/server/http_server.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
         if (argument == "--help" || argument == "-h") {
-            std::cout << "Usage: atlas_server [--port 1-65535]\n";
+            std::cout << "Usage: basalt_server [--port 1-65535]\n";
             return 0;
         }
         if (argument == "--port" && i + 1 < argc) {
@@ -37,8 +37,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    atlas::server::HttpServer server(port);
-    std::cout << "Project Atlas serving http://127.0.0.1:" << port << "\n";
+    basalt::server::HttpServer server(port);
+    std::cout << "BASALT serving http://127.0.0.1:" << port << "\n";
     if (!server.run()) {
         std::cerr << "Failed to start HTTP server on port " << port << '\n';
         return 1;
