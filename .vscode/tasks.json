@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Atlas: Configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["-S", "${workspaceFolder}", "-B", "${workspaceFolder}/build", "-DCMAKE_BUILD_TYPE=Release"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Atlas: Build",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "${workspaceFolder}/build", "--config", "Release"],
+      "dependsOn": "Atlas: Configure",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Atlas: Test",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--test-dir", "${workspaceFolder}/build", "-C", "Release", "--output-on-failure"],
+      "dependsOn": "Atlas: Build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Atlas: Benchmark",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/atlas_bench.exe",
+      "args": ["--orders", "50000"],
+      "dependsOn": "Atlas: Build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Atlas: Run Server",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/atlas_server.exe",
+      "dependsOn": "Atlas: Build",
+      "problemMatcher": []
+    }
+  ]
+}

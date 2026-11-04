@@ -1,0 +1,17 @@
+/build/
+/out/
+/.vs/
+/.vscode/ipch/
+*.user
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.dylib
+
