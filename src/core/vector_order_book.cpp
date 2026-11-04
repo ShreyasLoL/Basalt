@@ -99,6 +99,7 @@ bool VectorOrderBook::insert_into(std::vector<VectorPriceLevel>& levels, const O
 
 bool VectorOrderBook::insert_resting_order(const Order& order) {
     if (order.id == 0 || order.type != OrderType::Limit || order.price <= 0 ||
+        (order.side != Side::Buy && order.side != Side::Sell) ||
         order.remaining_quantity == 0 || order.remaining_quantity > order.initial_quantity ||
         has_order(order.id)) return false;
     if ((order.side == Side::Buy && !asks_.empty() && order.price >= asks_.front().price) ||

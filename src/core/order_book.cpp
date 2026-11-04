@@ -122,6 +122,7 @@ std::size_t OrderBook::active_order_count() const noexcept {
 
 bool OrderBook::insert_resting_order(const Order& order) {
     if (order.id == 0 || order.type != OrderType::Limit || order.price <= 0 ||
+        (order.side != Side::Buy && order.side != Side::Sell) ||
         order.remaining_quantity == 0 || order.remaining_quantity > order.initial_quantity ||
         order_lookup_.contains(order.id)) {
         return false;
@@ -139,7 +140,12 @@ bool OrderBook::insert_resting_order(const Order& order) {
             if (inserted) bids_.erase(level_it);
             return false;
         }
-        level.orders.push_back(order);
+        try {
+            level.orders.push_back(order);
+        } catch (...) {
+            if (inserted) bids_.erase(level_it);
+            throw;
+        }
         auto order_it = std::prev(level.orders.end());
         level.total_volume += order.remaining_quantity;
         try {
@@ -158,7 +164,12 @@ bool OrderBook::insert_resting_order(const Order& order) {
             if (inserted) asks_.erase(level_it);
             return false;
         }
-        level.orders.push_back(order);
+        try {
+            level.orders.push_back(order);
+        } catch (...) {
+            if (inserted) asks_.erase(level_it);
+            throw;
+        }
         auto order_it = std::prev(level.orders.end());
         level.total_volume += order.remaining_quantity;
         try {

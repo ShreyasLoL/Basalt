@@ -72,6 +72,8 @@ else()
 endif()
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html" ATLAS_WEB_HTML)
 configure_file(src/server/embedded_ui.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/generated/atlas_embedded_ui.hpp" @ONLY)

@@ -1,6 +1,6 @@
 #include "atlas/bench/benchmark_runner.hpp"
 
-#include "atlas/core/matching_engine.hpp"
+#include "atlas/core/order_book.hpp"
 #include "atlas/core/vector_order_book.hpp"
 
 #include <algorithm>
@@ -62,34 +62,51 @@ BenchmarkResult summarize(const std::string& name, const std::string& implementa
 }
 
 void warmup(const std::vector<WorkloadCommand>& commands) {
-    MatchingEngine map_engine;
+    OrderBook map_book;
     VectorOrderBook vector_book;
+    SequenceNumber map_sequence = 0;
     SequenceNumber vector_sequence = 0;
+    TradeId map_trade_id = 0;
     TradeId vector_trade_id = 0;
     for (const WorkloadCommand& command : commands) {
         if (command.action == ActionType::Submit) {
-            (void)map_engine.submit_order(command.order);
-            Order incoming{};
-            incoming.id = command.order.id;
-            incoming.side = command.order.side;
-            incoming.type = command.order.type;
-            incoming.price = command.order.type == OrderType::Market ? 0 : command.order.price;
-            incoming.initial_quantity = command.order.quantity;
-            incoming.remaining_quantity = command.order.quantity;
-            incoming.sequence = ++vector_sequence;
-            incoming.timestamp_ns = incoming.sequence;
-            std::vector<Trade> trades;
-            (void)vector_book.submit_order(incoming, vector_sequence, vector_trade_id, trades);
+            const auto make_order = [&](const SequenceNumber sequence) {
+                Order order{};
+                order.id = command.order.id;
+                order.side = command.order.side;
+                order.type = command.order.type;
+                order.price = command.order.type == OrderType::Market ? 0 : command.order.price;
+                order.initial_quantity = command.order.quantity;
+                order.remaining_quantity = command.order.quantity;
+                order.sequence = sequence;
+                order.timestamp_ns = sequence;
+                return order;
+            };
+
+            Order map_incoming = make_order(++map_sequence);
+            std::vector<Trade> map_trades;
+            map_book.match_against_book(map_incoming, map_sequence, map_trade_id,
+                                        map_incoming.timestamp_ns, map_trades);
+            if (map_incoming.remaining_quantity > 0 && map_incoming.type == OrderType::Limit) {
+                (void)map_book.insert_resting_order(map_incoming);
+            }
+
+            Order vector_incoming = make_order(++vector_sequence);
+            std::vector<Trade> vector_trades;
+            (void)vector_book.submit_order(vector_incoming, vector_sequence, vector_trade_id,
+                                           vector_trades);
         } else {
-            if (map_engine.cancel_order(command.cancel_order_id).success) ++vector_sequence;
-            (void)vector_book.cancel_order(command.cancel_order_id);
+            if (map_book.cancel_order(command.cancel_order_id).success) ++map_sequence;
+            if (vector_book.cancel_order(command.cancel_order_id)) ++vector_sequence;
         }
     }
 }
 
 RunSummary run_map_book(const WorkloadProfile profile,
                         const std::vector<WorkloadCommand>& commands) {
-    MatchingEngine engine;
+    OrderBook book;
+    SequenceNumber sequence = 0;
+    TradeId trade_id = 0;
     std::vector<std::uint64_t> latencies(commands.size(), 0);
     std::uint64_t trade_count = 0;
     std::uint64_t cancel_count = 0;
@@ -98,10 +115,27 @@ RunSummary run_map_book(const WorkloadProfile profile,
         const auto start = Clock::now();
         const WorkloadCommand& command = commands[i];
         if (command.action == ActionType::Submit) {
-            const OrderResult result = engine.submit_order(command.order);
-            trade_count += result.trades.size();
-        } else if (engine.cancel_order(command.cancel_order_id).success) {
-            ++cancel_count;
+            Order incoming{};
+            incoming.id = command.order.id;
+            incoming.side = command.order.side;
+            incoming.type = command.order.type;
+            incoming.price = command.order.type == OrderType::Market ? 0 : command.order.price;
+            incoming.initial_quantity = command.order.quantity;
+            incoming.remaining_quantity = command.order.quantity;
+            incoming.sequence = ++sequence;
+            incoming.timestamp_ns = incoming.sequence;
+            std::vector<Trade> trades;
+            book.match_against_book(incoming, sequence, trade_id, incoming.timestamp_ns, trades);
+            trade_count += trades.size();
+            if (incoming.remaining_quantity > 0 && incoming.type == OrderType::Limit) {
+                (void)book.insert_resting_order(incoming);
+            }
+        } else {
+            const CancelResult result = book.cancel_order(command.cancel_order_id);
+            if (result.success) {
+                ++sequence;
+                ++cancel_count;
+            }
         }
         const auto stop = Clock::now();
         latencies[i] = static_cast<std::uint64_t>(
@@ -111,14 +145,14 @@ RunSummary run_map_book(const WorkloadProfile profile,
     const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(batch_end - batch_start);
 
     std::string error;
-    if (!engine.book().verify_invariants(&error)) {
+    if (!book.verify_invariants(&error)) {
         throw std::runtime_error("MapListOrderBook invariant failure: " + error);
     }
     RunSummary summary{};
     summary.result = summarize(std::string(profile_name(profile)),
                               "MapListOrderBook (Primary)", latencies, elapsed,
                               trade_count, cancel_count);
-    summary.final_snapshot = engine.get_snapshot(std::numeric_limits<std::size_t>::max());
+    summary.final_snapshot = book.get_snapshot(std::numeric_limits<std::size_t>::max());
     return summary;
 }
 
