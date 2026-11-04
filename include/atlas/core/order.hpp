@@ -29,6 +29,8 @@ struct Order {
         return initial_quantity - remaining_quantity;
     }
     [[nodiscard]] bool is_filled() const noexcept { return remaining_quantity == 0; }
+
+    friend bool operator==(const Order&, const Order&) = default;
 };
 
 struct PriceLevel {

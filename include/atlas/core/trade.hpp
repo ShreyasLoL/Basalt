@@ -18,6 +18,8 @@ struct Trade {
     Quantity quantity{0};
     SequenceNumber sequence{0};
     TimestampNs timestamp_ns{0};
+
+    friend bool operator==(const Trade&, const Trade&) = default;
 };
 
 struct ActivityRecord {
@@ -57,6 +59,8 @@ struct PriceLevelSummary {
     Price price{0};
     Quantity total_volume{0};
     std::size_t order_count{0};
+
+    friend bool operator==(const PriceLevelSummary&, const PriceLevelSummary&) = default;
 };
 
 struct BookSnapshot {
@@ -71,6 +75,8 @@ struct BookSnapshot {
     Quantity best_ask_volume{0};
     bool has_spread{false};
     Price spread{0};
+
+    friend bool operator==(const BookSnapshot&, const BookSnapshot&) = default;
 };
 
 struct EngineStats {

@@ -25,9 +25,19 @@ FetchContent_Declare(nlohmann_json
     GIT_TAG v3.11.3
     GIT_SHALLOW TRUE)
 
+FetchContent_MakeAvailable(googletest)
+if(NOT MSVC)
+    # GoogleTest enables extra diagnostics that report warnings in its own upstream source.
+    target_compile_options(gtest PRIVATE -Wno-undef -Wno-character-conversion)
+    target_compile_options(gtest_main PRIVATE -Wno-undef -Wno-character-conversion)
+    target_compile_options(gmock PRIVATE -Wno-undef -Wno-character-conversion)
+    target_compile_options(gmock_main PRIVATE -Wno-undef -Wno-character-conversion)
+endif()
+
 add_library(atlas_core STATIC
     src/core/types.cpp
     src/core/order_book.cpp
+    src/core/matching_engine.cpp
 )
 target_include_directories(atlas_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(atlas_core PUBLIC cxx_std_20)
@@ -37,9 +47,14 @@ else()
     target_compile_options(atlas_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-add_executable(atlas_phase1_smoke src/phase1_smoke.cpp)
-target_link_libraries(atlas_phase1_smoke PRIVATE atlas_core)
-
-add_executable(atlas_phase2_smoke src/phase2_smoke.cpp)
-target_link_libraries(atlas_phase2_smoke PRIVATE atlas_core)
+enable_testing()
+add_executable(atlas_tests tests/test_matching_engine.cpp)
+target_link_libraries(atlas_tests PRIVATE atlas_core GTest::gtest_main)
+if(MSVC)
+    target_compile_options(atlas_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(atlas_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+include(GoogleTest)
+gtest_discover_tests(atlas_tests)
 
