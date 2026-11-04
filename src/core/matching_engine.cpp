@@ -24,7 +24,7 @@ std::string trade_message(const Trade& trade) {
 
 } // namespace
 
-void MatchingEngine::append_trade(const Trade& trade, const OrderType aggressor_type) {
+void MatchingEngine::append_trade(const Trade& trade) {
     recent_trades_.push_back(trade);
     if (recent_trades_.size() > HISTORY_CAPACITY) recent_trades_.pop_front();
     ++stats_.total_trades_executed;
@@ -37,26 +37,10 @@ void MatchingEngine::append_trade(const Trade& trade, const OrderType aggressor_
     stats_.last_trade_price = trade.price;
     stats_.last_trade_quantity = trade.quantity;
 
-    ActivityRecord record{};
-    record.sequence = trade.sequence;
-    record.action = ActionType::Trade;
-    record.order_id = trade.aggressor_order_id;
-    record.side = trade.aggressor_side;
-    record.order_type = aggressor_type;
-    record.price = trade.price;
-    record.quantity = trade.quantity;
-    record.status = OrderStatus::Filled;
-    record.message = trade_message(trade);
-    append_activity(std::move(record));
 }
 
 void MatchingEngine::append_activity(ActivityRecord record) {
-    const auto position = std::upper_bound(
-        recent_activity_.begin(), recent_activity_.end(), record.sequence,
-        [](const SequenceNumber sequence, const ActivityRecord& existing) {
-            return sequence < existing.sequence;
-        });
-    recent_activity_.insert(position, std::move(record));
+    recent_activity_.push_back(std::move(record));
     if (recent_activity_.size() > HISTORY_CAPACITY) recent_activity_.pop_front();
 }
 
@@ -119,7 +103,10 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
     ++stats_.total_orders_submitted;
 
     book_.match_against_book(incoming, next_sequence_, next_trade_id_, timestamp, result.trades);
-    for (const Trade& trade : result.trades) append_trade(trade, incoming.type);
+    for (const Trade& trade : result.trades) append_trade(trade);
+
+    std::vector<ActivityRecord> order_activities;
+    order_activities.reserve(result.trades.size() + 1);
 
     if (incoming.remaining_quantity == 0) {
         result.status = OrderStatus::Filled;
@@ -144,7 +131,25 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
             rejected.quantity = request.quantity;
             rejected.status = result.status;
             rejected.message = result.message;
-            append_activity(std::move(rejected));
+            order_activities.push_back(std::move(rejected));
+            for (const Trade& trade : result.trades) {
+                ActivityRecord record{};
+                record.sequence = trade.sequence;
+                record.action = ActionType::Trade;
+                record.order_id = trade.aggressor_order_id;
+                record.side = trade.aggressor_side;
+                record.order_type = incoming.type;
+                record.price = trade.price;
+                record.quantity = trade.quantity;
+                record.status = OrderStatus::Filled;
+                record.message = trade_message(trade);
+                order_activities.push_back(std::move(record));
+            }
+            std::sort(order_activities.begin(), order_activities.end(),
+                      [](const ActivityRecord& left, const ActivityRecord& right) {
+                          return left.sequence < right.sequence;
+                      });
+            for (auto& record : order_activities) append_activity(std::move(record));
             refresh_book_stats();
             return result;
         }
@@ -170,7 +175,25 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
     submit.quantity = request.quantity;
     submit.status = result.status;
     submit.message = "Order accepted: " + std::string(to_string(result.status));
-    append_activity(std::move(submit));
+    order_activities.push_back(std::move(submit));
+    for (const Trade& trade : result.trades) {
+        ActivityRecord record{};
+        record.sequence = trade.sequence;
+        record.action = ActionType::Trade;
+        record.order_id = trade.aggressor_order_id;
+        record.side = trade.aggressor_side;
+        record.order_type = incoming.type;
+        record.price = trade.price;
+        record.quantity = trade.quantity;
+        record.status = OrderStatus::Filled;
+        record.message = trade_message(trade);
+        order_activities.push_back(std::move(record));
+    }
+    std::sort(order_activities.begin(), order_activities.end(),
+              [](const ActivityRecord& left, const ActivityRecord& right) {
+                  return left.sequence < right.sequence;
+              });
+    for (auto& record : order_activities) append_activity(std::move(record));
     refresh_book_stats();
     return result;
 }

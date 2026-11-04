@@ -38,6 +38,9 @@ add_library(atlas_core STATIC
     src/core/types.cpp
     src/core/order_book.cpp
     src/core/matching_engine.cpp
+    src/core/vector_order_book.cpp
+    src/bench/workload_generator.cpp
+    src/bench/benchmark_runner.cpp
 )
 target_include_directories(atlas_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(atlas_core PUBLIC cxx_std_20)
@@ -57,4 +60,12 @@ else()
 endif()
 include(GoogleTest)
 gtest_discover_tests(atlas_tests)
+
+add_executable(atlas_bench src/bench/main_bench.cpp)
+target_link_libraries(atlas_bench PRIVATE atlas_core)
+if(MSVC)
+    target_compile_options(atlas_bench PRIVATE /W4 /WX)
+else()
+    target_compile_options(atlas_bench PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 

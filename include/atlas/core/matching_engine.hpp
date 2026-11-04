@@ -31,7 +31,7 @@ private:
     EngineStats stats_{};
     std::deque<Trade> recent_trades_{};
     std::deque<ActivityRecord> recent_activity_{};
-    void append_trade(const Trade& trade, OrderType aggressor_type);
+    void append_trade(const Trade& trade);
     void append_activity(ActivityRecord record);
     void refresh_book_stats() noexcept;
 };
