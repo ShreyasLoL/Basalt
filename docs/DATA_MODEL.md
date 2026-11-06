@@ -41,7 +41,7 @@ CREATE TABLE benchmark_runs(run_id TEXT PRIMARY KEY, workload TEXT NOT NULL, imp
 CREATE TABLE audit_events(event_seq INTEGER PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id TEXT, outcome TEXT NOT NULL, redacted_detail TEXT NOT NULL, event_time_ns INTEGER NOT NULL);
 ~~~
 
-The twenty entities are migrations, instruments, provider mappings, market events, bars, datasets, accounts, strategies, strategy runs, orders, order events, executions, cash ledger rows, positions, risk events, feed health, checkpoints, backtest runs, backtest metrics, signals, benchmark runs, and audit events (22 named tables including migration/audit support). Schema evolution is additive where possible; destructive migrations require an export and a new backup.
+The schema has twenty application entity tables (instruments, provider mappings, market events, bars, datasets, accounts, strategies, strategy runs, orders, order events, executions, cash ledger rows, positions, risk events, feed health, checkpoints, backtest runs, backtest metrics, signals, benchmark runs) plus the schema_migrations and audit_events support tables. Schema evolution is additive where possible; destructive migrations require an export and a new backup.
 
 ## Double-entry and position invariants
 

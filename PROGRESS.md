@@ -33,15 +33,17 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Recorded correction: seed paths include include/atlas, frontend/ and benchmarks/; actual repository uses include/basalt, web/ and src/bench. Supplied seed files are directly under docs/, not docs/seed/.
 - [x] Root documents.md was already deleted in the submitted working tree. Preserve that pre-existing deletion; docs/documents.md is the current master. Do not restore without an explicit user instruction.
 
-## Phase 0 — Forensic audit and baseline verification [~]
+## Phase 0 — Forensic audit and baseline verification [x]
 
 - [x] Audit CMake, all tracked source/header/test/UI files, VS Code tasks, README and supplied docs before source changes.
 - [x] Release build: CMake 4.3.1, Ninja generator invoked via cmake --build, Clang 22.1.8 x64 Windows target; strict project warning flags; build succeeded (22 steps).
 - [x] Existing GoogleTest suite: CTest passed 18/18 (0 failures, 0.49 s).
 - [x] Existing benchmark: all seven profiles at 50,000 commands/profile; MapListOrderBook and VectorOrderBook produced matching trade/cancel counts and final snapshots. Raw measurements in docs/PERFORMANCE.md.
 - [x] Static route/call-path audit: GET /api/state, POST /api/orders, DELETE /api/orders/:id, POST /api/sim/step, POST /api/reset, POST /api/benchmark; root page served by static/embedded UI path.
-- [ ] Runtime endpoint smoke and legacy /api/seed, /api/simulate compatibility check. Attempted loopback smoke was denied by workspace socket permissions (client SocketException 10013); no HTTP response observed. Re-attempt if the environment permits it.
-- [ ] Commit documentation suite, then complete Phase 0 commit.
+- [x] Runtime smoke on temporary loopback port: GET / and /api/state returned 200; POST /api/orders returned NEW; DELETE cancel succeeded; /api/sim/step executed 2; /api/reset cleared and reseeded; /api/benchmark returned 2 parity rows.
+- [x] Legacy aliases /api/seed and /api/simulate were probed and return 404. The repository-grounded contract uses POST /api/reset with seed_demo and POST /api/sim/step; no alias requirement is supported by the legacy specification.
+- [x] Documentation suite committed locally before Phase 0 completion: d67e745.
+- [x] Phase 0 baseline and audit committed locally; see commit history. No push.
 
 ## Phase 1 — Foundation, configuration, logging and code quality [ ]
 
@@ -119,5 +121,6 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 
 ## Commit log
 
-- Pending documentation suite commit.
-- Pending Phase 0–10 implementation commits. Local commits only; never push.
+- [x] docs(spec): generate complete BASALT architecture and specification suite — d67e745
+- [x] feat(phase-0): record verified repository audit and benchmark baseline — committed locally.
+- Phase 1–10 implementation commits pending. Local commits only; never push.

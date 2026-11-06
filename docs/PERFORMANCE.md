@@ -44,7 +44,7 @@ Captured 2026-11-06 in the provided Windows x64 workspace using CMake 4.3.1, Nin
 | Wide | Map/list | 4,191,361 | 222 | 200 | 400 | 600 | 2,500 |
 | Wide | Vector | 363,099 | 2,734 | 2,200 | 6,700 | 10,400 | 23,100 |
 
-One machine, one run, timer granularity and current compiler build only. Use fresh samples for comparisons; do not use this table as a production target. Endpoint runtime smoke was blocked because loopback socket access is denied by the workspace sandbox; static route call paths are audited in docs/documents.md.
+One machine, one run, timer granularity and current compiler build only. Use fresh samples for comparisons; do not use this table as a production target. A temporary loopback server smoke succeeded after an elevated local run: root and GET /api/state returned 200; POST order, DELETE cancel, simulation step, reset/seed and a two-row benchmark response succeeded. The prompt's /api/seed and /api/simulate aliases returned 404; the repository's documented equivalents are /api/reset with seed_demo and /api/sim/step.
 
 ## Arena acceptance
 
