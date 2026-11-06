@@ -147,6 +147,6 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-7): add causal backtesting, replay and analytics — 946826f
 - [x] feat(phase-8): add instrument-isolated advanced matching — a731df5
 - [x] feat(phase-9): add telemetry workloads and pooled arena — 38504c5
-- feat(phase-10): add local MCP stdio inspection and simulation interface — commit recorded after local commit.
+- [x] feat(phase-10): add local MCP stdio inspection and simulation interface — c635e9a
 
 All commits are local. Never push.
