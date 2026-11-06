@@ -92,6 +92,24 @@ else()
 endif()
 basalt_enable_sanitizers(basalt_market_data)
 
+add_library(basalt_persistence STATIC
+    src/persistence/storage_io.cpp
+    src/persistence/event_log.cpp
+    src/persistence/checkpoint.cpp
+    src/persistence/replay.cpp
+    src/persistence/catalog.cpp
+    src/persistence/history.cpp
+)
+target_include_directories(basalt_persistence PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(basalt_persistence PUBLIC basalt_common PRIVATE nlohmann_json::nlohmann_json)
+target_compile_features(basalt_persistence PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_persistence PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_persistence PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_persistence)
+
 enable_testing()
 add_executable(basalt_tests tests/test_matching_engine.cpp)
 target_link_libraries(basalt_tests PRIVATE basalt_core GTest::gtest_main)
@@ -123,6 +141,16 @@ else()
 endif()
 gtest_discover_tests(basalt_market_data_tests)
 basalt_enable_sanitizers(basalt_market_data_tests)
+
+add_executable(basalt_persistence_tests tests/test_persistence.cpp)
+target_link_libraries(basalt_persistence_tests PRIVATE basalt_persistence GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_persistence_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_persistence_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_persistence_tests)
+basalt_enable_sanitizers(basalt_persistence_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
 target_link_libraries(basalt_bench PRIVATE basalt_core)

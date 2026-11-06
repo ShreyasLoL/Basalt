@@ -74,12 +74,13 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: Release build passed with strict warnings; CTest passed 38/38 (18 legacy + 8 common + 12 market-data); focused coverage includes fixed-point/tick, malformed events, aliases, stale/skew, dedup/order/gap/reconnect, replay parsing, queue pressure and diagnostic adapters.
 - [x] Phase 3 locally committed; provider connections remain intentionally diagnostic-only pending official schema/entitlement/licensing review. No push.
 
-## Phase 4 — Persistence, historical storage and event log [ ]
+## Phase 4 — Persistence, historical storage and event log [x]
 
-- [ ] SQLite WAL catalog, schema migrations and deterministic repositories.
-- [ ] CRC-framed append-only .blog writer/reader and replay manifest.
-- [ ] Historical bars/datasets/export and snapshot recovery.
-- [ ] Corruption/torn-tail/restart/replay-hash tests; build/CTest; commit phase.
+- [x] SQLite is unavailable in the configured Windows/Clang toolchain; implemented the roadmap's deterministic, durable file-store fallback instead of an in-memory substitute. Catalog JSON uses sorted datasets, atomic replacement, SHA-256 migration checksums, and a tested v0→v1 migration.
+- [x] Added append-only `.blog` frames with little-endian length/version/sequence/CRC, bounded payloads, strict sequence checks, valid-prefix recovery, damaged-tail quarantine, and post-recovery CRC validation on reads.
+- [x] Added checksummed atomic checkpoints, checkpoint-plus-log deterministic replay manifests, fixed-point OHLCV CSV import/export, canonical dataset SHA-256, and license/provenance/range metadata.
+- [x] Verification: strict Release build succeeded; CTest passed 48/48, including legacy matching-engine tests and persistence restart, migration, torn/corrupt-tail, checkpoint, replay determinism, CSV validation and hash-tamper cases.
+- [x] Implementation details and file formats recorded in `docs/PERSISTENCE.md`. Phase 4 committed locally; no push.
 
 ## Phase 5 — Risk, paper execution and portfolio ledger [ ]
 
@@ -130,4 +131,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-1): add common types, validated configuration, logging and sanitizer option — committed locally.
 - [x] feat(phase-2): institutional workstation frontend and static bundle integration — committed locally.
 - [x] feat(phase-3): add instrument master, normalized market events, bounded bus and offline providers — committed locally.
-- Phase 4–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-4): add durable catalog, framed event log, recovery, history and replay — committed locally.
+- Phase 5–10 implementation commits pending. Local commits only; never push.
