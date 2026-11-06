@@ -100,12 +100,14 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 88/88 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy). Fixture coverage includes indicator math/overflow, all six strategy signals, deterministic IDs, session resets, risk acceptance/rejection, warm-up, stale/gapped inputs, legal transitions and exception isolation.
 - [x] Phase 6 implementation committed locally; no push.
 
-## Phase 7 — Bias-free backtesting and deterministic replay [ ]
+## Phase 7 — Bias-free backtesting and deterministic replay [x]
 
-- [ ] Chronological backtest dispatcher and next-bar execution gate.
-- [ ] Train/validation/test ranges, embargo and reproducibility manifest.
-- [ ] Replay play/pause/step/seek/speed and checkpoint seek.
-- [ ] Eighteen metrics, determinism and look-ahead tests; build/CTest; commit phase.
+- [x] Chronological single-instrument dispatcher rejects invalid, stale, gapped, skewed, unordered, overlapping, off-tick and out-of-split bars; bar-close signals can fill only at a subsequent bar open with configured adverse spread/slippage, participation, fees and risk controls.
+- [x] Half-open train/validation/test ranges and embargo; reproducibility manifest covers source revision/dirty state, compiler/build metadata, strategy/config/dataset/event hashes, instrument, initial portfolio, execution, risk and survivorship/corporate-action/license assumptions.
+- [x] Replay play/pause/step/seek/1x/5x/10x/MAX and verified checkpoint restoration with event replay.
+- [x] Exactly eighteen analytics metrics preserve undefined values with explicit statuses; result includes signal/order/fill/position/cash journals and deterministic input/output/manifest hashes.
+- [x] Verification: strict Release build succeeded; CTest passed 97/97 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest). Cases cover split embargo, replay controls/checkpoints, duplicate and unordered input, all 18 metrics and undefined states, next-bar timing, deterministic hashes, look-ahead/dataset leakage, seeded positions, risk-rejection journaling and invalid quality input.
+- [x] Phase 7 committed locally; no push.
 
 ## Phase 8 — Multi-instrument matching engine evolution [ ]
 

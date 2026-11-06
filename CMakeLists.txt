@@ -1,6 +1,30 @@
 cmake_minimum_required(VERSION 3.20)
 project(BASALT VERSION 1.0.0 LANGUAGES CXX)
 
+set(BASALT_GIT_REVISION "unknown")
+set(BASALT_GIT_WORKTREE_DIRTY "true")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE BASALT_GIT_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE BASALT_GIT_REVISION_RESULT)
+    execute_process(COMMAND ${GIT_EXECUTABLE} status --porcelain
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE BASALT_GIT_STATUS OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE BASALT_GIT_STATUS_RESULT)
+    if(NOT BASALT_GIT_REVISION_RESULT EQUAL 0)
+        set(BASALT_GIT_REVISION "unknown")
+    endif()
+    if(BASALT_GIT_STATUS_RESULT EQUAL 0)
+        if(BASALT_GIT_STATUS STREQUAL "")
+            set(BASALT_GIT_WORKTREE_DIRTY "false")
+        else()
+            set(BASALT_GIT_WORKTREE_DIRTY "true")
+        endif()
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -140,6 +164,25 @@ else()
 endif()
 basalt_enable_sanitizers(basalt_strategy)
 
+add_library(basalt_backtest STATIC
+    src/backtest/backtest.cpp
+    src/backtest/analytics.cpp
+    src/backtest/replay.cpp
+)
+target_include_directories(basalt_backtest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(basalt_backtest PUBLIC basalt_common basalt_strategy basalt_trading basalt_persistence
+                      PRIVATE nlohmann_json::nlohmann_json)
+target_compile_definitions(basalt_backtest PRIVATE
+    BASALT_GIT_REVISION="${BASALT_GIT_REVISION}"
+    BASALT_GIT_WORKTREE_DIRTY=${BASALT_GIT_WORKTREE_DIRTY})
+target_compile_features(basalt_backtest PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_backtest PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_backtest PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_backtest)
+
 enable_testing()
 add_executable(basalt_tests tests/test_matching_engine.cpp)
 target_link_libraries(basalt_tests PRIVATE basalt_core GTest::gtest_main)
@@ -201,6 +244,16 @@ else()
 endif()
 gtest_discover_tests(basalt_strategy_tests)
 basalt_enable_sanitizers(basalt_strategy_tests)
+
+add_executable(basalt_backtest_tests tests/test_backtest.cpp)
+target_link_libraries(basalt_backtest_tests PRIVATE basalt_backtest GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_backtest_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_backtest_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_backtest_tests)
+basalt_enable_sanitizers(basalt_backtest_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
 target_link_libraries(basalt_bench PRIVATE basalt_core)
