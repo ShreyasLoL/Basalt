@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
+#include <atomic>
 
 namespace basalt::persistence {
 namespace {
@@ -113,6 +115,30 @@ TEST(EventLogTest, RejectsOversizedPayloadAndUsesStandardCrc32) {
     EventLog log(directory.path() / "events.blog", 4U);
     ASSERT_TRUE(log.recover());
     EXPECT_EQ(log.append(1, "12345").error().code, "LOG_FRAME_TOO_LARGE");
+}
+
+TEST(EventLogTest, SerializesConcurrentAppendNextWritersWithoutSequenceCollisions) {
+    TemporaryDirectory directory;
+    EventLog log(directory.path() / "concurrent.blog");
+    ASSERT_TRUE(log.recover());
+    std::atomic<std::uint32_t> failures{};
+    std::vector<std::thread> writers;
+    for (std::uint32_t worker = 0; worker < 4U; ++worker) {
+        writers.emplace_back([worker, &log, &failures] {
+            for (std::uint32_t index = 0; index < 10U; ++index) {
+                const auto result = log.append_next(std::to_string(worker) + ":" + std::to_string(index));
+                if (!result) failures.fetch_add(1U);
+            }
+        });
+    }
+    for (auto& writer : writers) writer.join();
+    EXPECT_EQ(failures.load(), 0U);
+    EXPECT_EQ(log.last_sequence(), 40U);
+    const auto frames = log.read_all();
+    ASSERT_TRUE(frames);
+    ASSERT_EQ(frames.value().size(), 40U);
+    for (std::size_t index = 0; index < frames.value().size(); ++index)
+        EXPECT_EQ(frames.value()[index].sequence, index + 1U);
 }
 
 TEST(ReplayTest, CheckpointPlusLogProducesRepeatableStateAndEventManifest) {

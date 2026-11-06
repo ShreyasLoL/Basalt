@@ -82,12 +82,13 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 48/48, including legacy matching-engine tests and persistence restart, migration, torn/corrupt-tail, checkpoint, replay determinism, CSV validation and hash-tamper cases.
 - [x] Implementation details and file formats recorded in `docs/PERSISTENCE.md`. Phase 4 committed locally; no push.
 
-## Phase 5 — Risk, paper execution and portfolio ledger [ ]
+## Phase 5 — Risk, paper execution and portfolio ledger [x]
 
-- [ ] Sixteen risk checks, stable rejection codes and latched kill switch.
-- [ ] Four paper execution models with explicit source/model provenance.
-- [ ] Fixed-point double-entry cash, positions, fees and conservative marks.
-- [ ] Risk boundary, partial-fill, short-flip, fee and reconciliation tests; build/CTest; commit phase.
+- [x] Sixteen risk checks with stable rejection codes; durable decision audit, restart idempotency/order-rate recovery, reservations, and a latched global/account/strategy kill switch.
+- [x] Four offline paper execution models with explicit source/model/fee-schedule provenance, stale/gap checks, conservative slippage and participation limits.
+- [x] Integer-only versioned fee calculator and double-entry cash/position ledger with partial-fill, short-flip, fee, conservative mark and restart recovery support.
+- [x] Verification: strict Release build succeeded; CTest passed 68/68 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading). Targeted coverage includes all sixteen rejection codes, risk boundaries, audit failure, kill-switch recovery, fee rounding, four execution models, partial fills, short flips, restart and reconciliation.
+- [x] Phase 5 implementation committed locally; no push.
 
 ## Phase 6 — Strategy runtime and six quantitative strategies [ ]
 
@@ -132,4 +133,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-2): institutional workstation frontend and static bundle integration — committed locally.
 - [x] feat(phase-3): add instrument master, normalized market events, bounded bus and offline providers — committed locally.
 - [x] feat(phase-4): add durable catalog, framed event log, recovery, history and replay — committed locally.
-- Phase 5–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-5): add risk controls, paper execution and portfolio ledger — committed locally.
+- Phase 6–10 implementation commits pending. Local commits only; never push.

@@ -30,3 +30,11 @@ Stable errors include ORDER_NOTIONAL_LIMIT, ORDER_QUANTITY_LIMIT, POSITION_LIMIT
 ## Emergency kill switch
 
 The switch is latched and scoped GLOBAL, ACCOUNT or STRATEGY. Activation atomically stops new intents, disables strategy starts, cancels working simulated orders according to deterministic cancel policy, records actor/reason/time/sequence, and emits a system fault event. Existing fills already committed remain in the ledger. Reset requires an explicit authorized local action, reason, successful health checks, and audit event; restart never clears the latch. The MCP tool can trigger only a latch, never clear it. A kill-switch activation is safe even if feed or persistence is degraded; if the durable journal is unavailable, enter read-only/fail-stop mode and surface the unsaved status.
+
+## C++ implementation
+
+`basalt::trading::RiskEngine` records all sixteen named rule results on accepted requests and the passing prefix plus first stable rejection on rejected requests. It tracks accepted client IDs, order-rate timestamps, and in-process exposure/cash/position reservations under a mutex. Callers provide a snapshot that excludes those in-process reservations, but includes external open-order reservations. Market orders use ask for buy risk and bid for sell risk; missing marks and arithmetic overflow fail closed. `OrderIntent::estimated_fee_micro` must contain the selected fee schedule's conservative estimate before buy cash checks.
+
+Pass `RiskEngine::event_log_sink` with a recovered `EventLog` to make every decision durable. Startup calls `restore` with the validated log frames before accepting requests; accepted client IDs then remain idempotent across restart. If a configured audit sink fails, a new approval is rolled back and the result is `AUDIT_UNAVAILABLE`.
+
+`KillSwitch` persists scoped latches and resets through the same `.blog` event sink. Its optional cancellation callback stops simulated working orders; cancellation and persistence outcomes are recorded separately. Activation latches before either fallible action. An unsaved activation remains latched in process and the caller must enter read-only/fail-stop mode. Reset is denied unless the durable sink succeeds, the action is authorized, and health checks pass.

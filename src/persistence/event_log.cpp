@@ -89,6 +89,7 @@ std::uint32_t EventLog::crc32(const std::byte* data, const std::size_t size) noe
 }
 
 common::Result<RecoveryReport> EventLog::recover() {
+    std::lock_guard lock(mutex_);
     RecoveryReport report;
     std::error_code error;
     if (!std::filesystem::exists(path_, error)) {
@@ -96,7 +97,7 @@ common::Result<RecoveryReport> EventLog::recover() {
         const auto created = detail::durable_write(path_, {});
         if (!created) return common::Result<RecoveryReport>::failure(created.error());
         recovered_ = true;
-        last_sequence_ = 0;
+        last_sequence_.store(0);
         return common::Result<RecoveryReport>::success(report);
     }
     const auto file_size = std::filesystem::file_size(path_, error);
@@ -137,17 +138,30 @@ common::Result<RecoveryReport> EventLog::recover() {
         const auto truncated = detail::durable_resize(path_, offset);
         if (!truncated) return common::Result<RecoveryReport>::failure(truncated.error());
     }
-    last_sequence_ = previous;
+    last_sequence_.store(previous);
     recovered_ = true;
     return common::Result<RecoveryReport>::success(report);
 }
 
 common::Result<void> EventLog::append(const common::EventSequence sequence, const std::string& payload) {
+    std::lock_guard lock(mutex_);
+    return append_locked(sequence, payload);
+}
+
+common::Result<common::EventSequence> EventLog::append_next(const std::string& payload) {
+    std::lock_guard lock(mutex_);
+    const auto sequence = last_sequence_.load() + 1U;
+    const auto written = append_locked(sequence, payload);
+    if (!written) return common::Result<common::EventSequence>::failure(written.error());
+    return common::Result<common::EventSequence>::success(sequence);
+}
+
+common::Result<void> EventLog::append_locked(const common::EventSequence sequence, const std::string& payload) {
     if (!recovered_) return common::Result<void>::failure({"LOG_NOT_RECOVERED", "Recover the event log before appending"});
     if (payload.size() > max_payload_bytes_ || payload.size() > std::numeric_limits<std::uint32_t>::max()) {
         return common::Result<void>::failure({"LOG_FRAME_TOO_LARGE", "Event payload exceeds configured frame limit"});
     }
-    if (sequence <= last_sequence_) return common::Result<void>::failure({"LOG_SEQUENCE", "Event sequence must increase strictly"});
+    if (sequence <= last_sequence_.load()) return common::Result<void>::failure({"LOG_SEQUENCE", "Event sequence must increase strictly"});
     std::string frame;
     frame.reserve(header_size + payload.size());
     frame.append(magic.data(), magic.size());
@@ -170,11 +184,12 @@ common::Result<void> EventLog::append(const common::EventSequence sequence, cons
     output.close();
     const auto flushed = detail::flush_existing(path_);
     if (!flushed) return flushed;
-    last_sequence_ = sequence;
+    last_sequence_.store(sequence);
     return common::Result<void>::success();
 }
 
 common::Result<std::vector<LogFrame>> EventLog::read_all() const {
+    std::lock_guard lock(mutex_);
     if (!recovered_) return common::Result<std::vector<LogFrame>>::failure({"LOG_NOT_RECOVERED", "Recover the event log before reading"});
     std::error_code error;
     const auto file_size = std::filesystem::file_size(path_, error);

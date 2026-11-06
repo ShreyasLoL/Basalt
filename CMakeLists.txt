@@ -110,6 +110,21 @@ else()
 endif()
 basalt_enable_sanitizers(basalt_persistence)
 
+add_library(basalt_trading STATIC
+    src/trading/risk.cpp
+    src/trading/execution.cpp
+    src/trading/ledger.cpp
+)
+target_include_directories(basalt_trading PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(basalt_trading PUBLIC basalt_common basalt_market_data basalt_persistence basalt_core PRIVATE nlohmann_json::nlohmann_json)
+target_compile_features(basalt_trading PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_trading PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_trading PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_trading)
+
 enable_testing()
 add_executable(basalt_tests tests/test_matching_engine.cpp)
 target_link_libraries(basalt_tests PRIVATE basalt_core GTest::gtest_main)
@@ -151,6 +166,16 @@ else()
 endif()
 gtest_discover_tests(basalt_persistence_tests)
 basalt_enable_sanitizers(basalt_persistence_tests)
+
+add_executable(basalt_trading_tests tests/test_trading.cpp)
+target_link_libraries(basalt_trading_tests PRIVATE basalt_trading GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_trading_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_trading_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_trading_tests)
+basalt_enable_sanitizers(basalt_trading_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
 target_link_libraries(basalt_bench PRIVATE basalt_core)

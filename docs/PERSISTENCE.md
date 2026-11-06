@@ -23,7 +23,7 @@ Each frame is little-endian and consists of a 22-byte header followed by opaque 
 | 18 | 4 | CRC-32/ISO-HDLC over version, length, sequence and payload |
 | 22 | length | Payload |
 
-The writer requires `recover()` before appending, flushes each append to the file, rejects non-increasing sequences and oversized payloads, and never rewrites earlier frames. Recovery scans to the first invalid, truncated, oversized, or checksum-failing frame. It copies that suffix to the first available `.corrupt[.N]` sibling, durably truncates the log to the last valid frame, and reports the accepted prefix and quarantined byte count. Reads independently recheck frame metadata and CRCs.
+The writer requires `recover()` before appending, flushes each append to the file, rejects non-increasing sequences and oversized payloads, and never rewrites earlier frames. One shared `EventLog` instance serializes concurrent appends; `append_next` allocates its monotonic sequence under the same lock. Recovery scans to the first invalid, truncated, oversized, or checksum-failing frame. It copies that suffix to the first available `.corrupt[.N]` sibling, durably truncates the log to the last valid frame, and reports the accepted prefix and quarantined byte count. Reads independently recheck frame metadata and CRCs.
 
 ## Checkpoints and deterministic replay
 
