@@ -1,60 +1,294 @@
 # BASALT
 
-BASALT currently provides a deterministic, single instrument continuous limit order book and matching engine written in C++20. It accepts limit and market orders, enforces price time priority, records executions at the resting order's price, supports partial fills and cancellation, and exposes the engine through a local HTTP dashboard. The 2026 roadmap expands this verified core into a local-first market-data, research, replay and paper-trading platform; implementation status is tracked in PROGRESS.md.
+### A local-first market simulation and quantitative trading research platform.
 
-The matching core uses fixed point integer ticks and has no HTTP or JSON dependency. A GoogleTest suite checks matching behavior and structural invariants. The synthetic benchmark compares the primary map and list book with a sorted vector baseline across seven reproducible workloads.
+BASALT is a C++20 systems project for exploring how electronic markets work — from order matching and market-data processing to strategy execution, risk management, paper trading, deterministic replay and performance analysis.
+
+It combines a deterministic exchange simulator with a growing research infrastructure. The goal is to make the mechanics of trading systems observable, testable and reproducible, rather than treat trading as a black box.
+
+**BASALT is simulation-first. It does not place live brokerage orders.**
+
+---
+
+## What it does
+
+BASALT is built around several connected areas of market infrastructure:
+
+| Area | Capabilities |
+|---|---|
+| **Exchange simulation** | Price-time priority, limit and market orders, partial fills, cancellation, multi-instrument books and advanced order types |
+| **Market data** | Instrument master, canonical events, feed-quality validation, synthetic data and local historical replay |
+| **Paper execution** | Quote-based, bar-based, order-book replay and internal CLOB execution models |
+| **Risk management** | Pre-trade risk checks, exposure reservations, audit records and scoped kill switches |
+| **Strategy runtime** | Deterministic strategy lifecycle, incremental indicators and six built-in strategies |
+| **Backtesting** | Chronological execution, train/validation/test separation, reproducibility manifests and performance analytics |
+| **Persistence and replay** | Append-only event logs, checkpoints, dataset hashing and deterministic recovery |
+| **Performance engineering** | Latency telemetry, twelve benchmark workloads and comparisons between map/list, vector and pooled-arena order books |
+| **MCP interface** | Local JSON-RPC tools for inspecting state and running bounded simulations |
+
+The components are implemented as C++ libraries with explicit domain boundaries. The browser workstation and MCP interface provide ways to inspect and interact with the system.
 
 ## Architecture
 
+BASALT follows a local-process, modular architecture. It does not depend on a distributed microservice stack.
+
 ```mermaid
-flowchart LR
-  UI[React + TypeScript workstation] -->|REST/WS JSON| GW["C++ gateway<br/>cpp-httplib + nlohmann/json"]
-  GW --> CORE[MatchingEngine]
-  CORE --> BOOK["MapListOrderBook<br/>map + FIFO list + ID index"]
-  TEST[GoogleTest suite] --> CORE
-  BENCH[BenchmarkRunner] --> CORE
-  BENCH --> VEC[VectorOrderBook baseline]
+flowchart TB
+    subgraph Inputs
+        Feed["Market-data providers"]
+        Files["CSV / JSONL / historical data"]
+        Synthetic["Deterministic synthetic feed"]
+    end
+
+    subgraph BASALT["BASALT — Local C++20 Platform"]
+        Instrument["Instrument Master"]
+        Pipeline["Market-data Pipeline"]
+        Bus["Bounded Event Bus"]
+        Store["Persistence / Event Log"]
+        Replay["Replay Engine"]
+
+        Strategy["Strategy Runtime"]
+        Risk["Risk Engine"]
+        Execution["Paper Execution Models"]
+        CLOB["Internal Matching Engine"]
+        Ledger["Portfolio Ledger"]
+        Analytics["Backtesting & Analytics"]
+        Telemetry["Performance Telemetry"]
+    end
+
+    UI["React Workstation"] <--> API["Local HTTP Interface"]
+    MCP["MCP Client"] <--> MCPServer["MCP / JSON-RPC stdio"]
+
+    Feed --> Instrument
+    Files --> Instrument
+    Synthetic --> Instrument
+    Instrument --> Pipeline
+    Pipeline --> Bus
+    Bus --> Store
+    Store <--> Replay
+    Bus --> Strategy
+    Strategy --> Risk
+    Risk --> Execution
+    Execution --> CLOB
+    Execution --> Ledger
+    CLOB --> Ledger
+    Replay --> Analytics
+    Strategy --> Analytics
+    Telemetry --> API
+    Ledger --> API
+    CLOB --> API
+    MCPServer --> API
 ```
 
-### Core model
+The diagram represents the platform architecture. It does not imply that every external feed, research module and application read model is already connected into one end-to-end runtime.
 
-- `basalt_core` is a C++20 static library with no external runtime dependency.
-- Prices use `int64_t` ticks; `10000` ticks represent `$100.00`. Quantities are whole units stored as `uint64_t`.
-- Bids use a descending `std::map`, asks use an ascending `std::map`, and every price level holds a FIFO `std::list<Order>`.
-- An `std::unordered_map<OrderId, OrderLocation>` points directly to each resting order's list iterator. Cancellation is average O(1) for the lookup and erase, plus O(log P) only when the last order removes its price level.
-- Matching is single threaded and deterministic. The HTTP adapter guards live engine calls with one mutex.
-- Event timestamps are logical nanoseconds derived from the monotonic event sequence. This preserves replay equality while keeping timestamps increasing from zero after reset.
-- Trades execute at the resting order's limit. Limit remainders rest; market remainders expire immediately and never enter the book.
-- The benchmark pre-generates workload commands and latency buffers before timing. It checks that both implementations produce the same trade count and final book snapshot.
+### Core engineering principles
 
-## Requirements and dependencies
+- **Deterministic state transitions:** matching and replay should produce reproducible results from the same ordered inputs.
+- **Integer-based financial arithmetic:** authoritative price, cash, fee and P&L calculations use fixed-point integer representations rather than floating-point money.
+- **Explicit event ordering:** events carry sequence and timestamp information; feed gaps, duplicates and out-of-order data are treated as observable conditions.
+- **Separation of liquidity:** external market observations are not internal resting orders. Only an explicitly selected paper execution model can translate observations into simulated fills.
+- **Risk before execution:** strategies produce order intents. The risk engine decides whether those intents can proceed to paper execution.
+- **Auditable results:** fills, fees, ledger changes, replay inputs and benchmark conditions should be inspectable.
+- **Bounded resources:** queues, payloads, replay steps and MCP operations have explicit limits.
 
-- Windows x64 with Visual Studio 2022 or later, or Clang 15+ / GCC 12+.
-- CMake 3.20+ and Ninja, or a Visual Studio CMake generator.
-- Internet access on the first configure so CMake FetchContent can download pinned dependencies: GoogleTest 1.14.0, cpp-httplib 0.15.3, and nlohmann/json 3.11.3.
-- The workstation source is React + TypeScript. Building it needs Node.js 22.12+ and npm; the C++ server itself has no Node.js runtime dependency.
+---
 
-## Build and verify on Windows
+## Main components
 
-From PowerShell in the repository root:
+### 1. Matching engine
+
+The original core of BASALT is a deterministic C++ order-book and matching engine.
+
+The standard order book uses:
+
+- `std::map` for ordered bid and ask price levels.
+- `std::list` for FIFO order queues at each price level.
+- `std::unordered_map` for order-ID lookup and cancellation.
+
+It supports price-time priority, maker-price execution, partial fills, full fills and cancellation.
+
+The multi-instrument engine extends this with:
+
+- Instrument-isolated order books.
+- `LIMIT` and `MARKET` orders.
+- `IOC`, `FOK` and `POST_ONLY`.
+- `STOP_MARKET` and `STOP_LIMIT`.
+- Order amendments with defined priority behavior.
+- Account/participant self-trade prevention policies.
+
+A single instrument's book is mutated in an explicitly ordered manner. Different instruments are isolated from one another.
+
+### 2. Market-data infrastructure
+
+Market data enters through provider-neutral interfaces and is normalized into canonical events.
+
+The pipeline handles:
+
+- Instrument resolution and provider mappings.
+- Price, tick and lot validation.
+- Duplicate and out-of-order events.
+- Sequence gaps and reconnect generations.
+- Stale data and clock-skew conditions.
+- Bounded event distribution and queue pressure.
+
+Available offline inputs include a deterministic synthetic provider and bounded CSV/JSON Lines replay.
+
+Upstox v3 and FYERS adapters currently remain diagnostic-only. They are not active market-data connections, do not read credential values and do not expose order-placement capabilities.
+
+### 3. Paper execution and risk
+
+BASALT includes four offline execution models:
+
+| Model | Execution basis |
+|---|---|
+| Conservative quote-based | External bid/ask observations, adverse slippage and visible quantity |
+| Bar-based approximation | Subsequent-bar execution with configured costs and participation limits |
+| Order-book replay | Recorded depth consumed at simulated arrival time |
+| Internal CLOB | Orders matched against BASALT's own simulated liquidity |
+
+Paper fills retain execution provenance, reference data, model version, latency assumptions, slippage and fee information.
+
+The risk engine includes sixteen configurable pre-trade checks covering order size, notional, position limits, gross and net exposure, concentration, losses, drawdown, order rate, data quality and kill-switch state.
+
+The portfolio ledger tracks cash, positions, fees and realized/unrealized P&L. It supports partial fills, short-position transitions, restart recovery and reconciliation.
+
+**Fee schedules must be explicitly configured.** The default state is `NO_FEES_CONFIGURED`; BASALT does not assume that its example fee parameters represent current exchange, broker or statutory charges.
+
+### 4. Strategy runtime
+
+Strategies receive immutable market events and portfolio/risk context. They can produce `OrderIntent` values, but cannot directly mutate the order book or portfolio ledger.
+
+The runtime enforces lifecycle transitions, warm-up periods, data-quality requirements and exception isolation.
+
+Six deterministic built-in strategies are included:
+
+1. SMA crossover.
+2. RSI mean reversion.
+3. Bollinger breakout/reversion.
+4. Intraday VWAP reversion.
+5. Momentum breakout with volume confirmation.
+6. Top-five order-book imbalance.
+
+Incremental indicators include SMA, EMA, Wilder RSI, Bollinger bands, session VWAP and order-book imbalance.
+
+These are research implementations, not claims of profitability. Their outputs still pass through the risk engine and a selected paper execution model.
+
+### 5. Backtesting and replay
+
+The backtesting engine is designed around chronological correctness.
+
+A signal generated from a completed bar cannot execute at that same bar's close. It becomes eligible no earlier than a subsequent bar, with configured execution costs and participation constraints.
+
+Backtests include:
+
+- Train, validation and held-out test ranges.
+- Embargo and split validation.
+- Dataset and configuration hashes.
+- Strategy and build metadata.
+- Execution, fee and risk assumptions.
+- Signal, order, fill, cash and position journals.
+- Deterministic result hashes.
+- Eighteen analytics metrics.
+
+Replay supports play, pause, single-step, seek and bounded speed multipliers. Checkpoints are validated before restoration.
+
+Each backtest currently simulates one instrument per run. Missing survivorship-safe history, corporate-action information or licensing metadata must be disclosed rather than silently assumed.
+
+### 6. Persistence
+
+The persistence layer uses:
+
+- An append-only `.blog` event log.
+- Length- and version-framed records.
+- CRC checksums and strictly increasing event sequences.
+- Valid-prefix recovery and damaged-tail quarantine.
+- Checksummed checkpoints.
+- Deterministic checkpoint-plus-log replay.
+- Historical CSV import/export with dataset hashes and provenance.
+
+The configured Windows/Clang environment did not provide SQLite. The implementation therefore uses the roadmap's deterministic transactional file-store fallback. The SQLite schema in `docs/DATA_MODEL.md` remains a logical target, not a claim that SQLite is the active persistence backend.
+
+### 7. Performance engineering
+
+BASALT includes twelve deterministic workloads covering:
+
+- Balanced, buy-heavy and sell-heavy flow.
+- Aggressive matching.
+- Cancellation-heavy activity.
+- Concentrated and widely distributed price levels.
+- Bursty arrivals.
+- High active-order counts.
+- Fifty-instrument dispatch.
+- Market-data bursts.
+- Slow-consumer backpressure.
+
+The benchmark compares three order-book implementations:
+
+- Standard map/list book.
+- Sorted vector baseline.
+- Pooled-arena book.
+
+Measurements include throughput, latency percentiles, queue high-water marks, accepted and dropped events, and pool utilization.
+
+Benchmark parity checks compare logical outcomes, including trades, cancellations and final book snapshots.
+
+Performance numbers are workload- and machine-dependent. The recorded measurements are single-host results, not production latency guarantees. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for methodology and raw output.
+
+### 8. MCP interface
+
+BASALT exposes a local Model Context Protocol server over newline-delimited JSON-RPC 2.0 on stdio.
+
+It provides fourteen bounded tools:
+
+- **Nine inspection tools** for health, market watch, instrument snapshots, order books, trades, paper positions, portfolio summaries, strategy status and feed health.
+- **Five simulation tools** for backtesting, replay, allowlisted test execution, benchmarks and kill-switch activation.
+
+The interface uses closed schemas, input bounds, rate limits, request idempotency and redacted audit logs.
+
+It does not expose shell execution, arbitrary file access, environment dumps, credentials or live brokerage orders.
+
+---
+
+## Technology stack
+
+| Layer | Technologies |
+|---|---|
+| Core and domain libraries | C++20, STL |
+| Build system | CMake |
+| HTTP server | cpp-httplib |
+| JSON | nlohmann/json |
+| Unit testing | GoogleTest |
+| Workstation | React, TypeScript, Vite |
+| UI state | Zustand |
+| Styling | Tailwind CSS |
+| Charts | Lightweight Charts |
+| AI/tool interface | MCP, JSON-RPC 2.0 over stdio |
+| Persistence | Deterministic file store, append-only `.blog` event log |
+
+The C++ core is separated from HTTP, JSON and frontend concerns through application and adapter boundaries.
+
+---
+
+## Getting started
+
+### Requirements
+
+- Windows x64.
+- Visual Studio 2022 or later, Clang 15+ or GCC 12+.
+- CMake 3.20+.
+- Ninja, or a Visual Studio CMake generator.
+- Node.js 22.12+ and npm for the React workstation.
+- Internet access during the first CMake configure so pinned dependencies can be downloaded through `FetchContent`.
+
+### 1. Clone the repository
 
 ```powershell
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-ctest --test-dir build -C Release --output-on-failure
+git clone https://github.com/ShreyasLoL/Basalt.git
+cd Basalt
 ```
 
-If Ninja is unavailable, generate Visual Studio 2022 projects instead:
-
-```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release --parallel
-ctest --test-dir build -C Release --output-on-failure
-```
-
-The first configure downloads the dependencies into the ignored `build/_deps` directory. On Windows, `basalt_server` links `Ws2_32` for cpp-httplib.
-
-Build the local workstation bundle before the first server run; Vite writes it to the ignored `web/app/` folder. If that bundle is absent, the server serves the legacy `web/index.html` fallback.
+### 2. Build the workstation
 
 ```powershell
 cd frontend
@@ -65,145 +299,180 @@ npm run build
 cd ..
 ```
 
-The repository includes VS Code CMake settings, build/test/benchmark/server tasks, and launch configurations under `.vscode/`.
+The production bundle is generated under `web/app/`. The C++ server serves this bundle when available and retains the static `web/index.html` fallback.
 
-For the Visual Studio generator above, executables are under `build/Release/` rather than the Ninja paths shown next.
+### 3. Configure and build the C++ project
 
-## Run the applications
+With Ninja:
 
-Start the local server:
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+Or with Visual Studio 2022:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --parallel
+```
+
+The first configure downloads the pinned GoogleTest, cpp-httplib and nlohmann/json dependencies.
+
+### 4. Run the tests
+
+For Ninja:
+
+```powershell
+ctest --test-dir build --output-on-failure
+```
+
+For the Visual Studio generator:
+
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
+
+### 5. Start BASALT
+
+For a Ninja Release build:
 
 ```powershell
 .\build\basalt_server.exe --port 8080
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080). The server seeds a five level bid and ask ladder at startup. Use **Reset empty** to clear it or **Seed demo book** to restore it.
+Open:
 
-The local MCP adapter uses JSON-RPC over stdio and starts without HTTP or provider configuration:
+```text
+http://127.0.0.1:8080
+```
+
+The server defaults to loopback operation. Keep it local; do not expose the server to a public network without a separately reviewed authentication and deployment model.
+
+### 6. Run the benchmark suite
+
+```powershell
+.\build\basalt_bench.exe --orders 10000
+```
+
+Run a specific workload:
+
+```powershell
+.\build\basalt_bench.exe --orders 10000 --profile CANCEL_HEAVY
+```
+
+The benchmark CLI supports profiles for different order-flow and market-data conditions. Refer to [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the full workload list and interpretation.
+
+For Visual Studio builds, executables are under `build/Release/`.
+
+### 7. Start the MCP server
 
 ```powershell
 .\build\basalt_server.exe --mcp-stdio
 ```
 
-Launch this mode from an MCP client that manages stdio servers. It exposes bounded inspection and paper-simulation tools only; see [docs/MCP.md](docs/MCP.md) for the tool list and limits.
+Launch this mode through an MCP client that manages stdio servers. See [docs/MCP.md](docs/MCP.md) for tool definitions, limits and protocol behavior.
 
-Run the benchmark suite:
+---
 
-```powershell
-.\build\basalt_bench.exe --orders 50000
-.\build\basalt_bench.exe --orders 100000 --profile CANCEL_HEAVY
-.\build\basalt_bench.exe --orders 50000 --no-baseline
-```
+## Verification
 
-Supported profile IDs are `BALANCED`, `BUY_HEAVY`, `SELL_HEAVY`, `AGGRESSIVE_MATCHING`, `CANCEL_HEAVY`, `CONCENTRATED_LEVELS`, `WIDE_DISTRIBUTION`, `BURSTY_ARRIVALS`, `HIGH_ACTIVE_ORDERS`, `MULTI_INSTRUMENT_50`, `MARKET_DATA_BURST`, and `SLOW_CONSUMER`. The CLI default is 50,000 operations per profile; valid sizes range from 1 through 5,000,000.
+The repository's current `PROGRESS.md` records the following Phase 10 verification:
 
-### Recorded Release run
+| Check | Recorded result |
+|---|---:|
+| C++ Release build | Passed |
+| CTest suite | 123 / 123 |
+| Frontend typecheck | Passed |
+| Frontend Vitest suite | 7 / 7 |
+| Frontend production build | Passed |
+| MCP stdio lifecycle smoke test | Passed |
+| Loopback HTTP smoke test | Passed |
+| Compiler warnings under strict project flags | None reported |
 
-One local Windows x64 Release run with Clang 22.1.8 processed 100,000 commands per profile. The timed paths use the same pre-generated commands directly against each book's matching and cancellation methods, excluding HTTP, random generation, output formatting, and engine history bookkeeping. Throughput is operations per second; p99 is nanoseconds. The vector baseline comes closest in the aggressive, shallow-book profile, while the primary book leads in the deep and cancellation-heavy profiles.
+The Phase 10 test count is cumulative across the matching engine, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry and MCP modules.
 
-| Profile | Map/list ops/s | Map/list p99 ns | Vector ops/s | Vector p99 ns |
-| --- | ---: | ---: | ---: | ---: |
-| Balanced | 4,778,539 | 600 | 495,717 | 7,000 |
-| Buy heavy | 4,123,099 | 600 | 49,088 | 64,700 |
-| Sell heavy | 5,198,478 | 400 | 51,484 | 63,800 |
-| Aggressive matching | 4,868,881 | 500 | 1,545,514 | 1,700 |
-| Cancel heavy | 5,443,214 | 400 | 511,059 | 4,500 |
-| Concentrated levels | 5,652,368 | 500 | 703,106 | 3,900 |
-| Wide distribution | 4,320,289 | 600 | 176,285 | 21,100 |
+These are the repository's recorded results. Re-run the build and tests in your own environment before relying on them.
 
-These are measurements from one machine and one run, not portable performance guarantees. Re-run the benchmark on the target machine before drawing conclusions about absolute latency.
+---
 
-## HTTP API
+## Important boundaries
 
-All API responses use JSON. CORS is enabled for local browser integration.
+BASALT is a research and simulation platform. It is not a production exchange gateway or a live trading system.
 
-| Method and path | Purpose |
-| --- | --- |
-| `GET /api/state?depth=20` | Book depth, market statistics, up to 50 recent trades and activity records |
-| `POST /api/orders` | Submit a `BUY` or `SELL` `LIMIT` or `MARKET` order; omit `id` or use `0` for automatic assignment |
-| `DELETE /api/orders/{id}` | Cancel an active resting order |
-| `POST /api/sim/step` | Generate 1–500 synthetic orders; body example: `{"count":10}` |
-| `POST /api/reset` | Clear the engine; pass `{"seed_demo":true}` to reset and seed the demo ladder |
-| `POST /api/benchmark` | Run one workload or all profiles; accepts `profile`, `order_count`, and `compare_baseline` |
+Current limitations and boundaries:
 
-Example order request:
+- No live brokerage order placement is implemented.
+- Upstox and FYERS adapters are diagnostic-only, not active market-data connections.
+- Provider-backed market data, paper-ledger and strategy-runtime read models are not all connected to the MCP process; unavailable data is reported as unavailable rather than fabricated.
+- Each MCP process owns its own local simulation facade; it does not control another running BASALT process.
+- The active persistence implementation is a deterministic file-store fallback, not SQLite.
+- Paper execution depends on the selected model and its assumptions. Simulated fills are not broker fills.
+- Fee schedules must be explicitly configured before cost-sensitive performance conclusions are meaningful.
+- Backtests are limited by the quality, licensing, survivorship and corporate-action properties of their datasets.
+- Recorded benchmark results are not exchange latency measurements or production performance guarantees.
 
-```json
-{"id":0,"side":"BUY","type":"LIMIT","price":10050,"quantity":100}
-```
+Market-data access and redistribution are subject to provider and exchange terms. Verify current permissions before connecting or distributing external data. See [docs/SECURITY.md](docs/SECURITY.md).
 
-Price fields are integer ticks, not floating point dollars.
+---
 
-## Eight step live interview demonstration
+## Documentation
 
-1. **Start with a live book.** Launch `basalt_server` and show the seeded five level bid and ask ladder, best prices, spread, and active order count.
-2. **Explain fixed point pricing.** Enter `10000` ticks and show the paired `$100.00` helper. Explain that integer keys avoid floating point rounding in price comparisons.
-3. **Add passive liquidity.** Submit a buy limit below the best ask and a sell limit above the best bid. Point out the book remains uncrossed and the levels aggregate quantity.
-4. **Show FIFO priority.** Add multiple orders at the same price and inspect their sequence numbers in the resting queue.
-5. **Sweep the queue.** Submit an aggressive limit order across the displayed price. Show each execution at the resting price and the passive queue filling in order.
-6. **Demonstrate a partial fill and cancel.** Use an order larger than displayed liquidity, inspect its resting remainder, then cancel a selected ID from the active orders table.
-7. **Show market IOC behavior.** Reset to a thin book, send a market order larger than opposing liquidity, and show the filled quantity and expired remainder without a market order resting.
-8. **Close with replay and measurement.** Run auto simulation or a benchmark profile, compare map/list and vector results, then explain the latency percentiles and tradeoff visible in the selected workload.
+The documentation is organized by system area.
 
-## Engineering Q&A
+| Document | Description |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | Module boundaries, process model, event flow and recovery |
+| [Roadmap](docs/ROADMAP.md) | Phase 0–10 scope, acceptance criteria and rollback plans |
+| [Progress](PROGRESS.md) | Implementation and verification record |
+| [Master specification](docs/documents.md) | Repository audit and platform specification |
+| [Data model](docs/DATA_MODEL.md) | Fixed-point rules, entities and ledger invariants |
+| [API specification](docs/API_SPEC.md) | REST and WebSocket contracts |
+| [Market data](docs/MARKET_DATA.md) | Instruments, providers, normalization and feed health |
+| [Matching engine](docs/MATCHING_ENGINE.md) | Order lifecycle, matching rules and advanced order types |
+| [Paper trading](docs/PAPER_TRADING.md) | Execution models, fills, fees and liquidity assumptions |
+| [Risk](docs/RISK.md) | Pre-trade controls and kill-switch behavior |
+| [Strategies](docs/STRATEGIES.md) | Strategy API, lifecycle, indicators and built-in strategies |
+| [Backtesting](docs/BACKTESTING.md) | Causal execution, replay, splits and analytics |
+| [Persistence](docs/PERSISTENCE.md) | Event-log format, recovery and deterministic replay |
+| [Performance](docs/PERFORMANCE.md) | Benchmark methodology, workloads and measurements |
+| [MCP](docs/MCP.md) | MCP tools, schemas, rate limits and audit behavior |
+| [Frontend](docs/FRONTEND.md) | Workstation architecture and UI behavior |
+| [Security](docs/SECURITY.md) | Local-first defaults, credential handling and market boundaries |
+| [Testing](docs/TESTING.md) | Test strategy and verification approach |
+| [Operations](docs/OPERATIONS.md) | Recovery and operational procedures |
+| [Decisions](docs/DECISIONS.md) | Architecture decision records |
 
-### Why use integer price ticks?
+---
 
-The engine needs exact equality and ordering for price level keys. Binary floating point cannot represent decimal fractions such as `$0.01` exactly. Integer ticks give exact comparisons and avoid rounding drift. Formatting into dollars is handled at the UI boundary.
+## Project direction
 
-### Why `std::map` + `std::list` + `std::unordered_map`?
+The foundation now covers the major building blocks of an exchange and trading research system. The next meaningful engineering challenge is not simply adding more modules. It is connecting the existing ones into a verifiable end-to-end workflow.
 
-The maps keep the best price at `.begin()` and provide O(log P) insertion/removal of price levels. Each list keeps price time priority and erases any selected order in O(1) once its iterator is known. The ID index provides average O(1) lookup of that iterator. The tradeoff is allocation and pointer chasing compared with contiguous storage.
-
-### How does price time priority work?
-
-The engine always matches the best opposing price first. At a price level, it consumes the front order before the next order. The engine stops when the next price no longer crosses an incoming limit. Every fill uses the maker's resting price.
-
-### What happens during a partial fill?
-
-Both remaining quantities and the resting level's cached volume decrease by the fill size. A partially filled passive order stays at the head of its FIFO queue. An incoming limit remainder rests on its own side at its limit price; a market remainder expires.
-
-### What does the benchmark compare?
-
-It runs the same pre-generated commands through the primary map/list book and a sorted vector baseline. Vector storage can win with small, shallow books because of locality. Map/list storage avoids shifting deep vectors on cancellation. Which one wins depends on workload shape and active book depth; use the recorded run rather than assuming one structure is universally faster.
-
-### Why is the matching engine single threaded?
-
-Matching one instrument is inherently ordered: every command must observe the state produced by all earlier commands to preserve price time priority. The core stays single threaded and deterministic. The server serializes live engine access at its adapter boundary; multiple instruments could later run as independent shards.
-
-## Repository map
+That means proving the full path:
 
 ```text
-include/basalt/core/       Domain types, order books, matching engine
-include/basalt/bench/      Workload and benchmark interfaces
-include/basalt/server/     Shared simulation facade and HTTP/MCP adapters
-src/core/                 Engine implementations
-src/bench/                Workloads, profiler, CLI
-src/server/               Simulation facade, HTTP/MCP handlers and executable entry point
-tests/                    GoogleTest coverage for matching, platform modules and MCP
-web/index.html            Static trading dashboard
-docs/documents.md         Master architecture specification and 2026 platform addendum
-PROGRESS.md               Phase completion and verification log
+Market Data
+    ↓
+Normalization and Quality Checks
+    ↓
+Deterministic Event Distribution
+    ↓
+Strategy Signal
+    ↓
+Pre-Trade Risk
+    ↓
+Paper Execution
+    ↓
+Execution Report
+    ↓
+Portfolio Ledger
+    ↓
+Analytics and Audit
 ```
 
-## Verification record
+The priority is correctness, reproducibility and honest measurement. More advanced market-data connectivity, execution models and performance optimizations should build on that foundation.
 
-The implementation is built with strict project compiler flags (`-Wall -Wextra -Wpedantic -Werror` or `/W4 /WX`). The final Release build and benchmark measurements are recorded in `PROGRESS.md`.
+---
 
-## Expanded platform specifications
-
-The 2026 platform roadmap is split into reviewed module specifications. They distinguish existing behavior from target behavior; provider pricing, plan limits and redistribution rights remain subject to current official terms.
-
-| Specification | Scope |
-| --- | --- |
-| [Master specification](docs/documents.md) | Verified baseline audit, architecture index and scope |
-| [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) | Modular monolith, process model, diagrams and phases 0–10 |
-| [Data model](docs/DATA_MODEL.md) · [API v1](docs/API_SPEC.md) | Fixed-point accounting, SQLite entities, REST and WebSocket contracts |
-| [Market data](docs/MARKET_DATA.md) · [Paper trading](docs/PAPER_TRADING.md) | Provider adapters, quality pipeline and simulated execution |
-| [Strategies](docs/STRATEGIES.md) · [Backtesting](docs/BACKTESTING.md) | Strategy lifecycle, formulas, causal replay and analytics |
-| [Risk](docs/RISK.md) · [Frontend](docs/FRONTEND.md) | Pre-trade controls, kill switch and research workstation |
-| [MCP](docs/MCP.md) · [Security](docs/SECURITY.md) | Local inspection tools, credential handling and market boundaries |
-| [Performance](docs/PERFORMANCE.md) · [Testing](docs/TESTING.md) | Baseline measurements, workload methodology and verification gates |
-| [Operations](docs/OPERATIONS.md) · [Decisions](docs/DECISIONS.md) | Recovery runbooks and architecture decision records |
-
-The Phase 0 baseline was rebuilt and verified on 2026-11-06: all 18 existing C++ tests passed and the seven-profile 50,000-command benchmark produced matching map/vector results. The server binds to loopback in code; runtime endpoint smoke is subject to local sandbox socket permissions.
+**BASALT** — understand the market by building the system that simulates it.
