@@ -79,6 +79,14 @@ Start the local server:
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080). The server seeds a five level bid and ask ladder at startup. Use **Reset empty** to clear it or **Seed demo book** to restore it.
 
+The local MCP adapter uses JSON-RPC over stdio and starts without HTTP or provider configuration:
+
+```powershell
+.\build\basalt_server.exe --mcp-stdio
+```
+
+Launch this mode from an MCP client that manages stdio servers. It exposes bounded inspection and paper-simulation tools only; see [docs/MCP.md](docs/MCP.md) for the tool list and limits.
+
 Run the benchmark suite:
 
 ```powershell
@@ -87,7 +95,7 @@ Run the benchmark suite:
 .\build\basalt_bench.exe --orders 50000 --no-baseline
 ```
 
-Supported profile IDs are `BALANCED`, `BUY_HEAVY`, `SELL_HEAVY`, `AGGRESSIVE_MATCHING`, `CANCEL_HEAVY`, `CONCENTRATED_LEVELS`, and `WIDE_DISTRIBUTION`. The CLI default is 50,000 operations per profile; valid sizes range from 1 through 5,000,000.
+Supported profile IDs are `BALANCED`, `BUY_HEAVY`, `SELL_HEAVY`, `AGGRESSIVE_MATCHING`, `CANCEL_HEAVY`, `CONCENTRATED_LEVELS`, `WIDE_DISTRIBUTION`, `BURSTY_ARRIVALS`, `HIGH_ACTIVE_ORDERS`, `MULTI_INSTRUMENT_50`, `MARKET_DATA_BURST`, and `SLOW_CONSUMER`. The CLI default is 50,000 operations per profile; valid sizes range from 1 through 5,000,000.
 
 ### Recorded Release run
 
@@ -168,11 +176,11 @@ Matching one instrument is inherently ordered: every command must observe the st
 ```text
 include/basalt/core/       Domain types, order books, matching engine
 include/basalt/bench/      Workload and benchmark interfaces
-include/basalt/server/     HTTP gateway interface
+include/basalt/server/     Shared simulation facade and HTTP/MCP adapters
 src/core/                 Engine implementations
 src/bench/                Workloads, profiler, CLI
-src/server/               HTTP routes and executable entry point
-tests/                    18 GoogleTest scenarios
+src/server/               Simulation facade, HTTP/MCP handlers and executable entry point
+tests/                    GoogleTest coverage for matching, platform modules and MCP
 web/index.html            Static trading dashboard
 docs/documents.md         Master architecture specification and 2026 platform addendum
 PROGRESS.md               Phase completion and verification log

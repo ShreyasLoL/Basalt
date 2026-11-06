@@ -106,7 +106,6 @@ bool parse_unsigned_path(const std::string& text, std::uint64_t& value) {
 
 HttpServer::HttpServer(const int port) : port_(port) {
     if (port_ < 1 || port_ > 65535) throw std::invalid_argument("Port must be between 1 and 65535");
-    engine_.seed_demo_book();
     register_routes();
 }
 
@@ -114,7 +113,6 @@ HttpServer::HttpServer(const common::AppConfig& config)
     : port_(static_cast<int>(config.port)), bind_address_(config.bind_address) {
     const auto validated = common::ConfigLoader::validate(config);
     if (!validated) throw std::invalid_argument(validated.error().message);
-    engine_.seed_demo_book();
     register_routes();
 }
 
@@ -165,13 +163,12 @@ void HttpServer::register_routes() {
         }
 
         json payload;
-        {
-            std::lock_guard<std::mutex> lock(engine_mutex_);
-            const BookSnapshot snapshot = engine_.get_snapshot(depth);
-            const EngineStats stats = engine_.stats();
-            const auto trades = engine_.recent_trades(50);
-            const auto activity = engine_.recent_activity(50);
-            payload["market"] = {
+        const auto view = simulation_.inspect(depth, 50, 50);
+        const auto& snapshot = view.book;
+        const auto& stats = view.stats;
+        const auto& trades = view.trades;
+        const auto& activity = view.activity;
+        payload["market"] = {
                 {"best_bid", snapshot.best_bid}, {"has_best_bid", snapshot.has_best_bid},
                 {"best_bid_volume", snapshot.best_bid_volume},
                 {"best_ask", snapshot.best_ask}, {"has_best_ask", snapshot.has_best_ask},
@@ -195,9 +192,8 @@ void HttpServer::register_routes() {
                                                    [](const auto& order) { return to_json(order); })}
             };
             payload["trades"] = to_json_array(trades, [](const auto& trade) { return to_json(trade); });
-            payload["activity"] = to_json_array(activity,
-                                                [](const auto& record) { return to_json(record); });
-        }
+        payload["activity"] = to_json_array(activity,
+                                            [](const auto& record) { return to_json(record); });
         send_json(response, payload);
     });
 
@@ -222,15 +218,7 @@ void HttpServer::register_routes() {
             json result_json;
             int status_code = 200;
             {
-                std::lock_guard<std::mutex> lock(engine_mutex_);
-                if (order.id == 0) {
-                    while (engine_.book().has_order(next_order_id_)) ++next_order_id_;
-                    order.id = next_order_id_++;
-                } else if (order.id >= next_order_id_ && order.id < std::numeric_limits<OrderId>::max()) {
-                    next_order_id_ = order.id + 1;
-                }
-
-                const OrderResult result = engine_.submit_order(order);
+                const OrderResult result = simulation_.submit_order(order);
                 result_json = {
                     {"order_id", result.order_id},
                     {"status", std::string(basalt::to_string(result.status))},
@@ -261,10 +249,7 @@ void HttpServer::register_routes() {
                 return;
             }
             CancelResult result;
-            {
-                std::lock_guard<std::mutex> lock(engine_mutex_);
-                result = engine_.cancel_order(id);
-            }
+            result = simulation_.cancel_order(id);
             send_json(response, {
                 {"order_id", result.order_id}, {"success", result.success},
                 {"status", std::string(basalt::to_string(result.status))},
@@ -288,9 +273,10 @@ void HttpServer::register_routes() {
         }
 
         std::size_t trades_generated = 0;
-        std::size_t active_orders = 0;
+        std::vector<OrderRequest> requests;
+        requests.reserve(count);
         {
-            std::lock_guard<std::mutex> lock(engine_mutex_);
+            std::lock_guard<std::mutex> lock(simulation_rng_mutex_);
             for (std::size_t i = 0; i < count; ++i) {
                 const Side side = (simulation_rng_() & 1U) == 0 ? Side::Buy : Side::Sell;
                 const bool market = simulation_rng_() % 100 < 8;
@@ -302,13 +288,13 @@ void HttpServer::register_routes() {
                     if (side == Side::Buy) price = aggressive ? 10000 + offset : 10000 - offset;
                     else price = aggressive ? 10000 - offset : 10000 + offset;
                 }
-                const OrderId id = next_order_id_++;
-                const auto result = engine_.submit_order(OrderRequest{
-                    id, side, market ? OrderType::Market : OrderType::Limit, price, quantity});
-                trades_generated += result.trades.size();
+                requests.push_back(OrderRequest{
+                    0, side, market ? OrderType::Market : OrderType::Limit, price, quantity});
             }
-            active_orders = engine_.book().active_order_count();
         }
+        const auto results = simulation_.submit_batch(std::move(requests));
+        for (const auto& result : results) trades_generated += result.trades.size();
+        const std::size_t active_orders = simulation_.stats().active_order_count;
         send_json(response, {{"executed", count}, {"active_orders", active_orders},
                              {"trades_generated", trades_generated}});
     });
@@ -324,11 +310,7 @@ void HttpServer::register_routes() {
             send_json(response, error_json(error.what()), 400);
             return;
         }
-        {
-            std::lock_guard<std::mutex> lock(engine_mutex_);
-            engine_.reset();
-            if (seed_demo) engine_.seed_demo_book();
-        }
+        simulation_.reset(seed_demo);
         send_json(response, {{"reset", true}, {"seed_demo", seed_demo}});
     });
 

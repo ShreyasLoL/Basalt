@@ -2,7 +2,7 @@
 
 ## BASALT MCP boundary
 
-The local Model Context Protocol server exposes JSON-RPC 2.0 over stdio by default. Optional loopback SSE may be enabled only when explicitly configured. stdio stdout is reserved for protocol frames; diagnostics go to redacted stderr. The server never exposes shell execution, arbitrary file access, environment dumps, token values or live broker order placement. UI, REST and MCP share validated application facades, not internal mutable objects.
+The local Model Context Protocol server exposes JSON-RPC 2.0 over newline-delimited stdio by default. Optional loopback SSE is not implemented. stdio stdout is reserved for protocol frames; diagnostics go to stderr. The server never exposes shell execution, arbitrary file access, environment dumps, token values or live broker order placement. The HTTP and MCP adapters use the same thread-safe `SimulationFacade` for matching-engine snapshots and simulation operations; the facade returns value objects and keeps mutable engine state private. Provider-backed market data, paper ledger and strategy runtime reads report `available: false` until those services are connected to this process.
 
 ### Nine read-only tools
 
@@ -18,17 +18,19 @@ The local Model Context Protocol server exposes JSON-RPC 2.0 over stdio by defau
 
 ### Five bounded simulation tools
 
-1. run_backtest — bounded dataset/range/config; returns queued run ID and status.
-2. run_replay — starts/steps a recorded local session at a capped speed; no source mutation.
-3. run_test_suite — runs a named built-in suite from an allowlist; never accepts a command string.
-4. run_benchmark — allowlisted workload/implementation and strict operation cap; rate limited to five calls/minute per client.
-5. trigger_kill_switch — latches global/account/strategy simulation kill switch with required reason; cannot clear it.
+1. run_backtest — runs one of six built-in strategies against 3–1,000 caller-supplied inline OHLCV bars using deterministic paper-only bar execution and a fixed held-out test split.
+2. run_replay — starts one in-memory replay from 3–1,000 inline bars, then steps or plays at most 500 events per call at 1x/5x/10x/MAX.
+3. run_test_suite — runs the named matching-invariant and/or eighteen-metric catalog checks from an allowlist; never accepts a command string.
+4. run_benchmark — selects one of twelve seeded workloads and map/list, vector, arena or all implementations with a strict 10,000-operation cap; rate limited to five calls/minute per client.
+5. trigger_kill_switch — durably latches a global/account/strategy simulation kill switch with a required reason; the reason is redacted in audit and persistence, and MCP cannot clear the latch.
 
-Tool schemas are closed objects with required types, enum/range constraints and per-tool maximum duration. Benchmark/backtest/replay sizes are bounded. Mutations create an audit record with actor, method, request ID, outcome, timestamp and redacted parameter summary in logs/mcp_audit.jsonl. Rate-limit, schema and authorization failures are audit events. Audit file permissions are user-only where supported; rotation preserves bounded storage. Secrets and arbitrary free-form payloads are never logged.
+Tool schemas are closed objects with required types, enum/range constraints and fixed operation caps. Read tools are limited to 120 calls/minute per stdio client; simulation tools are limited to ten calls/minute, with benchmark and kill-switch calls limited to five/minute. Mutating calls are idempotent for 256 cached request IDs; a reused ID with a different request is rejected. Mutations and failures create audit records with actor, method, request-ID digest, outcome, timestamp and permitted parameter names in `logs/mcp_audit.jsonl`. Raw request IDs, argument values, free-form reasons and unknown parameter names are never logged. Schema, rate-limit and unknown-tool failures are audited. The JSONL audit file is capped at 1 MiB and rotates one bounded backup; file permissions are owner-only where supported. The persistent kill-switch event log is also capped at 1 MiB and rejects new activations if the cap is reached.
 
 ## Protocol behavior
 
-Initialize negotiates supported MCP protocol version and capabilities. tools/list returns the fourteen tools with JSON schemas and simulation annotations. tools/call validates arguments, enforces rate/size/time limits, calls the application facade, and returns structuredContent plus safe text. Errors use protocol error codes without stack traces or secret values. Duplicate request IDs are idempotent for state-changing calls. Server supports cancellation and bounded shutdown. Automated protocol tests cover discovery, happy-path reads, valid calls, malformed schemas, rate limits, audit entries, redaction and denial of shell/file/live execution.
+Initialize negotiates one of the supported protocol versions and advertises tools capability. `tools/list` returns the fourteen tools with closed JSON schemas and read-only/simulation annotations. `tools/call` validates arguments, enforces frame, rate and work limits, calls the application facade, and returns `structuredContent` plus safe text. Errors contain stable codes without stack traces or secret values. Shutdown is bounded by the per-tool caps; cancellation notifications are consumed, while the current stdio implementation processes each bounded tool call synchronously. Automated protocol tests cover discovery, reads, backtests, replay, allowlisted checks/benchmarks, malformed schemas, request-ID idempotency, rate limits, audit rotation/redaction, kill-switch restart persistence and denial of shell/file/live execution.
+
+Run the local stdio service with `basalt_server --mcp-stdio`. This mode starts without loading HTTP configuration or provider credentials. Each MCP process has its own local simulation facade; its matching book is not a remote control channel to another BASALT process.
 
 ## Figma MCP
 

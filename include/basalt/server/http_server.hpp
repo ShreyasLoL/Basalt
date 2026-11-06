@@ -2,7 +2,7 @@
 
 #include "basalt/bench/benchmark_runner.hpp"
 #include "basalt/common/config.hpp"
-#include "basalt/core/matching_engine.hpp"
+#include "basalt/server/simulation_facade.hpp"
 
 #include <httplib.h>
 
@@ -28,11 +28,10 @@ private:
     int port_;
     std::string bind_address_{"127.0.0.1"};
     httplib::Server server_{};
-    MatchingEngine engine_{};
+    SimulationFacade simulation_{};
     bench::BenchmarkRunner benchmark_runner_{};
-    mutable std::mutex engine_mutex_{};
+    mutable std::mutex simulation_rng_mutex_{};
     std::mt19937_64 simulation_rng_{42};
-    OrderId next_order_id_{10000};
 
     void register_routes();
     [[nodiscard]] static std::string ui_html();

@@ -125,12 +125,14 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 112/112 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest + 9 matching evolution + 6 telemetry/benchmark). Pool exhaustion, stale handles, reclamation, telemetry sampling/drop accounting and all-profile parity fixtures passed.
 - [x] Ran `basalt_bench --orders 10000` and recorded the actual 12-profile output and observed Windows/CPU/compiler/build metadata in `docs/PERFORMANCE.md`; results are explicitly single-host measurements, not guarantees. Phase 9 committed locally; no push.
 
-## Phase 10 — BASALT MCP server [ ]
+## Phase 10 — BASALT MCP server [x]
 
-- [ ] JSON-RPC stdio lifecycle and MCP initialize/tools/list/tools/call.
-- [ ] Nine read-only tools and five validated/rate-limited simulation tools.
-- [ ] Redacted audit log, bounded work, no shell/file/secret/live-order capability.
-- [ ] Discovery/call/schema/rate-limit/audit/redaction tests; full Release build, CTest and phase commit.
+- [x] JSON-RPC 2.0 newline-delimited stdio lifecycle with initialize negotiation, initialized notification, tools/list, tools/call, ping, cancellation notification consumption, bounded shutdown and frame-size enforcement; `--mcp-stdio` bypasses HTTP/provider environment configuration.
+- [x] Nine read-only tools and five bounded simulation tools use closed schemas. The HTTP and MCP adapters share the thread-safe `SimulationFacade`; disconnected provider, ledger and strategy read models report `available: false` instead of fabricated data.
+- [x] Inline-bar paper backtest (1,000-bar cap), in-memory replay (500 events/call), allowlisted verification suite, twelve-profile/10,000-operation benchmark and durable non-clearable kill switch. Read rate limit 120/min, simulation limit 10/min, benchmark/kill limit 5/min; controlled requests are idempotent for a 256-ID cache.
+- [x] Redacted JSONL audit with one 1 MiB backup and a 1 MiB kill-switch event-log cap. No shell, arbitrary file, environment, credentials, or live-order capability; kill-switch reason stays redacted in audit, persistent log and response.
+- [x] Verification: strict Release build of all targets succeeded; CTest passed 123/123 (112 existing + 11 MCP); MCP executable stdio smoke exchanged initialize/list/shutdown and reported 14 tools without HTTP configuration; loopback HTTP smoke passed state, submit, cancel, simulation step and reset. No compiler warnings; Ninja reported its existing `.ninja_log` premature-EOF recovery.
+- [x] Phase 10 implementation committed locally; no push.
 
 ## Commit log
 
@@ -142,4 +144,9 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-4): add durable catalog, framed event log, recovery, history and replay — committed locally.
 - [x] feat(phase-5): add risk controls, paper execution and portfolio ledger — committed locally.
 - [x] feat(phase-6): add strategy lifecycle, indicators and six built-in strategies — committed locally.
-- Phase 7–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-7): add causal backtesting, replay and analytics — 946826f
+- [x] feat(phase-8): add instrument-isolated advanced matching — a731df5
+- [x] feat(phase-9): add telemetry workloads and pooled arena — 38504c5
+- feat(phase-10): add local MCP stdio inspection and simulation interface — commit recorded after local commit.
+
+All commits are local. Never push.

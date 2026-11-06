@@ -1,4 +1,5 @@
 #include "basalt/server/http_server.hpp"
+#include "basalt/server/mcp_server.hpp"
 
 #include "basalt/common/config.hpp"
 
@@ -22,6 +23,18 @@ bool parse_port(const std::string_view text, int& port) {
 } // namespace
 
 int main(int argc, char** argv) {
+    bool mcp_stdio = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--mcp-stdio") mcp_stdio = true;
+    }
+    if (mcp_stdio) {
+        if (argc != 2) {
+            std::cerr << "--mcp-stdio cannot be combined with HTTP server options\n";
+            return 2;
+        }
+        basalt::server::McpServer server;
+        return server.run_stdio(std::cin, std::cout) ? 0 : 1;
+    }
     auto loaded_config = basalt::common::ConfigLoader::from_environment();
     if (!loaded_config) {
         std::cerr << "Invalid configuration: " << loaded_config.error().message << '\n';
@@ -32,7 +45,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
         if (argument == "--help" || argument == "-h") {
-            std::cout << "Usage: basalt_server [--port 1-65535]\n";
+            std::cout << "Usage: basalt_server [--port 1-65535] | basalt_server --mcp-stdio\n";
             return 0;
         }
         if (argument == "--port" && i + 1 < argc) {
