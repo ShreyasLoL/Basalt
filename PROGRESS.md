@@ -90,12 +90,15 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 68/68 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading). Targeted coverage includes all sixteen rejection codes, risk boundaries, audit failure, kill-switch recovery, fee rounding, four execution models, partial fills, short flips, restart and reconciliation.
 - [x] Phase 5 implementation committed locally; no push.
 
-## Phase 6 — Strategy runtime and six quantitative strategies [ ]
+## Phase 6 — Strategy runtime and six quantitative strategies [x]
 
-- [ ] Ten-state lifecycle, legal transitions and failure isolation.
-- [ ] Incremental SMA, EMA, RSI, Bollinger, session VWAP and book imbalance.
-- [ ] SMA crossover, RSI mean reversion, Bollinger, VWAP, momentum and imbalance strategies.
-- [ ] Warm-up, deterministic signal, risk-only intent and exception tests; build/CTest; commit phase.
+- [x] Ten-state lifecycle with typed transition errors, instrument/context validation, warm-up suppression, stale/gap/quality filtering, pause/resume/stop, and exception isolation through a host failure sink.
+- [x] Incremental integer-only SMA, EMA, Wilder RSI, population-variance Bollinger bands with floor integer square root, checked session VWAP, and signed top-five book imbalance.
+- [x] Six deterministic built-ins: SMA crossover, RSI mean reversion, configurable Bollinger breakout/reversion, intraday VWAP reversion, prior-channel momentum with completed-bar volume confirmation, and top-five order-book imbalance.
+- [x] Strategy descriptors expose stable IDs/version/hash, required channels/warm-up and parameter schema; unknown parameters fail closed. Budget sizing accounts for configured fees/slippage, rounds to whole lots, and close quantity cannot exceed the open position.
+- [x] Runtime routes generated intents through Phase 5 RiskEngine; only approved signals are returned, and rejection decisions remain inspectable.
+- [x] Verification: strict Release build succeeded; CTest passed 88/88 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy). Fixture coverage includes indicator math/overflow, all six strategy signals, deterministic IDs, session resets, risk acceptance/rejection, warm-up, stale/gapped inputs, legal transitions and exception isolation.
+- [x] Phase 6 implementation committed locally; no push.
 
 ## Phase 7 — Bias-free backtesting and deterministic replay [ ]
 
@@ -134,4 +137,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-3): add instrument master, normalized market events, bounded bus and offline providers — committed locally.
 - [x] feat(phase-4): add durable catalog, framed event log, recovery, history and replay — committed locally.
 - [x] feat(phase-5): add risk controls, paper execution and portfolio ledger — committed locally.
-- Phase 6–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-6): add strategy lifecycle, indicators and six built-in strategies — committed locally.
+- Phase 7–10 implementation commits pending. Local commits only; never push.

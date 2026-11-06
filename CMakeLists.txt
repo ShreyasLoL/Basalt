@@ -125,6 +125,21 @@ else()
 endif()
 basalt_enable_sanitizers(basalt_trading)
 
+add_library(basalt_strategy STATIC
+    src/strategy/indicators.cpp
+    src/strategy/runtime.cpp
+    src/strategy/builtins.cpp
+)
+target_include_directories(basalt_strategy PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(basalt_strategy PUBLIC basalt_common basalt_market_data basalt_trading)
+target_compile_features(basalt_strategy PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_strategy PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_strategy PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_strategy)
+
 enable_testing()
 add_executable(basalt_tests tests/test_matching_engine.cpp)
 target_link_libraries(basalt_tests PRIVATE basalt_core GTest::gtest_main)
@@ -176,6 +191,16 @@ else()
 endif()
 gtest_discover_tests(basalt_trading_tests)
 basalt_enable_sanitizers(basalt_trading_tests)
+
+add_executable(basalt_strategy_tests tests/test_strategy.cpp)
+target_link_libraries(basalt_strategy_tests PRIVATE basalt_strategy GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_strategy_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_strategy_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_strategy_tests)
+basalt_enable_sanitizers(basalt_strategy_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
 target_link_libraries(basalt_bench PRIVATE basalt_core)
