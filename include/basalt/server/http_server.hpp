@@ -1,6 +1,7 @@
 #pragma once
 
 #include "basalt/bench/benchmark_runner.hpp"
+#include "basalt/common/config.hpp"
 #include "basalt/core/matching_engine.hpp"
 
 #include <httplib.h>
@@ -8,12 +9,14 @@
 #include <cstdint>
 #include <mutex>
 #include <random>
+#include <string>
 
 namespace basalt::server {
 
 class HttpServer {
 public:
     explicit HttpServer(int port = 8080);
+    explicit HttpServer(const common::AppConfig& config);
     HttpServer(const HttpServer&) = delete;
     HttpServer& operator=(const HttpServer&) = delete;
 
@@ -23,6 +26,7 @@ public:
 
 private:
     int port_;
+    std::string bind_address_{"127.0.0.1"};
     httplib::Server server_{};
     MatchingEngine engine_{};
     bench::BenchmarkRunner benchmark_runner_{};

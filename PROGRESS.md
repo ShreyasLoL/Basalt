@@ -45,13 +45,14 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Documentation suite committed locally before Phase 0 completion: d67e745.
 - [x] Phase 0 baseline and audit committed locally; see commit history. No push.
 
-## Phase 1 — Foundation, configuration, logging and code quality [ ]
+## Phase 1 — Foundation, configuration, logging and code quality [x]
 
-- [ ] Common fixed-point types, checked arithmetic, Result/Error, source and quality enums.
-- [ ] Validated configuration defaults to 127.0.0.1:8080 and handles bounds/errors.
-- [ ] Structured logger with secret redaction and bounded output policy.
-- [ ] CMake targets and additive tests; preserve legacy interfaces and all 18 tests.
-- [ ] Release build, CTest and redaction/config/arithmetic verification; commit phase.
+- [x] Common fixed-point types, checked add/multiply, Result/Error, source and quality enums under basalt::common; legacy aliases remain untouched.
+- [x] Validated environment/CLI configuration defaults to 127.0.0.1:8080, rejects remote bind without explicit opt-in, and checks ports, queues and stale timeout.
+- [x] Structured JSON/console logger redacts sensitive field names and embedded token/password/API-key assignments.
+- [x] Added basalt_common_tests and opt-in BASALT_ENABLE_SANITIZERS CMake switch; preserved all legacy interfaces and tests.
+- [x] CMake Release build succeeded with strict warnings; CTest passed 26/26 (18 legacy + 8 common); environment-configured loopback server smoke succeeded on port 18765.
+- [x] Phase 1 implementation committed locally; no push.
 
 ## Phase 2 — Institutional workstation frontend [ ]
 
@@ -123,4 +124,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 
 - [x] docs(spec): generate complete BASALT architecture and specification suite — d67e745
 - [x] feat(phase-0): record verified repository audit and benchmark baseline — committed locally.
-- Phase 1–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-1): add common types, validated configuration, logging and sanitizer option — committed locally.
+- Phase 2–10 implementation commits pending. Local commits only; never push.

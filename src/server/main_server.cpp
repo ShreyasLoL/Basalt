@@ -1,8 +1,11 @@
 #include "basalt/server/http_server.hpp"
 
+#include "basalt/common/config.hpp"
+
 #include <charconv>
 #include <iostream>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -19,7 +22,13 @@ bool parse_port(const std::string_view text, int& port) {
 } // namespace
 
 int main(int argc, char** argv) {
-    int port = 8080;
+    auto loaded_config = basalt::common::ConfigLoader::from_environment();
+    if (!loaded_config) {
+        std::cerr << "Invalid configuration: " << loaded_config.error().message << '\n';
+        return 2;
+    }
+    basalt::common::AppConfig config = std::move(loaded_config).value();
+    int port = static_cast<int>(config.port);
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
         if (argument == "--help" || argument == "-h") {
@@ -37,8 +46,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    basalt::server::HttpServer server(port);
-    std::cout << "BASALT serving http://127.0.0.1:" << port << "\n";
+    config.port = static_cast<std::uint32_t>(port);
+    basalt::server::HttpServer server(config);
+    std::cout << "BASALT serving http://" << config.bind_address << ':' << port << "\n";
     if (!server.run()) {
         std::cerr << "Failed to start HTTP server on port " << port << '\n';
         return 1;

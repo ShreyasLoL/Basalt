@@ -110,6 +110,14 @@ HttpServer::HttpServer(const int port) : port_(port) {
     register_routes();
 }
 
+HttpServer::HttpServer(const common::AppConfig& config)
+    : port_(static_cast<int>(config.port)), bind_address_(config.bind_address) {
+    const auto validated = common::ConfigLoader::validate(config);
+    if (!validated) throw std::invalid_argument(validated.error().message);
+    engine_.seed_demo_book();
+    register_routes();
+}
+
 std::string HttpServer::ui_html() {
     constexpr std::array<const char*, 4> candidates{
         "web/index.html", "../web/index.html", "../../web/index.html", "../../../web/index.html"};
@@ -360,7 +368,7 @@ void HttpServer::register_routes() {
 }
 
 bool HttpServer::run() {
-    return server_.listen("127.0.0.1", port_);
+    return server_.listen(bind_address_, port_);
 }
 
 void HttpServer::stop() noexcept {
