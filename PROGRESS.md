@@ -109,12 +109,13 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 97/97 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest). Cases cover split embargo, replay controls/checkpoints, duplicate and unordered input, all 18 metrics and undefined states, next-bar timing, deterministic hashes, look-ahead/dataset leakage, seeded positions, risk-rejection journaling and invalid quality input.
 - [x] Phase 7 committed locally; no push.
 
-## Phase 8 — Multi-instrument matching engine evolution [ ]
+## Phase 8 — Multi-instrument matching engine evolution [x]
 
-- [ ] Isolated per-instrument books; retain single-book API and tests.
-- [ ] IOC, FOK, POST_ONLY, STOP_MARKET, STOP_LIMIT, modify priority rules.
-- [ ] CANCEL_NEWEST, CANCEL_OLDEST and CANCEL_BOTH self-trade prevention.
-- [ ] Invariant tests for order types, modification, STP and cross-instrument isolation; build/CTest; commit phase.
+- [x] Additive `MultiInstrumentEngine` maintains instrument-isolated books with globally unique active order IDs, instrument/account/participant trade attribution, cancel and invariant inspection; legacy `MatchingEngine` is unchanged.
+- [x] LIMIT, MARKET, IOC, FOK, POST_ONLY, STOP_MARKET and STOP_LIMIT, reference-trade stop activation, and amendments. FOK failure returns before book/sequence/trade-ID mutation; quantity decreases retain priority while price/quantity increases requeue at the tail.
+- [x] Account/participant STP policies implement CANCEL_NEWEST, CANCEL_OLDEST and CANCEL_BOTH.
+- [x] Verification: strict Release build succeeded; CTest passed 106/106 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest + 9 matching-evolution). Focused invariant, order-type, amendment, STP, FOK atomicity and instrument-isolation fixtures pass.
+- [x] Semantics recorded in `docs/MATCHING_ENGINE.md` and `docs/TRADING.md`; Phase 8 committed locally; no push.
 
 ## Phase 9 — Telemetry, twelve workloads and memory arena [ ]
 

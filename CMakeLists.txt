@@ -82,6 +82,7 @@ add_library(basalt_core STATIC
     src/core/types.cpp
     src/core/order_book.cpp
     src/core/matching_engine.cpp
+    src/core/multi_instrument_engine.cpp
     src/core/vector_order_book.cpp
     src/bench/workload_generator.cpp
     src/bench/benchmark_runner.cpp
@@ -244,6 +245,16 @@ else()
 endif()
 gtest_discover_tests(basalt_strategy_tests)
 basalt_enable_sanitizers(basalt_strategy_tests)
+
+add_executable(basalt_multi_instrument_tests tests/test_multi_instrument_engine.cpp)
+target_link_libraries(basalt_multi_instrument_tests PRIVATE basalt_core GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_multi_instrument_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_multi_instrument_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_multi_instrument_tests)
+basalt_enable_sanitizers(basalt_multi_instrument_tests)
 
 add_executable(basalt_backtest_tests tests/test_backtest.cpp)
 target_link_libraries(basalt_backtest_tests PRIVATE basalt_backtest GTest::gtest_main)
