@@ -8,7 +8,7 @@ The matching core uses fixed point integer ticks and has no HTTP or JSON depende
 
 ```mermaid
 flowchart LR
-  UI[Vanilla HTML dashboard] -->|HTTP JSON| GW["C++ gateway<br/>cpp-httplib + nlohmann/json"]
+  UI[React + TypeScript workstation] -->|REST/WS JSON| GW["C++ gateway<br/>cpp-httplib + nlohmann/json"]
   GW --> CORE[MatchingEngine]
   CORE --> BOOK["MapListOrderBook<br/>map + FIFO list + ID index"]
   TEST[GoogleTest suite] --> CORE
@@ -32,7 +32,7 @@ flowchart LR
 - Windows x64 with Visual Studio 2022 or later, or Clang 15+ / GCC 12+.
 - CMake 3.20+ and Ninja, or a Visual Studio CMake generator.
 - Internet access on the first configure so CMake FetchContent can download pinned dependencies: GoogleTest 1.14.0, cpp-httplib 0.15.3, and nlohmann/json 3.11.3.
-- The browser UI is static HTML, CSS, and JavaScript. It does not need Node.js or a frontend build step.
+- The workstation source is React + TypeScript. Building it needs Node.js 22.12+ and npm; the C++ server itself has no Node.js runtime dependency.
 
 ## Build and verify on Windows
 
@@ -53,6 +53,17 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 
 The first configure downloads the dependencies into the ignored `build/_deps` directory. On Windows, `basalt_server` links `Ws2_32` for cpp-httplib.
+
+Build the local workstation bundle before the first server run; Vite writes it to the ignored `web/app/` folder. If that bundle is absent, the server serves the legacy `web/index.html` fallback.
+
+```powershell
+cd frontend
+npm ci
+npm run typecheck
+npm test
+npm run build
+cd ..
+```
 
 The repository includes VS Code CMake settings, build/test/benchmark/server tasks, and launch configurations under `.vscode/`.
 

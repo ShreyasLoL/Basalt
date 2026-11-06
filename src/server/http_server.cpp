@@ -119,6 +119,15 @@ HttpServer::HttpServer(const common::AppConfig& config)
 }
 
 std::string HttpServer::ui_html() {
+#ifdef BASALT_FRONTEND_DIST_DIR
+    {
+        std::ifstream app_input(BASALT_FRONTEND_DIST_DIR "/index.html", std::ios::binary);
+        if (app_input) {
+            std::string contents((std::istreambuf_iterator<char>(app_input)), std::istreambuf_iterator<char>());
+            if (!contents.empty()) return contents;
+        }
+    }
+#endif
     constexpr std::array<const char*, 4> candidates{
         "web/index.html", "../web/index.html", "../../web/index.html", "../../../web/index.html"};
     for (const char* path : candidates) {
@@ -131,6 +140,9 @@ std::string HttpServer::ui_html() {
 }
 
 void HttpServer::register_routes() {
+#ifdef BASALT_FRONTEND_DIST_DIR
+    static_cast<void>(server_.set_mount_point("/assets", BASALT_FRONTEND_DIST_DIR "/assets"));
+#endif
     server_.Get("/", [](const httplib::Request&, httplib::Response& response) {
         set_cors(response);
         response.set_content(ui_html(), "text/html; charset=utf-8");

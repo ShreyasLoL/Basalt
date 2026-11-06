@@ -54,14 +54,16 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] CMake Release build succeeded with strict warnings; CTest passed 26/26 (18 legacy + 8 common); environment-configured loopback server smoke succeeded on port 18765.
 - [x] Phase 1 implementation committed locally; no push.
 
-## Phase 2 — Institutional workstation frontend [ ]
+## Phase 2 — Institutional workstation frontend [x]
 
-- [ ] React + TypeScript + Vite + Tailwind + Zustand + chart package and locked dependencies.
-- [ ] Market Watch and instrument chart/depth/time-and-sales.
-- [ ] Strategy Lab, paper blotters, portfolio/risk, kill switch.
-- [ ] Backtesting, replay, analytics, data sources and system monitor.
-- [ ] Typed REST/WS state, bounded external store, reconnect/gap handling, keyboard/accessibility/responsive states.
-- [ ] Production bundle served by C++ gateway with legacy fallback; build/typecheck/UI verification; commit phase.
+- [x] React + TypeScript + Vite + Tailwind + Zustand + Lightweight Charts and package lock; ignored npm cache and generated `web/app/` output per frontend spec.
+- [x] 13-workspace dark responsive workstation, typed quote/book/tape/order views, chart empty state, keyboard-operable navigation, risk controls and truthful empty/unavailable states.
+- [x] Typed REST v1 and legacy CLOB adapters; integer tick labels preserved; unsupported advanced order types disabled on legacy server.
+- [x] WebSocket v1 frame validation, 20 Hz quote coalescing, bounded 512-event store, durable-frame queue, last-sequence resume, reconnect backoff and REST snapshot request on explicit gap/overflow.
+- [x] C++ gateway prefers the built bundle and serves `/assets/*`; retains `web/index.html` fallback. README documents `npm ci`/typecheck/test/build.
+- [x] Verification: frontend typecheck passed; Vitest passed 7/7; Vite production build succeeded; `npm install` reported 0 vulnerabilities; C++ Release build succeeded and CTest passed 26/26.
+- [x] Runtime smoke: loopback GET `/` served React root, generated JS/CSS returned 200, GET `/api/state` returned the seeded book; browser check confirmed Market Watch tick units and legacy order constraints.
+- [x] Phase 2 committed locally; see commit log. No push.
 
 ## Phase 3 — Market-data gateway and instrument master [ ]
 
@@ -125,4 +127,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] docs(spec): generate complete BASALT architecture and specification suite — d67e745
 - [x] feat(phase-0): record verified repository audit and benchmark baseline — committed locally.
 - [x] feat(phase-1): add common types, validated configuration, logging and sanitizer option — committed locally.
-- Phase 2–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-2): institutional workstation frontend and static bundle integration — committed locally.
+- Phase 3–10 implementation commits pending. Local commits only; never push.

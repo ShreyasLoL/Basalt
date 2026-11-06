@@ -115,6 +115,8 @@ configure_file(src/server/embedded_ui.hpp.in
 
 add_executable(basalt_server src/server/http_server.cpp src/server/main_server.cpp)
 target_include_directories(basalt_server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_compile_definitions(basalt_server PRIVATE
+    BASALT_FRONTEND_DIST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/web/app")
 target_link_libraries(basalt_server PRIVATE basalt_core httplib::httplib nlohmann_json::nlohmann_json)
 if(WIN32)
     target_link_libraries(basalt_server PRIVATE ws2_32)
