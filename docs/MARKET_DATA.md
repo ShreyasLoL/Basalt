@@ -65,3 +65,11 @@ Health states are OK, STALE, DEGRADED, DISCONNECTED. Thresholds are configurable
 ## Queue bounds and backpressure
 
 Durable market events, executions, orders and ledger records use a bounded ordered MPSC channel. Prefer one producer/one consumer SPSC only when topology is enforced. On full queue: backpressure the adapter for a short bounded interval, then mark DEGRADED, increment overflow counters, stop strategy intent generation, and surface a fault; never silently drop durable events. UI quote fanout uses per-instrument latest-value coalescing, counts replacements, and caps WS frequency. Replay uses a dedicated deterministic queue with no coalescing. Queue capacity and policy are observable configuration, not magic constants.
+
+## Phase 3 local implementation
+
+The `basalt_market_data` CMake library implements the provider-neutral interface, versioned `InstrumentMaster`, fixed-point normalizer, feed-health snapshots and bounded durable/quote event bus. Its seeded catalog contains ten visibly `SIM:` symbols matching the roadmap watchlist. Provider/exchange token identifiers are not fabricated; NSE/BSE entries can be added with verified tick, lot and effective-dated mapping data.
+
+`DeterministicSyntheticProvider` accepts active SIM instruments only. `CsvJsonReplayProvider` reads from caller-supplied streams, so the caller controls which local file is opened. CSV headers are `event_id,provider_instrument_key,kind,event_time_ns,provider_sequence,price,quantity,bid,bid_quantity,ask,ask_quantity,open,high,low,close,volume,provenance_label`. JSON Lines use the same field names and may include `bids` and `asks` arrays of `{price,quantity}` objects. Both formats are capped at 1 MiB per record and one million events. Replay data is labeled `REPLAYED`; synthetic data is labeled `SYNTHETIC`.
+
+`UpstoxProviderStub` targets the documented v3 boundary and `FyersProviderAdapter` exposes the current diagnostic boundary. Both deliberately return `DIAGNOSTIC_ONLY`, report no live capabilities, read no token value, open no network connection, and contain no order method. Their source registration must remain disconnected until provider schemas, entitlements and licensing are explicitly validated.

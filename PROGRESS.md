@@ -65,13 +65,14 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Runtime smoke: loopback GET `/` served React root, generated JS/CSS returned 200, GET `/api/state` returned the seeded book; browser check confirmed Market Watch tick units and legacy order constraints.
 - [x] Phase 2 committed locally; see commit log. No push.
 
-## Phase 3 — Market-data gateway and instrument master [ ]
+## Phase 3 — Market-data gateway and instrument master [x]
 
-- [ ] Versioned NSE/BSE/SIM InstrumentMaster and provider symbol mappings.
-- [ ] IMarketDataProvider, canonical events and twelve-stage pipeline.
-- [ ] Deterministic synthetic and CSV/JSON replay providers.
-- [ ] Safe Upstox current-version/FYERS diagnostic adapters; environment secrets; no order methods.
-- [ ] Tests for malformed payloads, deduplication, ordering, staleness, gaps and reconnect; build/CTest; commit phase.
+- [x] Versioned InstrumentMaster supports NSE/BSE/SIM definitions and effective-dated provider mappings; ten SIM symbols are seeded without inventing NSE/BSE feed tokens.
+- [x] Added provider-neutral `IMarketDataProvider`, canonical event types, fixed-point/tick/lot validation, gap/duplicate/out-of-order detection, stale and clock-skew quality, reconnect generation, and bounded event bus.
+- [x] Deterministic synthetic SIM provider plus bounded CSV/JSON Lines stream replay; parsers reject malformed/oversize records and do not open arbitrary paths.
+- [x] Upstox v3 and FYERS diagnostic-only adapters remain disconnected, read no credential values, have no live capabilities and expose no order methods.
+- [x] Verification: Release build passed with strict warnings; CTest passed 38/38 (18 legacy + 8 common + 12 market-data); focused coverage includes fixed-point/tick, malformed events, aliases, stale/skew, dedup/order/gap/reconnect, replay parsing, queue pressure and diagnostic adapters.
+- [x] Phase 3 locally committed; provider connections remain intentionally diagnostic-only pending official schema/entitlement/licensing review. No push.
 
 ## Phase 4 — Persistence, historical storage and event log [ ]
 
@@ -128,4 +129,5 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] feat(phase-0): record verified repository audit and benchmark baseline — committed locally.
 - [x] feat(phase-1): add common types, validated configuration, logging and sanitizer option — committed locally.
 - [x] feat(phase-2): institutional workstation frontend and static bundle integration — committed locally.
-- Phase 3–10 implementation commits pending. Local commits only; never push.
+- [x] feat(phase-3): add instrument master, normalized market events, bounded bus and offline providers — committed locally.
+- Phase 4–10 implementation commits pending. Local commits only; never push.

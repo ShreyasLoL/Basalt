@@ -75,6 +75,23 @@ add_library(basalt_common INTERFACE)
 target_include_directories(basalt_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(basalt_common INTERFACE cxx_std_20)
 
+add_library(basalt_market_data STATIC
+    src/market_data/types.cpp
+    src/market_data/instrument_master.cpp
+    src/market_data/event_bus.cpp
+    src/market_data/pipeline.cpp
+    src/market_data/providers.cpp
+)
+target_include_directories(basalt_market_data PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(basalt_market_data PUBLIC basalt_common PRIVATE nlohmann_json::nlohmann_json)
+target_compile_features(basalt_market_data PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_market_data PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_market_data PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_market_data)
+
 enable_testing()
 add_executable(basalt_tests tests/test_matching_engine.cpp)
 target_link_libraries(basalt_tests PRIVATE basalt_core GTest::gtest_main)
@@ -96,6 +113,16 @@ else()
 endif()
 gtest_discover_tests(basalt_common_tests)
 basalt_enable_sanitizers(basalt_common_tests)
+
+add_executable(basalt_market_data_tests tests/test_market_data.cpp)
+target_link_libraries(basalt_market_data_tests PRIVATE basalt_market_data GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_market_data_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_market_data_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_market_data_tests)
+basalt_enable_sanitizers(basalt_market_data_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
 target_link_libraries(basalt_bench PRIVATE basalt_core)
