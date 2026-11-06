@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
+#include <thread>
 
 namespace {
 
@@ -19,7 +20,31 @@ bool parse_size(const std::string_view text, std::size_t& value) {
 void print_usage() {
     std::cout << "Usage: basalt_bench [--orders N] [--profile ID] [--no-baseline]\n"
                  "Profiles: BALANCED, BUY_HEAVY, SELL_HEAVY, AGGRESSIVE_MATCHING,\n"
-                 "          CANCEL_HEAVY, CONCENTRATED_LEVELS, WIDE_DISTRIBUTION\n";
+                 "          CANCEL_HEAVY, CONCENTRATED_LEVELS, WIDE_DISTRIBUTION,\n"
+                 "          BURSTY_ARRIVALS, HIGH_ACTIVE_ORDERS, MULTI_INSTRUMENT_50,\n"
+                 "          MARKET_DATA_BURST, SLOW_CONSUMER\n";
+}
+
+void print_environment() {
+    std::cout << "Environment: ";
+#if defined(_WIN32)
+    std::cout << "Windows";
+#elif defined(__linux__)
+    std::cout << "Linux";
+#elif defined(__APPLE__)
+    std::cout << "macOS";
+#else
+    std::cout << "unknown-OS";
+#endif
+#if defined(__clang__)
+    std::cout << ", Clang " << __clang_version__;
+#elif defined(_MSC_VER)
+    std::cout << ", MSVC " << _MSC_VER;
+#elif defined(__GNUC__)
+    std::cout << ", GCC " << __VERSION__;
+#endif
+    std::cout << ", hardware threads=" << std::thread::hardware_concurrency()
+              << ", steady_clock, seed=42\n";
 }
 
 } // namespace
@@ -44,7 +69,7 @@ int main(int argc, char** argv) {
         } else if (argument == "--profile") {
             if (i + 1 >= argc ||
                 !basalt::bench::parse_profile(argv[++i], selected)) {
-                std::cerr << "--profile must name one of the seven workload IDs\n";
+                std::cerr << "--profile must name one of the twelve workload IDs\n";
                 return 2;
             }
             all_profiles = false;
@@ -59,6 +84,7 @@ int main(int argc, char** argv) {
 
     try {
         const basalt::bench::BenchmarkRunner runner;
+        print_environment();
         const auto results = all_profiles
             ? runner.run_all(order_count, compare_baseline)
             : runner.run(selected, order_count, compare_baseline);

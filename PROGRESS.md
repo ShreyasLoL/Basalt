@@ -117,12 +117,13 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build succeeded; CTest passed 106/106 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest + 9 matching-evolution). Focused invariant, order-type, amendment, STP, FOK atomicity and instrument-isolation fixtures pass.
 - [x] Semantics recorded in `docs/MATCHING_ENGINE.md` and `docs/TRADING.md`; Phase 8 committed locally; no push.
 
-## Phase 9 — Telemetry, twelve workloads and memory arena [ ]
+## Phase 9 — Telemetry, twelve workloads and memory arena [x]
 
-- [ ] T0–T10 stage latency and queue/quality metrics.
-- [ ] Twelve reproducible workloads including 50-instrument, market-data burst and slow-consumer.
-- [ ] Fixed-capacity order pool and map/list/vector/arena parity benchmarks.
-- [ ] Record real environment and run outputs; pool exhaustion/reclamation tests; build/CTest; commit phase.
+- [x] Bounded sampled `PipelineTelemetry` stores eleven monotonic timestamps, reports ten adjacent T0–T10 spans plus end-to-end percentiles (p50/p90/p95/p99/p99.9), clock source/resolution, queue high-water, feed-quality counts, sampled spans and capacity/validation drops.
+- [x] Twelve seeded profiles cover balanced, buy-heavy, sell-heavy, aggressive, cancellation-heavy, concentrated, wide, bursty, high-active-order, fifty-instrument, normalized market-data burst and slow-consumer backpressure cases.
+- [x] Fixed-capacity generation-checked `ObjectPool<Order>` and intrusive `ArenaOrderBook`; benchmark runs compare full trade sequences, cancellations and final per-instrument snapshots with map/list and vector books. Pool capacity, acquisitions, peak use, exhaustion, durable queue high-water and accepted/drop counts are reported.
+- [x] Verification: strict Release build succeeded; CTest passed 112/112 (18 legacy + 8 common + 12 market-data + 11 persistence + 19 trading + 20 strategy + 9 backtest + 9 matching evolution + 6 telemetry/benchmark). Pool exhaustion, stale handles, reclamation, telemetry sampling/drop accounting and all-profile parity fixtures passed.
+- [x] Ran `basalt_bench --orders 10000` and recorded the actual 12-profile output and observed Windows/CPU/compiler/build metadata in `docs/PERFORMANCE.md`; results are explicitly single-host measurements, not guarantees. Phase 9 committed locally; no push.
 
 ## Phase 10 — BASALT MCP server [ ]
 

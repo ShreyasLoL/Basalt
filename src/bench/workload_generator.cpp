@@ -58,30 +58,30 @@ std::vector<WorkloadCommand> WorkloadGenerator::generate(const WorkloadProfile p
     std::mt19937_64 rng(seed);
     std::vector<WorkloadCommand> commands;
     commands.reserve(count);
-    std::vector<OrderId> cancel_candidates;
+    std::vector<std::pair<OrderId, common::InstrumentId>> cancel_candidates;
     cancel_candidates.reserve(count / 2);
     OrderId next_id = 1;
 
-    auto add_limit = [&](const Side side, const Price price, const Quantity quantity) {
+    auto add_limit = [&](const Side side, const Price price, const Quantity quantity,
+                         const common::InstrumentId instrument_id = 1) {
         const OrderId id = next_id++;
         commands.push_back(WorkloadCommand{
-            ActionType::Submit,
-            OrderRequest{id, side, OrderType::Limit, price, quantity}, 0});
-        cancel_candidates.push_back(id);
+            ActionType::Submit, OrderRequest{id, side, OrderType::Limit, price, quantity}, 0, instrument_id});
+        cancel_candidates.emplace_back(id, instrument_id);
     };
-    auto add_market = [&](const Side side, const Quantity quantity) {
+    auto add_market = [&](const Side side, const Quantity quantity,
+                          const common::InstrumentId instrument_id = 1) {
         const OrderId id = next_id++;
         commands.push_back(WorkloadCommand{
-            ActionType::Submit,
-            OrderRequest{id, side, OrderType::Market, 0, quantity}, 0});
+            ActionType::Submit, OrderRequest{id, side, OrderType::Market, 0, quantity}, 0, instrument_id});
     };
     auto add_cancel = [&]() {
         if (cancel_candidates.empty()) return false;
         const std::size_t index = static_cast<std::size_t>(rng() % cancel_candidates.size());
-        const OrderId id = cancel_candidates[index];
+        const auto [id, instrument_id] = cancel_candidates[index];
         cancel_candidates[index] = cancel_candidates.back();
         cancel_candidates.pop_back();
-        commands.push_back(WorkloadCommand{ActionType::Cancel, {}, id});
+        commands.push_back(WorkloadCommand{ActionType::Cancel, {}, id, instrument_id});
         return true;
     };
 
@@ -158,6 +158,34 @@ std::vector<WorkloadCommand> WorkloadGenerator::generate(const WorkloadProfile p
                           random_quantity(rng));
             }
             break;
+        case WorkloadProfile::BurstyArrivals:
+            if (i % 100 < 25) {
+                const Side side = random_side(rng);
+                add_limit(side, side == Side::Buy ? MID_PRICE + 20 : MID_PRICE - 20,
+                          random_quantity(rng));
+            } else if (i % 100 < 45) {
+                add_market(random_side(rng), random_quantity(rng));
+            } else {
+                add_limit(random_side(rng), normal_price(rng), random_quantity(rng));
+            }
+            break;
+        case WorkloadProfile::HighActiveOrderCount: {
+            const Side side = random_side(rng);
+            const Price distance = static_cast<Price>(i % 400);
+            add_limit(side, side == Side::Buy ? 9000 - distance : 11000 + distance,
+                      random_quantity(rng));
+            break;
+        }
+        case WorkloadProfile::MultiInstrument50: {
+            const common::InstrumentId instrument_id = static_cast<common::InstrumentId>(i % 50) + 1;
+            const Side side = random_side(rng);
+            add_limit(side, side == Side::Buy ? MID_PRICE - 10 : MID_PRICE + 10,
+                      random_quantity(rng), instrument_id);
+            break;
+        }
+        case WorkloadProfile::MarketDataBurst:
+        case WorkloadProfile::SlowConsumerBackpressure:
+            return {};
         }
     }
     return commands;

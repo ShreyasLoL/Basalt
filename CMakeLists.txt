@@ -83,6 +83,7 @@ add_library(basalt_core STATIC
     src/core/order_book.cpp
     src/core/matching_engine.cpp
     src/core/multi_instrument_engine.cpp
+    src/core/arena_order_book.cpp
     src/core/vector_order_book.cpp
     src/bench/workload_generator.cpp
     src/bench/benchmark_runner.cpp
@@ -116,6 +117,7 @@ else()
     target_compile_options(basalt_market_data PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 basalt_enable_sanitizers(basalt_market_data)
+target_link_libraries(basalt_core PRIVATE basalt_market_data)
 
 add_library(basalt_persistence STATIC
     src/persistence/storage_io.cpp
@@ -255,6 +257,16 @@ else()
 endif()
 gtest_discover_tests(basalt_multi_instrument_tests)
 basalt_enable_sanitizers(basalt_multi_instrument_tests)
+
+add_executable(basalt_bench_tests tests/test_bench.cpp)
+target_link_libraries(basalt_bench_tests PRIVATE basalt_core GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_bench_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_bench_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_bench_tests)
+basalt_enable_sanitizers(basalt_bench_tests)
 
 add_executable(basalt_backtest_tests tests/test_backtest.cpp)
 target_link_libraries(basalt_backtest_tests PRIVATE basalt_backtest GTest::gtest_main)
