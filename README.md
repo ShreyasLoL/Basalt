@@ -1,6 +1,6 @@
 # BASALT
 
-BASALT is a deterministic, single instrument continuous limit order book and matching engine written in C++20. It accepts limit and market orders, enforces price time priority, records executions at the resting order's price, supports partial fills and cancellation, and exposes the engine through a local HTTP dashboard.
+BASALT currently provides a deterministic, single instrument continuous limit order book and matching engine written in C++20. It accepts limit and market orders, enforces price time priority, records executions at the resting order's price, supports partial fills and cancellation, and exposes the engine through a local HTTP dashboard. The 2026 roadmap expands this verified core into a local-first market-data, research, replay and paper-trading platform; implementation status is tracked in PROGRESS.md.
 
 The matching core uses fixed point integer ticks and has no HTTP or JSON dependency. A GoogleTest suite checks matching behavior and structural invariants. The synthetic benchmark compares the primary map and list book with a sorted vector baseline across seven reproducible workloads.
 
@@ -163,10 +163,28 @@ src/bench/                Workloads, profiler, CLI
 src/server/               HTTP routes and executable entry point
 tests/                    18 GoogleTest scenarios
 web/index.html            Static trading dashboard
-documents.md              Full architecture specification
+docs/documents.md         Master architecture specification and 2026 platform addendum
 PROGRESS.md               Phase completion and verification log
 ```
 
 ## Verification record
 
 The implementation is built with strict project compiler flags (`-Wall -Wextra -Wpedantic -Werror` or `/W4 /WX`). The final Release build and benchmark measurements are recorded in `PROGRESS.md`.
+
+## Expanded platform specifications
+
+The 2026 platform roadmap is split into reviewed module specifications. They distinguish existing behavior from target behavior; provider pricing, plan limits and redistribution rights remain subject to current official terms.
+
+| Specification | Scope |
+| --- | --- |
+| [Master specification](docs/documents.md) | Verified baseline audit, architecture index and scope |
+| [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) | Modular monolith, process model, diagrams and phases 0–10 |
+| [Data model](docs/DATA_MODEL.md) · [API v1](docs/API_SPEC.md) | Fixed-point accounting, SQLite entities, REST and WebSocket contracts |
+| [Market data](docs/MARKET_DATA.md) · [Paper trading](docs/PAPER_TRADING.md) | Provider adapters, quality pipeline and simulated execution |
+| [Strategies](docs/STRATEGIES.md) · [Backtesting](docs/BACKTESTING.md) | Strategy lifecycle, formulas, causal replay and analytics |
+| [Risk](docs/RISK.md) · [Frontend](docs/FRONTEND.md) | Pre-trade controls, kill switch and research workstation |
+| [MCP](docs/MCP.md) · [Security](docs/SECURITY.md) | Local inspection tools, credential handling and market boundaries |
+| [Performance](docs/PERFORMANCE.md) · [Testing](docs/TESTING.md) | Baseline measurements, workload methodology and verification gates |
+| [Operations](docs/OPERATIONS.md) · [Decisions](docs/DECISIONS.md) | Recovery runbooks and architecture decision records |
+
+The Phase 0 baseline was rebuilt and verified on 2026-11-06: all 18 existing C++ tests passed and the seven-profile 50,000-command benchmark produced matching map/vector results. The server binds to loopback in code; runtime endpoint smoke is subject to local sandbox socket permissions.
