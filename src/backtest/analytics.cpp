@@ -166,9 +166,11 @@ AnalyticsReport calculate_metrics(const AnalyticsInput& input) {
         profit_factor ? "OK" : "NO_GROSS_LOSSES", "ratio");
     const auto avg_win = win_count > 0 ? wins / win_count : 0;
     const auto avg_loss = loss_count > 0 ? losses / loss_count : 0;
-    const auto average_win_loss = loss_count > 0 ? ratio(avg_win, avg_loss) : std::nullopt;
-    add(report, "Average Win/Loss", average_win_loss,
-        average_win_loss ? "OK" : "NO_AVERAGE_LOSS", "ratio");
+    const auto average_win_loss =
+        (win_count > 0 && loss_count > 0) ? ratio(avg_win, avg_loss) : std::nullopt;
+    const std::string average_win_loss_status =
+        average_win_loss ? "OK" : (loss_count == 0 ? "NO_AVERAGE_LOSS" : "NO_WINS");
+    add(report, "Average Win/Loss", average_win_loss, average_win_loss_status, "ratio");
     std::optional<double> expectancy;
     if (closed > 0) {
         const auto win_probability = static_cast<Wide>(win_count) / closed;

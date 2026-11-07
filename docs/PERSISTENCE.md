@@ -31,6 +31,6 @@ Checkpoint files use `BCP1`, event sequence, bounded state-hash and state-blob l
 
 ## Historical bars and datasets
 
-CSV imports use integer columns `open_time_ns,open_micro,high_micro,low_micro,close_micro,volume`; timestamps must increase, OHLC values must be positive and valid, and import size is limited to 256 MiB. Values are canonicalized before storage. Dataset metadata records instrument, interval, source, license tag, range, import timestamp, relative filename and SHA-256 of the canonical persisted CSV. Reads verify the file hash before parsing; exports use an atomic replacement and preserve the canonical integer representation.
+CSV imports use integer columns `open_time_ns,open_micro,high_micro,low_micro,close_micro,volume`; timestamps must increase, OHLC values must be positive and valid, and import size is limited to 256 MiB. Values are canonicalized before storage. Dataset metadata records instrument, interval, source, license tag, range, import timestamp, relative filename and SHA-256 of the canonical persisted CSV. Reads verify the file hash before parsing from the same in-memory buffer without a stream copy, and `HistoryStore::sha256` streams in 64-byte blocks without allocating a padded copy of the input; exports use an atomic replacement and preserve the canonical integer representation.
 
 All durable paths return typed errors on open, write, flush, rename, schema, corruption, bounds, or hash failures. No market-data or trading values are converted to floating point by persistence.

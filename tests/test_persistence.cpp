@@ -298,5 +298,22 @@ TEST(HistoryTest, RejectsUnorderedInvalidAndPathLikeDatasetInputs) {
     EXPECT_EQ(history.import_csv(input, {"valid-id", 1, 60, "fixture", 0, "test"}).error().code, "DATASET_OHLC");
 }
 
+TEST(HistoryTest, Sha256StreamsMultiBlockInputsAgainstKnownDigests) {
+    EXPECT_EQ(HistoryStore::sha256(""),
+              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    EXPECT_EQ(HistoryStore::sha256("abc"),
+              "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    // 56-byte NIST vector (2 blocks due to 0x80 + 64-bit length padding boundary)
+    EXPECT_EQ(HistoryStore::sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+              "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    // 112-byte NIST multi-block vector
+    EXPECT_EQ(HistoryStore::sha256(
+                  "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"),
+              "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1");
+    // 1,000,000 'a' characters (15,625 64-byte blocks)
+    EXPECT_EQ(HistoryStore::sha256(std::string(1'000'000, 'a')),
+              "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
 } // namespace
 } // namespace basalt::persistence

@@ -166,6 +166,29 @@ TEST(AnalyticsTest, ReportsEighteenMetricsAndPreservesUndefinedStatuses) {
     ASSERT_EQ(undefined.metrics.size(), 18U);
     EXPECT_FALSE(undefined.metrics[0].value);
     EXPECT_NE(undefined.metrics[0].status, "OK");
+
+    auto find_metric = [](const backtest::AnalyticsReport& target, const std::string& name) {
+        const auto it = std::find_if(target.metrics.begin(), target.metrics.end(),
+                                     [&](const auto& item) { return item.name == name; });
+        EXPECT_NE(it, target.metrics.end());
+        return *it;
+    };
+
+    backtest::AnalyticsInput losses_only = input;
+    losses_only.closed_trade_pnl_micro = {-50, -25};
+    const auto losses_report = backtest::calculate_metrics(losses_only);
+    ASSERT_EQ(losses_report.metrics.size(), 18U);
+    const auto no_wins_metric = find_metric(losses_report, "Average Win/Loss");
+    EXPECT_FALSE(no_wins_metric.value.has_value());
+    EXPECT_EQ(no_wins_metric.status, "NO_WINS");
+
+    backtest::AnalyticsInput wins_only = input;
+    wins_only.closed_trade_pnl_micro = {100};
+    const auto wins_report = backtest::calculate_metrics(wins_only);
+    ASSERT_EQ(wins_report.metrics.size(), 18U);
+    const auto no_losses_metric = find_metric(wins_report, "Average Win/Loss");
+    EXPECT_FALSE(no_losses_metric.value.has_value());
+    EXPECT_EQ(no_losses_metric.status, "NO_AVERAGE_LOSS");
 }
 
 TEST(BacktestEngineTest, FillsOnlyAtTheNextBarOpenAndReplaysDeterministically) {

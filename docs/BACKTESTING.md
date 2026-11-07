@@ -30,7 +30,7 @@ Let E0 be initial equity, Et equity at time t, r_t=Et/Et-1-1, rf the selected an
 8. **Calmar:** CAGR/maximum drawdown; undefined at zero drawdown.
 9. **Win Rate:** profitable closed round trips / all closed round trips; open positions excluded.
 10. **Profit Factor:** gross realized wins / absolute gross realized losses; undefined without losses.
-11. **Average Win/Loss:** mean positive realized trade P&L / absolute mean negative realized trade P&L.
+11. **Average Win/Loss:** mean positive realized trade P&L / absolute mean negative realized trade P&L; undefined (`NO_WINS` when there are no winning trades, or `NO_AVERAGE_LOSS` when losses are absent).
 12. **Expectancy:** win_probability×average_win - loss_probability×average_loss; units are currency per closed trade.
 13. **Turnover:** sum absolute traded notional / average equity for the period.
 14. **Exposure:** time-weighted gross notional / equity, reported alongside peak exposure.

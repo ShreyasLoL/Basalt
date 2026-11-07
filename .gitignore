@@ -1,5 +1,6 @@
 /build/
 /build-*/
+phase*-test-temp/
 /out/
 /frontend/node_modules/
 /frontend/.npm-cache/
