@@ -1,4 +1,5 @@
 #include "basalt/server/http_server.hpp"
+#include "basalt/server/request_guard.hpp"
 
 #include "basalt_embedded_ui.hpp"
 
@@ -11,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -20,16 +22,24 @@ namespace {
 
 using json = nlohmann::json;
 
-void set_cors(httplib::Response& response) {
-    response.set_header("Access-Control-Allow-Origin", "*");
+// CORS is not wildcarded. The pre-routing guard echoes Access-Control-Allow-Origin
+// only for an allowlisted loopback origin; preflight responses add the method and
+// header allowances below.
+void set_preflight_headers(httplib::Response& response) {
     response.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     response.set_header("Access-Control-Allow-Headers", "Content-Type");
+    response.set_header("Access-Control-Max-Age", "600");
 }
 
 void send_json(httplib::Response& response, const json& value, const int status = 200) {
     response.status = status;
-    set_cors(response);
     response.set_content(value.dump(), "application/json; charset=utf-8");
+}
+
+std::optional<std::string_view> optional_header(const httplib::Request& request, const char* name) {
+    if (!request.has_header(name)) return std::nullopt;
+    const auto range = request.headers.equal_range(name);
+    return std::string_view(range.first->second);
 }
 
 json error_json(const std::string& message) {
@@ -137,18 +147,52 @@ std::string HttpServer::ui_html() {
     return embedded::INDEX_HTML;
 }
 
+bool HttpServer::guard_request(const httplib::Request& request, httplib::Response& response) const {
+    const auto origin = optional_header(request, "Origin");
+    const auto decision = validate_request_origin(optional_header(request, "Host"), origin,
+                                                  optional_header(request, "Content-Type"),
+                                                  request.method, port_, bind_address_);
+    response.set_header("Vary", "Origin");
+    if (!decision.allowed()) {
+        send_json(response, json{{"error", decision.code}, {"code", decision.code},
+                                 {"message", decision.message}}, decision.status);
+        return false;
+    }
+    if (origin) response.set_header("Access-Control-Allow-Origin", std::string(*origin));
+    return true;
+}
+
 void HttpServer::register_routes() {
+    server_.set_payload_max_length(64U * 1024U);
 #ifdef BASALT_FRONTEND_DIST_DIR
     static_cast<void>(server_.set_mount_point("/assets", BASALT_FRONTEND_DIST_DIR "/assets"));
 #endif
+    // Transport policy for every request (UI, assets and API): loopback Host only
+    // (DNS-rebinding defence), allowlisted Origin when present, and JSON media type
+    // for state-changing methods. For bodiless requests this runs before routing;
+    // when a request carries a body, cpp-httplib drains the bounded body first so
+    // Winsock never resets the socket with unread bytes in SO_RCVBUF.
+    server_.set_pre_routing_handler([this](const httplib::Request& request, httplib::Response& response) {
+        const bool has_body = (request.has_header("Content-Length") &&
+                               request.get_header_value("Content-Length") != "0") ||
+                              request.has_header("Transfer-Encoding");
+        if (has_body) return httplib::Server::HandlerResponse::Unhandled;
+        return guard_request(request, response) ? httplib::Server::HandlerResponse::Unhandled
+                                                : httplib::Server::HandlerResponse::Handled;
+    });
+
+    server_.set_error_handler([this](const httplib::Request& request, httplib::Response& response) {
+        if (response.status == 403 || response.status == 415) return;
+        (void)guard_request(request, response);
+    });
+
     server_.Get("/", [](const httplib::Request&, httplib::Response& response) {
-        set_cors(response);
         response.set_content(ui_html(), "text/html; charset=utf-8");
     });
 
-    server_.Options(R"(/api/.*)", [](const httplib::Request&, httplib::Response& response) {
+    server_.Options(R"(/api/.*)", [](const httplib::Request& request, httplib::Response& response) {
         response.status = 204;
-        set_cors(response);
+        if (request.has_header("Origin")) set_preflight_headers(response);
     });
 
     server_.Get("/api/state", [this](const httplib::Request& request, httplib::Response& response) {
@@ -198,6 +242,7 @@ void HttpServer::register_routes() {
     });
 
     server_.Post("/api/orders", [this](const httplib::Request& request, httplib::Response& response) {
+        if (!guard_request(request, response)) return;
         try {
             const json body = json::parse(request.body);
             OrderRequest order{};
@@ -239,6 +284,7 @@ void HttpServer::register_routes() {
 
     server_.Delete(R"(/api/orders/(\d+))",
         [this](const httplib::Request& request, httplib::Response& response) {
+            if (!guard_request(request, response)) return;
             if (request.matches.size() < 2) {
                 send_json(response, error_json("Order ID is required"), 400);
                 return;
@@ -260,6 +306,7 @@ void HttpServer::register_routes() {
         });
 
     server_.Post("/api/sim/step", [this](const httplib::Request& request, httplib::Response& response) {
+        if (!guard_request(request, response)) return;
         std::size_t count = 1;
         try {
             if (!request.body.empty()) {
@@ -300,6 +347,7 @@ void HttpServer::register_routes() {
     });
 
     server_.Post("/api/reset", [this](const httplib::Request& request, httplib::Response& response) {
+        if (!guard_request(request, response)) return;
         bool seed_demo = false;
         try {
             if (!request.body.empty()) {
@@ -315,25 +363,38 @@ void HttpServer::register_routes() {
     });
 
     server_.Post("/api/benchmark", [this](const httplib::Request& request, httplib::Response& response) {
+        if (!guard_request(request, response)) return;
         try {
             const json body = request.body.empty() ? json::object() : json::parse(request.body);
             const std::string profile_text = uppercase(body.value("profile", std::string("ALL")));
-            const std::size_t order_count = body.value("order_count", std::size_t{100000});
+            const auto requested_count = body.find("order_count");
+            std::uint64_t order_count = MAX_HTTP_BENCHMARK_ORDER_COUNT;
+            if (requested_count != body.end()) {
+                if (!requested_count->is_number_integer()) {
+                    send_json(response, error_json("order_count must be an integer between 1 and 10000"), 400);
+                    return;
+                }
+                if (requested_count->is_number_integer() && requested_count->get<std::int64_t>() < 0) {
+                    send_json(response, error_json("order_count must be between 1 and 10000"), 400);
+                    return;
+                }
+                order_count = requested_count->get<std::uint64_t>();
+            }
             const bool compare_baseline = body.value("compare_baseline", true);
-            if (order_count == 0 || order_count > 1'000'000) {
-                send_json(response, error_json("order_count must be between 1 and 1000000"), 400);
+            if (!valid_benchmark_order_count(order_count)) {
+                send_json(response, error_json("order_count must be between 1 and 10000"), 400);
                 return;
             }
             std::vector<bench::BenchmarkResult> results;
             if (profile_text == "ALL") {
-                results = benchmark_runner_.run_all(order_count, compare_baseline);
+                results = benchmark_runner_.run_all(static_cast<std::size_t>(order_count), compare_baseline);
             } else {
                 bench::WorkloadProfile profile{};
                 if (!bench::parse_profile(profile_text, profile)) {
                     send_json(response, error_json("Unknown workload profile"), 400);
                     return;
                 }
-                results = benchmark_runner_.run(profile, order_count, compare_baseline);
+                results = benchmark_runner_.run(profile, static_cast<std::size_t>(order_count), compare_baseline);
             }
             json output = json::array();
             for (const auto& result : results) {
@@ -363,6 +424,21 @@ void HttpServer::register_routes() {
 
 bool HttpServer::run() {
     return server_.listen(bind_address_, port_);
+}
+
+bool HttpServer::bind_to_any_port() {
+    const int bound = server_.bind_to_any_port(bind_address_);
+    if (bound <= 0) return false;
+    port_ = bound;
+    return true;
+}
+
+bool HttpServer::run_bound() {
+    return server_.listen_after_bind();
+}
+
+void HttpServer::wait_until_ready() const {
+    server_.wait_until_ready();
 }
 
 void HttpServer::stop() noexcept {

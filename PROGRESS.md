@@ -134,6 +134,12 @@ This is the authoritative Phase 0–10 checklist. `[x]` means the requirement wa
 - [x] Verification: strict Release build of all targets succeeded; CTest passed 123/123 (112 existing + 11 MCP); MCP executable stdio smoke exchanged initialize/list/shutdown and reported 14 tools without HTTP configuration; loopback HTTP smoke passed state, submit, cancel, simulation step and reset. No compiler warnings; Ninja reported its existing `.ninja_log` premature-EOF recovery.
 - [x] Phase 10 implementation committed locally; no push.
 
+## Post-Phase-10 hardening patch set
+
+Each item is one local commit; verification lines record only commands actually run (strict Release build in `build/`, Clang 22.1.8/Ninja, `ctest --test-dir build -C Release`, and `npm run typecheck`, `npm test`, `npm run build` in `frontend/`).
+
+- [x] 1. HTTP server hardening — removed wildcard CORS; pre-routing `validate_request_origin` enforces loopback Host (403 `FORBIDDEN_HOST`, DNS-rebinding defence), allowlisted Origin when present (403 `FORBIDDEN_ORIGIN`), `application/json` for POST/PUT/PATCH/DELETE (415); OPTIONS answers 204 with allowances only for allowlisted origins; `/api/benchmark` `order_count` capped at 10,000 (default 10,000) with 400 otherwise; legacy UI benchmark selector now offers 1k/5k/10k. HTTP server moved into the `basalt_http` library; new `basalt_http_tests` target (6 pure-policy + 6 real loopback HTTP tests on an ephemeral port). Verified: build clean, CTest 135/135, Vitest 7/7, typecheck and Vite build passed; manual `basalt_server --port 18766` smoke returned 200 for `/` and `/api/state`, 403 for a foreign Host, 415 for `text/plain` reset, 200 for JSON reset, and a 204 preflight echoing `http://localhost:18766`.
+
 ## Commit log
 
 - [x] docs(spec): generate complete BASALT architecture and specification suite — d67e745

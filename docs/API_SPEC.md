@@ -29,6 +29,16 @@ The gateway binds to 127.0.0.1 by default. Every JSON request and response inclu
 
 Legacy /api/state, /api/orders, /api/reset, /api/sim/step and /api/benchmark stay available during migration. /api/seed and /api/simulate are compatibility aliases only if explicitly implemented and tested; the Phase 0 server has no such routes. The old reset body seed_demo=true and sim/step count are documented in docs/documents.md.
 
+### Transport rules enforced by the current gateway
+
+These apply to the implemented legacy routes, the UI and static assets (see docs/SECURITY.md for the full table):
+
+- `Host` must be the loopback authority for the listening port (`127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`); otherwise 403 `{"error":"FORBIDDEN_HOST","code":"FORBIDDEN_HOST","message":...}`.
+- If `Origin` is sent it must be `http://127.0.0.1:<port>`, `http://localhost:<port>` or `http://[::1]:<port>`; otherwise 403 `FORBIDDEN_ORIGIN`. Allowed origins are echoed in `Access-Control-Allow-Origin` (never `*`).
+- POST and DELETE (and PUT/PATCH if added) require `Content-Type: application/json`; otherwise 415 `UNSUPPORTED_MEDIA_TYPE`. This includes bodiless calls such as `DELETE /api/orders/{id}`.
+- `OPTIONS /api/*` answers 204 with method/header allowances only for an allowlisted origin.
+- `POST /api/benchmark` `order_count` must be an integer 1–10,000 (default 10,000); anything else is 400.
+
 ## WebSocket v1
 
 Upgrade path /api/v1/stream. Client sends a bounded subscribe frame with request_id, instrument IDs, channel names and optional last_event_seq. Server validates authorization/origin policy, caps subscriptions, returns subscribed or error, then streams frames:

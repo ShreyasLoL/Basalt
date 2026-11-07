@@ -278,7 +278,7 @@ endif()
 gtest_discover_tests(basalt_backtest_tests)
 basalt_enable_sanitizers(basalt_backtest_tests)
 
-add_library(basalt_app STATIC src/server/simulation_facade.cpp)
+add_library(basalt_app STATIC src/server/simulation_facade.cpp src/server/request_guard.cpp)
 target_include_directories(basalt_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(basalt_app PUBLIC basalt_core)
 target_compile_features(basalt_app PUBLIC cxx_std_20)
@@ -329,13 +329,38 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html" BASALT_WEB_HTML)
 configure_file(src/server/embedded_ui.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/generated/basalt_embedded_ui.hpp" @ONLY)
 
-add_executable(basalt_server src/server/http_server.cpp src/server/main_server.cpp)
-target_include_directories(basalt_server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+add_library(basalt_http STATIC src/server/http_server.cpp)
+target_include_directories(basalt_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+                           PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_compile_definitions(basalt_http PRIVATE
+    BASALT_FRONTEND_DIST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/web/app")
+target_link_libraries(basalt_http PUBLIC basalt_app httplib::httplib PRIVATE nlohmann_json::nlohmann_json)
+if(WIN32)
+    target_link_libraries(basalt_http PUBLIC ws2_32)
+endif()
+target_compile_features(basalt_http PUBLIC cxx_std_20)
+if(MSVC)
+    target_compile_options(basalt_http PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_http PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+basalt_enable_sanitizers(basalt_http)
+
+add_executable(basalt_http_tests tests/test_http_server.cpp)
+target_link_libraries(basalt_http_tests PRIVATE basalt_http nlohmann_json::nlohmann_json GTest::gtest_main)
+if(MSVC)
+    target_compile_options(basalt_http_tests PRIVATE /W4 /WX)
+else()
+    target_compile_options(basalt_http_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+gtest_discover_tests(basalt_http_tests)
+basalt_enable_sanitizers(basalt_http_tests)
+
+add_executable(basalt_server src/server/main_server.cpp)
 target_compile_definitions(basalt_server PRIVATE
-    BASALT_FRONTEND_DIST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/web/app"
     BASALT_GIT_REVISION="${BASALT_GIT_REVISION}"
     BASALT_GIT_WORKTREE_DIRTY=${BASALT_GIT_WORKTREE_DIRTY})
-target_link_libraries(basalt_server PRIVATE basalt_app basalt_mcp httplib::httplib nlohmann_json::nlohmann_json)
+target_link_libraries(basalt_server PRIVATE basalt_http basalt_mcp nlohmann_json::nlohmann_json)
 if(WIN32)
     target_link_libraries(basalt_server PRIVATE ws2_32)
 endif()

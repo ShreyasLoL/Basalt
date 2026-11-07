@@ -21,6 +21,12 @@ public:
     HttpServer& operator=(const HttpServer&) = delete;
 
     [[nodiscard]] bool run();
+    // Test/embedding support: bind the configured address to an OS-assigned free
+    // port (updating port() and the Host/Origin allowlist), then serve it with
+    // run_bound(). Must be called before run_bound() starts on another thread.
+    [[nodiscard]] bool bind_to_any_port();
+    [[nodiscard]] bool run_bound();
+    void wait_until_ready() const;
     void stop() noexcept;
     [[nodiscard]] int port() const noexcept { return port_; }
 
@@ -34,6 +40,7 @@ private:
     std::mt19937_64 simulation_rng_{42};
 
     void register_routes();
+    bool guard_request(const httplib::Request& request, httplib::Response& response) const;
     [[nodiscard]] static std::string ui_html();
 };
 
