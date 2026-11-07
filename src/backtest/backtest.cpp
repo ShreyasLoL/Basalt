@@ -45,6 +45,7 @@ struct PendingOrder {
     common::Quantity filled_quantity{};
     bool opened_in_run{};
     std::int64_t round_trip_realized_micro{};
+    std::int64_t accumulated_slippage_micro{};
 };
 
 common::Result<std::int64_t> absolute_quantity(const common::PositionQuantity quantity) {
@@ -508,6 +509,100 @@ common::Result<BacktestResult> BacktestEngine::run(
     result.peak_gross_exposure_micro = initial_exposure.value();
     high_water = std::max(high_water, config.initial_cash_micro);
 
+    const auto initial_seed_fill_count = result.fills.size();
+
+    auto apply_fill_to_state = [&](trading::PortfolioLedger& target_ledger,
+                                   const trading::ExecutionFill& fill,
+                                   std::int64_t& round_trip_pnl,
+                                   bool& position_opened,
+                                   std::vector<std::int64_t>& closed_trades,
+                                   std::int64_t& turnover_micro,
+                                   std::int64_t& total_fees_micro,
+                                   std::uint64_t& execution_count) -> common::Result<void> {
+        auto prior = target_ledger.position(config.account_id, config.instrument.id);
+        if (!prior) return common::Result<void>::failure(prior.error());
+        const auto prior_state = prior.value();
+        auto applied = target_ledger.apply_fill(fill);
+        if (!applied) return applied;
+        auto after = target_ledger.position(config.account_id, config.instrument.id);
+        if (!after) return common::Result<void>::failure(after.error());
+        const auto prior_realized = prior_state ? prior_state->realized_pnl_micro : 0;
+        const auto next_realized = after.value() ? after.value()->realized_pnl_micro : 0;
+        auto realized_delta = subtract(next_realized, prior_realized);
+        if (!realized_delta) return common::Result<void>::failure(realized_delta.error());
+        const auto prior_quantity = prior_state ? prior_state->quantity : 0;
+        const auto after_quantity = after.value() ? after.value()->quantity : 0;
+        if (prior_quantity == 0 && after_quantity != 0) {
+            position_opened = true;
+            round_trip_pnl = 0;
+        } else if (prior_quantity != 0) {
+            auto accumulated = common::checked_add(round_trip_pnl, realized_delta.value());
+            if (!accumulated) return common::Result<void>::failure(accumulated.error());
+            round_trip_pnl = accumulated.value();
+            const bool flipped = (prior_quantity < 0 && after_quantity > 0) ||
+                                 (prior_quantity > 0 && after_quantity < 0);
+            if (after_quantity == 0 || flipped) {
+                if (position_opened) closed_trades.push_back(round_trip_pnl);
+                round_trip_pnl = 0;
+                position_opened = flipped;
+            }
+        }
+        auto notional = common::checked_multiply(fill.price_micro, static_cast<std::int64_t>(fill.quantity));
+        if (!notional) return common::Result<void>::failure(notional.error());
+        auto turnover = common::checked_add(turnover_micro, notional.value());
+        auto fees = common::checked_add(total_fees_micro, fill.fee_micro);
+        if (!turnover || !fees) return common::Result<void>::failure(
+            {"BACKTEST_LEDGER_OVERFLOW", "Turnover or fee accumulation overflow"});
+        turnover_micro = turnover.value();
+        total_fees_micro = fees.value();
+        ++execution_count;
+        return common::Result<void>::success();
+    };
+
+    auto rollback_order_fills = [&](const std::uint64_t rejected_order_id) -> common::Result<void> {
+        trading::PortfolioLedger rebuilt;
+        auto created = rebuilt.create_account({config.account_id, "BASALT_BACKTEST", config.initial_cash_micro,
+                                               config.initial_cash_micro, config.allow_short});
+        if (!created) return created;
+        std::vector<trading::ExecutionFill> kept_fills;
+        kept_fills.reserve(result.fills.size());
+        std::uint64_t exec_id = 1;
+        std::uint64_t seq_id = 1;
+        std::int64_t rebuilt_round_trip = 0;
+        bool rebuilt_opened = false;
+        std::vector<std::int64_t> rebuilt_closed_trades;
+        std::int64_t rebuilt_turnover = 0;
+        std::int64_t rebuilt_fees = 0;
+        std::uint64_t rebuilt_exec_count = 0;
+        for (std::size_t idx = 0; idx < result.fills.size(); ++idx) {
+            auto fill = result.fills[idx];
+            if (idx >= initial_seed_fill_count && fill.order_id == rejected_order_id) continue;
+            fill.execution_id = exec_id++;
+            fill.event_sequence = seq_id++;
+            if (idx < initial_seed_fill_count) {
+                auto seeded = rebuilt.apply_fill(fill);
+                if (!seeded) return seeded;
+            } else {
+                auto reapplied = apply_fill_to_state(rebuilt, fill, rebuilt_round_trip, rebuilt_opened,
+                                                     rebuilt_closed_trades, rebuilt_turnover,
+                                                     rebuilt_fees, rebuilt_exec_count);
+                if (!reapplied) return reapplied;
+            }
+            kept_fills.push_back(std::move(fill));
+        }
+        ledger = std::move(rebuilt);
+        result.fills = std::move(kept_fills);
+        next_execution_id = exec_id;
+        next_ledger_sequence = seq_id;
+        run_round_trip_pnl = rebuilt_round_trip;
+        run_position_opened = rebuilt_opened;
+        result.closed_trade_pnl_micro = std::move(rebuilt_closed_trades);
+        result.turnover_micro = rebuilt_turnover;
+        result.total_fees_micro = rebuilt_fees;
+        result.execution_count = rebuilt_exec_count;
+        return common::Result<void>::success();
+    };
+
     for (const auto& current : selected) {
         // Orders created from bar t close are first eligible at a strictly later bar open.
         for (auto it = pending.begin(); it != pending.end();) {
@@ -540,26 +635,26 @@ common::Result<BacktestResult> BacktestEngine::run(
             if (report.filled_quantity > std::numeric_limits<common::Quantity>::max() - it->filled_quantity)
                 return common::Result<BacktestResult>::failure(
                     {"BACKTEST_FILL_OVERFLOW", "Order filled quantity overflow"});
-            it->filled_quantity += report.filled_quantity;
-            order_record.updated_at_ns = current.open_time_ns;
-            order_record.filled_quantity = it->filled_quantity;
-            order_record.remaining_quantity = report.remaining_quantity;
-            order_record.status = report.status;
-            order_record.reason = report.reason;
-            if (report.slippage_micro > 0) {
-                const auto signed_cost = report.side == trading::Side::Buy
-                    ? report.slippage_micro : -report.slippage_micro;
-                auto next_signed = common::checked_add(result.signed_slippage_micro, signed_cost);
-                auto next_absolute = common::checked_add(result.absolute_slippage_micro, report.slippage_micro);
-                if (!next_signed || !next_absolute) return common::Result<BacktestResult>::failure(
-                    {"BACKTEST_SLIPPAGE_OVERFLOW", "Accumulated slippage overflow"});
-                result.signed_slippage_micro = next_signed.value();
-                result.absolute_slippage_micro = next_absolute.value();
-            }
+
+            // Stage fills on a copy so a fill-time cash or position shortfall rolls back
+            // atomically per order without aborting the backtest run.
+            auto staged_ledger = ledger;
+            auto staged_exec_id = next_execution_id;
+            auto staged_seq_id = next_ledger_sequence;
+            auto staged_round_trip = run_round_trip_pnl;
+            auto staged_opened = run_position_opened;
+            auto staged_closed_trades = result.closed_trade_pnl_micro;
+            auto staged_turnover = result.turnover_micro;
+            auto staged_fees = result.total_fees_micro;
+            auto staged_exec_count = result.execution_count;
+            std::vector<trading::ExecutionFill> staged_fills;
+            staged_fills.reserve(report.fills.size());
+            std::string fill_time_rejection_code;
+
             for (const auto& paper_fill : report.fills) {
                 trading::ExecutionFill fill{};
-                fill.execution_id = next_execution_id++;
-                fill.event_sequence = next_ledger_sequence++;
+                fill.execution_id = staged_exec_id++;
+                fill.event_sequence = staged_seq_id++;
                 fill.order_id = it->intent.order_id;
                 fill.account_id = it->intent.account_id;
                 fill.instrument_id = it->intent.instrument_id;
@@ -576,45 +671,76 @@ common::Result<BacktestResult> BacktestEngine::run(
                 fill.fee_schedule_version = report.fee_schedule_version;
                 fill.fee_schedule_source = report.fee_schedule_source;
                 fill.time_ns = current.open_time_ns;
-                auto prior = ledger.position(config.account_id, config.instrument.id);
-                if (!prior) return common::Result<BacktestResult>::failure(prior.error());
-                const auto prior_state = prior.value();
-                auto applied = ledger.apply_fill(fill);
-                if (!applied) return common::Result<BacktestResult>::failure(applied.error());
-                auto after = ledger.position(config.account_id, config.instrument.id);
-                if (!after) return common::Result<BacktestResult>::failure(after.error());
-                const auto prior_realized = prior_state ? prior_state->realized_pnl_micro : 0;
-                const auto next_realized = after.value() ? after.value()->realized_pnl_micro : 0;
-                auto realized_delta = subtract(next_realized, prior_realized);
-                if (!realized_delta) return common::Result<BacktestResult>::failure(realized_delta.error());
-                const auto prior_quantity = prior_state ? prior_state->quantity : 0;
-                const auto after_quantity = after.value() ? after.value()->quantity : 0;
-                if (prior_quantity == 0 && after_quantity != 0) {
-                    run_position_opened = true;
-                    run_round_trip_pnl = 0;
-                } else if (prior_quantity != 0) {
-                    auto accumulated = common::checked_add(run_round_trip_pnl, realized_delta.value());
-                    if (!accumulated) return common::Result<BacktestResult>::failure(accumulated.error());
-                    run_round_trip_pnl = accumulated.value();
-                    const bool flipped = (prior_quantity < 0 && after_quantity > 0) ||
-                                         (prior_quantity > 0 && after_quantity < 0);
-                    if (after_quantity == 0 || flipped) {
-                        if (run_position_opened) result.closed_trade_pnl_micro.push_back(run_round_trip_pnl);
-                        run_round_trip_pnl = 0;
-                        run_position_opened = flipped;
+                auto applied = apply_fill_to_state(staged_ledger, fill, staged_round_trip, staged_opened,
+                                                   staged_closed_trades, staged_turnover,
+                                                   staged_fees, staged_exec_count);
+                if (!applied) {
+                    if (applied.error().code == "INSUFFICIENT_CASH") {
+                        fill_time_rejection_code = "FILL_TIME_INSUFFICIENT_CASH";
+                        break;
                     }
+                    if (applied.error().code == "INSUFFICIENT_POSITION") {
+                        fill_time_rejection_code = "FILL_TIME_INSUFFICIENT_POSITION";
+                        break;
+                    }
+                    return common::Result<BacktestResult>::failure(applied.error());
                 }
-                auto notional = common::checked_multiply(fill.price_micro, static_cast<std::int64_t>(fill.quantity));
-                if (!notional) return common::Result<BacktestResult>::failure(notional.error());
-                auto turnover = common::checked_add(result.turnover_micro, notional.value());
-                auto fees = common::checked_add(result.total_fees_micro, fill.fee_micro);
-                if (!turnover || !fees) return common::Result<BacktestResult>::failure(
-                    {"BACKTEST_LEDGER_OVERFLOW", "Turnover or fee accumulation overflow"});
-                result.turnover_micro = turnover.value();
-                result.total_fees_micro = fees.value();
-                result.fills.push_back(fill);
-                ++result.execution_count;
+                staged_fills.push_back(std::move(fill));
             }
+
+            if (!fill_time_rejection_code.empty()) {
+                if (it->filled_quantity > 0) {
+                    if (it->accumulated_slippage_micro > 0) {
+                        const auto signed_cost = it->intent.side == trading::Side::Buy
+                            ? it->accumulated_slippage_micro : -it->accumulated_slippage_micro;
+                        result.signed_slippage_micro -= signed_cost;
+                        result.absolute_slippage_micro -= it->accumulated_slippage_micro;
+                    }
+                    auto rolled_back = rollback_order_fills(it->intent.order_id);
+                    if (!rolled_back) return common::Result<BacktestResult>::failure(rolled_back.error());
+                }
+                order_record.updated_at_ns = current.open_time_ns;
+                order_record.filled_quantity = 0;
+                order_record.remaining_quantity = order_record.requested_quantity;
+                order_record.status = "REJECTED";
+                order_record.reason = fill_time_rejection_code;
+                ++result.rejected_orders;
+                ++rejection_counts[fill_time_rejection_code];
+                risk_engine.complete(it->intent.client_order_id);
+                it = pending.erase(it);
+                continue;
+            }
+
+            if (report.slippage_micro > 0) {
+                const auto signed_cost = report.side == trading::Side::Buy
+                    ? report.slippage_micro : -report.slippage_micro;
+                auto next_signed = common::checked_add(result.signed_slippage_micro, signed_cost);
+                auto next_absolute = common::checked_add(result.absolute_slippage_micro, report.slippage_micro);
+                auto next_order_slip = common::checked_add(it->accumulated_slippage_micro, report.slippage_micro);
+                if (!next_signed || !next_absolute || !next_order_slip)
+                    return common::Result<BacktestResult>::failure(
+                        {"BACKTEST_SLIPPAGE_OVERFLOW", "Accumulated slippage overflow"});
+                result.signed_slippage_micro = next_signed.value();
+                result.absolute_slippage_micro = next_absolute.value();
+                it->accumulated_slippage_micro = next_order_slip.value();
+            }
+            ledger = std::move(staged_ledger);
+            next_execution_id = staged_exec_id;
+            next_ledger_sequence = staged_seq_id;
+            run_round_trip_pnl = staged_round_trip;
+            run_position_opened = staged_opened;
+            result.closed_trade_pnl_micro = std::move(staged_closed_trades);
+            result.turnover_micro = staged_turnover;
+            result.total_fees_micro = staged_fees;
+            result.execution_count = staged_exec_count;
+            for (auto& fill : staged_fills) result.fills.push_back(std::move(fill));
+
+            it->filled_quantity += report.filled_quantity;
+            order_record.updated_at_ns = current.open_time_ns;
+            order_record.filled_quantity = it->filled_quantity;
+            order_record.remaining_quantity = report.remaining_quantity;
+            order_record.status = report.status;
+            order_record.reason = report.reason;
             if (report.status == "FILLED" || report.remaining_quantity == 0) {
                 ++result.completed_orders;
                 risk_engine.complete(it->intent.client_order_id);
@@ -685,7 +811,7 @@ common::Result<BacktestResult> BacktestEngine::run(
                 current.close_time_ns, current.close_time_ns, signal.intent.side, signal.intent.quantity,
                 0, signal.intent.quantity, "PENDING", "RISK_APPROVED"});
             pending.push_back({std::move(signal.intent), current.close_time_ns, current.sequence,
-                               order_index, 0, 0, false, 0});
+                               order_index, 0, 0, false, 0, 0});
         }
     }
 

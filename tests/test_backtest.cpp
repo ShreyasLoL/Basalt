@@ -264,3 +264,42 @@ TEST(BacktestEngineTest, InvalidQualityBarsInvalidateTheRun) {
     EXPECT_FALSE(result);
     EXPECT_EQ(result.error().code, "BACKTEST_DATA_QUALITY");
 }
+
+TEST(BacktestEngineTest, FillTimeGapUpCashShortfallRejectsOrderWithoutAbortingRun) {
+    auto settings = config();
+    // Signal at bar 3 close sees price 20 (approved against 25 micro-units cash),
+    // then bar 4 gaps up to open=50 so fill price is 52 > 25.
+    settings.initial_cash_micro = 25;
+    auto gap_bars = bars();
+    gap_bars[3] = event(4, 1'300, 1'399, 50, 55, 48, 52);
+
+    strategy::StrategyConfig strategy_config{};
+    strategy_config.order_quantity = 1;
+    strategy_config.integer_parameters = {{"fast_period", 1}, {"slow_period", 2}};
+
+    backtest::BacktestEngine engine;
+    auto first = engine.run(strategy::make_builtin(strategy::BuiltinKind::SmaCrossover),
+                            strategy_config, gap_bars, settings);
+    ASSERT_TRUE(first) << first.error().code << ": " << first.error().message;
+    EXPECT_TRUE(first.value().valid);
+    EXPECT_EQ(first.value().rejected_orders, 1U);
+    EXPECT_EQ(first.value().completed_orders, 0U);
+    EXPECT_EQ(first.value().execution_count, 0U);
+    EXPECT_TRUE(first.value().fills.empty());
+    EXPECT_TRUE(first.value().cash_journal.empty());
+    ASSERT_EQ(first.value().orders.size(), 1U);
+    EXPECT_EQ(first.value().orders[0].status, "REJECTED");
+    EXPECT_EQ(first.value().orders[0].reason, "FILL_TIME_INSUFFICIENT_CASH");
+    EXPECT_EQ(first.value().orders[0].filled_quantity, 0U);
+    EXPECT_EQ(first.value().orders[0].remaining_quantity, 1U);
+    ASSERT_EQ(first.value().risk_rejections.size(), 1U);
+    EXPECT_EQ(first.value().risk_rejections[0],
+              (std::pair<std::string, std::uint64_t>{"FILL_TIME_INSUFFICIENT_CASH", 1U}));
+
+    auto second = engine.run(strategy::make_builtin(strategy::BuiltinKind::SmaCrossover),
+                             strategy_config, gap_bars, settings);
+    ASSERT_TRUE(second);
+    EXPECT_EQ(first.value().input_event_sha256, second.value().input_event_sha256);
+    EXPECT_EQ(first.value().output_sha256, second.value().output_sha256);
+    EXPECT_EQ(first.value().manifest_sha256, second.value().manifest_sha256);
+}
