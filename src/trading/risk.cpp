@@ -140,6 +140,7 @@ common::Result<void> KillSwitch::restore(const std::vector<persistence::LogFrame
             event.working_orders_cancelled = json.value("working_orders_cancelled", false);
             event.persisted = true;
             states_[{event.scope, event.target_id}] = event.active;
+            state_sequences_[{event.scope, event.target_id}] = event.sequence;
             next_sequence_ = std::max(next_sequence_, event.sequence + 1U);
             events_.push_back(std::move(event));
         } catch (const std::exception&) {
@@ -152,24 +153,41 @@ common::Result<void> KillSwitch::restore(const std::vector<persistence::LogFrame
 KillSwitchEvent KillSwitch::activate(const KillScope scope, const std::uint64_t target_id,
                                      std::string actor, std::string reason,
                                      const std::int64_t time_ns) {
-    std::lock_guard lock(mutex_);
     const auto canonical_target = scope == KillScope::Global ? 0U : target_id;
-    KillSwitchEvent event{next_sequence_++, scope, canonical_target, true, std::move(actor),
-                          std::move(reason), time_ns, false};
-    states_[{scope, canonical_target}] = true; // Latch before attempting fallible actions.
-    if (cancel_sink_) {
-        try { event.working_orders_cancelled = static_cast<bool>(cancel_sink_(scope, canonical_target)); }
+    const Key key{scope, canonical_target};
+    KillSwitchEvent event;
+    EventSink sink;
+    CancelSink cancel_sink;
+    {
+        std::lock_guard lock(mutex_);
+        const auto sequence = next_sequence_++;
+        event = KillSwitchEvent{sequence, scope, canonical_target, true, std::move(actor),
+                                std::move(reason), time_ns, false, false};
+        states_[key] = true; // Latch before attempting fallible actions.
+        state_sequences_[key] = sequence;
+        sink = sink_;
+        cancel_sink = cancel_sink_;
+    }
+    if (cancel_sink) {
+        try { event.working_orders_cancelled = static_cast<bool>(cancel_sink(scope, canonical_target)); }
         catch (const std::exception&) { event.working_orders_cancelled = false; }
     }
-    if (sink_ && event.time_ns > 0 && !event.actor.empty() && !event.reason.empty()) {
+    if (sink && event.time_ns > 0 && !event.actor.empty() && !event.reason.empty()) {
         try {
-            const auto saved = sink_(event);
+            const auto saved = sink(event);
             event.persisted = static_cast<bool>(saved);
         } catch (const std::exception&) {
             event.persisted = false;
         }
     }
-    events_.push_back(event);
+    {
+        std::lock_guard lock(mutex_);
+        if (state_sequences_[key] <= event.sequence) {
+            states_[key] = true;
+            state_sequences_[key] = event.sequence;
+        }
+        events_.push_back(event);
+    }
     return event;
 }
 
@@ -180,22 +198,42 @@ common::Result<KillSwitchEvent> KillSwitch::reset(const KillScope scope,
                                                   const std::int64_t time_ns,
                                                   const bool authorized,
                                                   const bool health_checks_passed) {
-    std::lock_guard lock(mutex_);
     if (!authorized || !health_checks_passed || time_ns <= 0 || actor.empty() || reason.empty())
         return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_RESET_DENIED", "Reset requires authorization, a reason, valid time and passing health checks"});
-    if (!sink_)
-        return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", "Cannot clear a kill switch without a durable event journal"});
     const auto canonical_target = scope == KillScope::Global ? 0U : target_id;
-    KillSwitchEvent event{next_sequence_, scope, canonical_target, false, std::move(actor),
-                          std::move(reason), time_ns, false};
+    const Key key{scope, canonical_target};
+    KillSwitchEvent event;
+    EventSink sink;
+    {
+        std::lock_guard lock(mutex_);
+        if (!sink_)
+            return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", "Cannot clear a kill switch without a durable event journal"});
+        event = KillSwitchEvent{next_sequence_++, scope, canonical_target, false, std::move(actor),
+                                std::move(reason), time_ns, false, false};
+        sink = sink_;
+    }
     common::Result<void> saved = common::Result<void>::failure({"KILL_SWITCH_JOURNAL", "Kill-switch journal failed"});
-    try { saved = sink_(event); }
-    catch (const std::exception&) { return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", "Kill-switch journal threw an exception"}); }
-    if (!saved) return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", saved.error().message});
+    try {
+        saved = sink(event);
+    } catch (const std::exception&) {
+        std::lock_guard lock(mutex_);
+        if (next_sequence_ == event.sequence + 1U) --next_sequence_;
+        return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", "Kill-switch journal threw an exception"});
+    }
+    if (!saved) {
+        std::lock_guard lock(mutex_);
+        if (next_sequence_ == event.sequence + 1U) --next_sequence_;
+        return common::Result<KillSwitchEvent>::failure({"KILL_SWITCH_JOURNAL", saved.error().message});
+    }
     event.persisted = true;
-    ++next_sequence_;
-    states_[{scope, canonical_target}] = false;
-    events_.push_back(event);
+    {
+        std::lock_guard lock(mutex_);
+        if (state_sequences_[key] <= event.sequence) {
+            states_[key] = false;
+            state_sequences_[key] = event.sequence;
+        }
+        events_.push_back(event);
+    }
     return common::Result<KillSwitchEvent>::success(std::move(event));
 }
 

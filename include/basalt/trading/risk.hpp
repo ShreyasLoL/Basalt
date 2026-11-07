@@ -56,6 +56,7 @@ private:
     [[nodiscard]] common::Result<KillSwitchEvent> record(KillSwitchEvent event);
     mutable std::mutex mutex_;
     std::map<Key, bool> states_{};
+    std::map<Key, std::uint64_t> state_sequences_{};
     std::vector<KillSwitchEvent> events_{};
     std::uint64_t next_sequence_{1};
     EventSink sink_{};

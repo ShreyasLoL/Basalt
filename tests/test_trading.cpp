@@ -9,8 +9,12 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <limits>
+#include <set>
 #include <string>
+#include <thread>
+#include <vector>
 
 namespace basalt::trading {
 namespace {
@@ -335,6 +339,88 @@ TEST(KillSwitchTest, LatchesEvenWhenJournalIsUnavailableAndCannotBeReset) {
     EXPECT_TRUE(kill.active(99, 88));
     EXPECT_EQ(kill.reset(KillScope::Global, 0, "operator", "try clear", 2'000, true, true).error().code,
               "KILL_SWITCH_JOURNAL");
+}
+
+TEST(KillSwitchTest, CancelSinkCallingActiveAndEngineCompleteDoesNotDeadlock) {
+    KillSwitch* kill_ptr = nullptr;
+    RiskEngine* engine_ptr = nullptr;
+    bool active_observed_in_cancel = false;
+    bool active_observed_in_sink = false;
+
+    KillSwitch kill(
+        [&](const KillSwitchEvent& event) {
+            if (event.active) active_observed_in_sink = kill_ptr->active(1, 5);
+            return common::Result<void>::success();
+        },
+        [&](const KillScope, const std::uint64_t) {
+            active_observed_in_cancel = kill_ptr->active(1, 5);
+            engine_ptr->complete("order-1");
+            return common::Result<void>::success();
+        });
+    RiskEngine engine(kill);
+    kill_ptr = &kill;
+    engine_ptr = &engine;
+
+    const auto accepted = engine.evaluate(intent("order-1"), risk_snapshot());
+    ASSERT_TRUE(accepted.accepted);
+    ASSERT_EQ(engine.reservation_count(), 1U);
+
+    auto task = std::async(std::launch::async, [&] {
+        return kill.activate(KillScope::Account, 1, "operator", "lock-order check", 1'000);
+    });
+    ASSERT_EQ(task.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    const auto event = task.get();
+    EXPECT_TRUE(active_observed_in_cancel);
+    EXPECT_TRUE(active_observed_in_sink);
+    EXPECT_TRUE(event.working_orders_cancelled);
+    EXPECT_TRUE(event.persisted);
+    EXPECT_TRUE(kill.active(1, 5));
+    EXPECT_EQ(engine.reservation_count(), 0U);
+}
+
+TEST(KillSwitchTest, ConcurrentActivationsAssignUniqueSequencesWithoutDeadlock) {
+    TemporaryDirectory directory;
+    persistence::EventLog log(directory.path() / "concurrent-kill.blog");
+    ASSERT_TRUE(log.recover());
+
+    KillSwitch* kill_ptr = nullptr;
+    KillSwitch kill(KillSwitch::event_log_sink(log), [&](const KillScope, const std::uint64_t) {
+        EXPECT_TRUE(kill_ptr->active(1));
+        return common::Result<void>::success();
+    });
+    kill_ptr = &kill;
+
+    constexpr std::size_t thread_count = 8;
+    constexpr std::size_t calls_per_thread = 16;
+    auto runner = std::async(std::launch::async, [&] {
+        std::vector<std::future<std::vector<std::uint64_t>>> workers;
+        workers.reserve(thread_count);
+        for (std::size_t t = 0; t < thread_count; ++t) {
+            workers.push_back(std::async(std::launch::async, [&, t] {
+                std::vector<std::uint64_t> sequences;
+                sequences.reserve(calls_per_thread);
+                for (std::size_t i = 0; i < calls_per_thread; ++i) {
+                    const auto ev = kill.activate(
+                        KillScope::Account, 1, "worker-" + std::to_string(t),
+                        "concurrent", static_cast<std::int64_t>(1'000 + t * 100 + i));
+                    sequences.push_back(ev.sequence);
+                }
+                return sequences;
+            }));
+        }
+        std::set<std::uint64_t> unique_sequences;
+        for (auto& worker : workers) {
+            for (const auto seq : worker.get()) unique_sequences.insert(seq);
+        }
+        return unique_sequences;
+    });
+    ASSERT_EQ(runner.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    const auto unique_sequences = runner.get();
+    constexpr std::size_t expected_total = thread_count * calls_per_thread;
+    EXPECT_EQ(unique_sequences.size(), expected_total);
+    EXPECT_EQ(*unique_sequences.begin(), 1U);
+    EXPECT_EQ(*unique_sequences.rbegin(), expected_total);
+    EXPECT_EQ(kill.events().size(), expected_total);
 }
 
 TEST(FeeCalculatorTest, AppliesVersionedComponentsCapsAndGSTWithIntegerRounding) {
