@@ -15,8 +15,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <set>
@@ -25,6 +27,18 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #ifndef BASALT_GIT_REVISION
 #define BASALT_GIT_REVISION "unknown"
@@ -291,7 +305,87 @@ std::int64_t system_now_ns() {
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+std::optional<std::filesystem::path> read_env_data_dir() {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t size = 0;
+    if (_dupenv_s(&value, &size, "BASALT_DATA_DIR") == 0 && value != nullptr) {
+        std::string text(value);
+        std::free(value);
+        if (!text.empty()) return std::filesystem::path(std::move(text));
+    }
+#else
+    if (const char* value = std::getenv("BASALT_DATA_DIR"); value != nullptr && value[0] != '\0') {
+        return std::filesystem::path(value);
+    }
+#endif
+    return std::nullopt;
+}
+
+std::filesystem::path executable_directory() {
+#if defined(_WIN32)
+    std::wstring buffer(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD copied = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (copied == 0) break;
+        if (copied < buffer.size() - 1U) {
+            buffer.resize(copied);
+            return std::filesystem::path(buffer).parent_path();
+        }
+        if (buffer.size() >= 32768U) break;
+        buffer.resize(buffer.size() * 2U);
+    }
+#elif defined(__linux__)
+    std::error_code error;
+    const auto exe = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (!error && !exe.empty()) return exe.parent_path();
+#elif defined(__APPLE__)
+    std::uint32_t size = 1024;
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+        buffer.resize(size);
+        if (_NSGetExecutablePath(buffer.data(), &size) == 0) return std::filesystem::path(buffer.c_str()).parent_path();
+    } else {
+        return std::filesystem::path(buffer.c_str()).parent_path();
+    }
+#endif
+    return {};
+}
+
+bool prepare_owner_only_dir(const std::filesystem::path& dir) {
+    if (dir.empty()) return false;
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    if (error || !std::filesystem::is_directory(dir, error) || error) return false;
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, error);
+    return true;
+}
+
 } // namespace
+
+std::filesystem::path McpServer::resolve_data_dir(
+    std::optional<std::filesystem::path> env_dir_override,
+    std::optional<std::filesystem::path> exe_dir_override,
+    std::ostream* warning_stream) {
+    const auto env_candidate = env_dir_override.has_value() ? env_dir_override : read_env_data_dir();
+    if (env_candidate && !env_candidate->empty() && prepare_owner_only_dir(*env_candidate)) {
+        return *env_candidate;
+    }
+    const auto exe_candidate = exe_dir_override.has_value() ? *exe_dir_override : executable_directory();
+    if (!exe_candidate.empty() && prepare_owner_only_dir(exe_candidate)) {
+        return exe_candidate;
+    }
+    std::ostream& warn = warning_stream != nullptr ? *warning_stream : std::cerr;
+    warn << "Warning: BASALT MCP falling back to OS temporary directory for local data storage\n";
+    std::error_code error;
+    auto temp_dir = std::filesystem::temp_directory_path(error);
+    if (!temp_dir.empty()) {
+        temp_dir /= "basalt-mcp";
+        (void)prepare_owner_only_dir(temp_dir);
+    }
+    return temp_dir;
+}
 
 struct McpServer::Impl {
     struct ToolOutcome {
@@ -321,20 +415,14 @@ struct McpServer::Impl {
     std::deque<std::string> cache_order;
 
     Impl(std::filesystem::path audit, std::filesystem::path kill_path, Clock supplied_clock)
-        : audit_path(std::move(audit)),
+        : audit_path(audit.empty() ? (McpServer::resolve_data_dir() / "mcp_audit.jsonl") : std::move(audit)),
           clock(supplied_clock ? std::move(supplied_clock) : Clock(system_now_ns)),
-          kill_log(std::move(kill_path), 4096),
+          kill_log(kill_path.empty() ? (McpServer::resolve_data_dir() / "mcp_killswitch.blog") : std::move(kill_path), 4096),
           kill_switch([this](const trading::KillSwitchEvent& event) { return persist_kill(event); }) {
         const auto recovered = kill_log.recover();
-        if (!recovered) {
-            init_error = "KILL_LOG_UNAVAILABLE";
-            return;
-        }
+        if (!recovered) return;
         std::error_code error;
-        if (std::filesystem::file_size(kill_log.path(), error) > MAX_AUDIT_BYTES || error) {
-            init_error = "KILL_LOG_LIMIT";
-            return;
-        }
+        if (std::filesystem::file_size(kill_log.path(), error) > MAX_AUDIT_BYTES || error) return;
         const auto frames = kill_log.read_all();
         if (!frames || !kill_switch.restore(frames.value())) {
             init_error = "KILL_LOG_INVALID";
@@ -875,6 +963,20 @@ McpServer::Impl::ToolOutcome McpServer::Impl::execute_tool(const std::string& na
         const auto scope = scope_text == "global" ? trading::KillScope::Global :
             (scope_text == "account" ? trading::KillScope::Account : trading::KillScope::Strategy);
         const auto event = kill_switch.activate(scope, target, "local-stdio", reason, time_ns);
+        if (!event.persisted) {
+            constexpr std::string_view message =
+                "Kill switch remains latched active in-process, but durable persistence failed.";
+            return {Json{{"error", {{"code", "KILL_SWITCH_NOT_PERSISTED"}, {"message", message}}},
+                         {"code", "KILL_SWITCH_NOT_PERSISTED"},
+                         {"message", message},
+                         {"active", event.active},
+                         {"scope", scope_text},
+                         {"target_id", event.target_id},
+                         {"persisted", false},
+                         {"working_orders_cancelled", event.working_orders_cancelled},
+                         {"reason", "[REDACTED]"}},
+                    true, "KILL_SWITCH_NOT_PERSISTED"};
+        }
         return {Json{{"active", event.active}, {"scope", scope_text}, {"target_id", event.target_id},
             {"persisted", event.persisted}, {"working_orders_cancelled", event.working_orders_cancelled},
             {"reason", "[REDACTED]"}}, false, {}};

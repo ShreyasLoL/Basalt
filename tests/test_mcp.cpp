@@ -278,4 +278,62 @@ TEST_F(McpTest, OversizeFramesAreRejectedWithBoundedProtocolError) {
     EXPECT_LT(response.dump().size(), 256U);
 }
 
+TEST_F(McpTest, TriggerKillSwitchReportsErrorWhenNotPersistedWhileKeepingInProcessLatch) {
+    // Make kill_path read-only so durable persistence fails on activation.
+    std::error_code ec;
+    std::filesystem::permissions(kill_path, std::filesystem::perms::owner_read,
+                                 std::filesystem::perm_options::replace, ec);
+    initialize();
+    auto readonly_resp = call("kill-readonly", "trigger_kill_switch",
+                              {{"scope", "global"}, {"reason", "disk read-only"}});
+    std::filesystem::permissions(kill_path,
+                                 std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::replace, ec);
+    ASSERT_TRUE(is_tool_error(readonly_resp)) << readonly_resp.dump();
+    const auto& content = readonly_resp["result"]["structuredContent"];
+    EXPECT_EQ(content["error"]["code"], "KILL_SWITCH_NOT_PERSISTED");
+    EXPECT_EQ(content["code"], "KILL_SWITCH_NOT_PERSISTED");
+    EXPECT_FALSE(content["persisted"].get<bool>());
+    EXPECT_TRUE(content["active"].get<bool>());
+    EXPECT_NE(content["error"]["message"].get<std::string>().find("in-process"), std::string::npos);
+
+    auto health = call("health-after-unpersisted-kill", "get_system_health");
+    ASSERT_FALSE(is_tool_error(health));
+    EXPECT_TRUE(health["result"]["structuredContent"]["kill_switch"]["global_active"].get<bool>());
+
+    // Also verify with an invalid kill-log path (a directory instead of a file).
+    const auto invalid_kill_dir = directory / "invalid_kill_log_dir";
+    std::filesystem::create_directories(invalid_kill_dir);
+    server = std::make_unique<McpServer>(audit_path, invalid_kill_dir, [this] { return now_ns++; });
+    initialize();
+    auto invalid_resp = call("kill-invalid-path", "trigger_kill_switch",
+                             {{"scope", "global"}, {"reason", "invalid path"}});
+    ASSERT_TRUE(is_tool_error(invalid_resp)) << invalid_resp.dump();
+    EXPECT_EQ(invalid_resp["result"]["structuredContent"]["error"]["code"], "KILL_SWITCH_NOT_PERSISTED");
+    EXPECT_TRUE(invalid_resp["result"]["structuredContent"]["active"].get<bool>());
+}
+
+TEST_F(McpTest, ResolveDataDirUsesEnvThenExecutableDirThenTempWithWarning) {
+    const auto env_dir = directory / "env_data_dir";
+    const auto exe_dir = directory / "exe_data_dir";
+    std::ostringstream warnings;
+    EXPECT_EQ(McpServer::resolve_data_dir(env_dir, exe_dir, &warnings), env_dir);
+    EXPECT_TRUE(std::filesystem::is_directory(env_dir));
+    EXPECT_TRUE(warnings.str().empty());
+
+    EXPECT_EQ(McpServer::resolve_data_dir(std::filesystem::path{}, exe_dir, &warnings), exe_dir);
+    EXPECT_TRUE(std::filesystem::is_directory(exe_dir));
+    EXPECT_TRUE(warnings.str().empty());
+
+    const auto blocker = directory / "file_blocker";
+    {
+        std::ofstream out(blocker, std::ios::binary);
+        out << "not a directory";
+    }
+    const auto fallback = McpServer::resolve_data_dir(blocker / "sub", blocker / "sub2", &warnings);
+    EXPECT_FALSE(fallback.empty());
+    EXPECT_TRUE(std::filesystem::is_directory(fallback));
+    EXPECT_NE(warnings.str().find("Warning"), std::string::npos);
+}
+
 } // namespace

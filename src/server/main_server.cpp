@@ -32,7 +32,9 @@ int main(int argc, char** argv) {
             std::cerr << "--mcp-stdio cannot be combined with HTTP server options\n";
             return 2;
         }
-        basalt::server::McpServer server;
+        const auto data_dir = basalt::server::McpServer::resolve_data_dir();
+        basalt::server::McpServer server(data_dir / "mcp_audit.jsonl",
+                                         data_dir / "mcp_killswitch.blog");
         return server.run_stdio(std::cin, std::cout) ? 0 : 1;
     }
     auto loaded_config = basalt::common::ConfigLoader::from_environment();
