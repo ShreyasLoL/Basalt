@@ -1,3 +1,4 @@
+#include "basalt/common/fixed_math.hpp"
 #include "basalt/strategy/builtins.hpp"
 #include "basalt/strategy/indicators.hpp"
 
@@ -5,6 +6,8 @@
 
 #include <limits>
 #include <memory>
+#include <optional>
+#include <random>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -12,6 +15,45 @@
 namespace {
 
 using namespace basalt;
+
+std::uint64_t legacy_clamped_ratio_bps(const std::uint64_t numerator,
+                                       const std::uint64_t denominator) noexcept {
+    if (denominator == 0 || numerator == 0) return 0;
+    if (numerator >= denominator) return 10'000;
+    std::uint64_t remainder = 0;
+    std::uint64_t result = 0;
+    const auto complement = denominator - numerator;
+    for (std::uint32_t i = 0; i < 10'000; ++i) {
+        if (remainder >= complement) {
+            remainder -= complement;
+            ++result;
+        } else {
+            remainder += numerator;
+        }
+    }
+    return result;
+}
+
+std::optional<std::int64_t> legacy_ratio_bps(const std::uint64_t numerator,
+                                             const std::uint64_t denominator) noexcept {
+    if (denominator == 0) return std::nullopt;
+    const auto whole = numerator / denominator;
+    if (whole > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 10'000))
+        return std::numeric_limits<std::int64_t>::max();
+    const auto remainder = numerator % denominator;
+    std::uint64_t carry = 0;
+    std::uint64_t fraction = 0;
+    const auto complement = denominator - remainder;
+    for (std::uint32_t i = 0; i < 10'000; ++i) {
+        if (carry >= complement) {
+            carry -= complement;
+            ++fraction;
+        } else {
+            carry += remainder;
+        }
+    }
+    return static_cast<std::int64_t>(whole * 10'000 + fraction);
+}
 
 strategy::StrategyContext context() {
     strategy::StrategyContext value{};
@@ -171,6 +213,75 @@ TEST(IndicatorsTest, ArithmeticOverflowAndInvalidPeriodsAreReported) {
     strategy::SimpleMovingAverage overflow(2);
     ASSERT_TRUE(overflow.update(std::numeric_limits<std::int64_t>::max()));
     EXPECT_EQ(overflow.update(1).error().code, "ARITHMETIC_OVERFLOW");
+}
+
+TEST(FixedMathTest, RatioBpsMatchesLegacyLoopAcrossEdgeCasesAndSeededRandomRange) {
+    constexpr auto u64_max = std::numeric_limits<std::uint64_t>::max();
+    constexpr auto whole_cap =
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 10'000);
+
+    const std::vector<std::pair<std::uint64_t, std::uint64_t>> edge_cases = {
+        {0, 0},
+        {1, 0},
+        {u64_max, 0},
+        {0, 1},
+        {0, 10'000},
+        {0, u64_max},
+        {1, 1},
+        {1, 2},
+        {1, 3},
+        {2, 3},
+        {9'999, 10'000},
+        {10'000, 10'000},
+        {10'001, 10'000},
+        {1, u64_max},
+        {u64_max / 2, u64_max},
+        {u64_max - 1, u64_max},
+        {u64_max, u64_max},
+        {u64_max, u64_max - 1},
+        {whole_cap, 1},
+        {whole_cap + 1, 1},
+        {u64_max, 1},
+        {whole_cap * 3 + 2, 3},
+        {(whole_cap + 1) * 3, 3},
+    };
+
+    for (const auto& [numerator, denominator] : edge_cases) {
+        EXPECT_EQ(common::clamped_ratio_bps(numerator, denominator),
+                  legacy_clamped_ratio_bps(numerator, denominator))
+            << "numerator=" << numerator << " denominator=" << denominator;
+        EXPECT_EQ(common::ratio_bps(numerator, denominator),
+                  legacy_ratio_bps(numerator, denominator))
+            << "numerator=" << numerator << " denominator=" << denominator;
+        if (denominator != 0) {
+            const auto rem = numerator % denominator;
+            EXPECT_EQ(common::detail::scale_remainder_bps_portable(rem, denominator),
+                      common::detail::scale_remainder_bps(rem, denominator))
+                << "rem=" << rem << " denominator=" << denominator;
+        }
+    }
+
+    std::mt19937_64 rng(0xBA5A1706ULL);
+    for (int i = 0; i < 2'500; ++i) {
+        const auto a = rng();
+        const auto b = rng();
+        const auto denominator = b == 0 ? 1ULL : b;
+        const auto fractional_num = a % denominator;
+
+        EXPECT_EQ(common::clamped_ratio_bps(fractional_num, denominator),
+                  legacy_clamped_ratio_bps(fractional_num, denominator));
+        EXPECT_EQ(common::ratio_bps(fractional_num, denominator),
+                  legacy_ratio_bps(fractional_num, denominator));
+        EXPECT_EQ(common::detail::scale_remainder_bps_portable(fractional_num, denominator),
+                  common::detail::scale_remainder_bps(fractional_num, denominator));
+
+        EXPECT_EQ(common::clamped_ratio_bps(a, denominator),
+                  legacy_clamped_ratio_bps(a, denominator));
+        EXPECT_EQ(common::ratio_bps(a, denominator),
+                  legacy_ratio_bps(a, denominator));
+        EXPECT_EQ(common::detail::scale_remainder_bps_portable(a % denominator, denominator),
+                  common::detail::scale_remainder_bps(a % denominator, denominator));
+    }
 }
 
 TEST(BuiltinStrategyTest, FactoryExposesSixStableDescriptorsAndRejectsUnknownParameters) {

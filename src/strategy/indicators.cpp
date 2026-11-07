@@ -1,5 +1,7 @@
 #include "basalt/strategy/indicators.hpp"
 
+#include "basalt/common/fixed_math.hpp"
+
 #include <limits>
 
 namespace basalt::strategy {
@@ -18,23 +20,6 @@ std::optional<std::uint64_t> sum_quantities(const std::uint64_t left,
                                            const std::uint64_t right) noexcept {
     if (right > std::numeric_limits<std::uint64_t>::max() - left) return std::nullopt;
     return left + right;
-}
-
-std::uint64_t ratio_bps(const std::uint64_t numerator, const std::uint64_t denominator) noexcept {
-    if (denominator == 0 || numerator == 0) return 0;
-    if (numerator >= denominator) return 10'000;
-    std::uint64_t remainder = 0;
-    std::uint64_t result = 0;
-    const auto complement = denominator - numerator;
-    for (std::uint32_t i = 0; i < 10'000; ++i) {
-        if (remainder >= complement) {
-            remainder -= complement;
-            ++result;
-        } else {
-            remainder += numerator;
-        }
-    }
-    return result;
 }
 
 std::uint64_t integer_sqrt(const std::uint64_t value) noexcept {
@@ -148,7 +133,7 @@ common::Result<void> RelativeStrengthIndex::update(const std::int64_t close) {
             auto total = common::checked_add(average_gain_, average_loss_);
             if (!total || total.value() <= 0)
                 return common::Result<void>::failure({"ARITHMETIC_OVERFLOW", "RSI total movement overflow"});
-            value_bps_ = static_cast<std::int64_t>(ratio_bps(
+            value_bps_ = static_cast<std::int64_t>(common::clamped_ratio_bps(
                 static_cast<std::uint64_t>(average_gain_), static_cast<std::uint64_t>(total.value())));
         }
     }
@@ -233,7 +218,7 @@ std::optional<std::int64_t> BookImbalance::value_bps(const std::uint64_t bid_qua
         return std::nullopt;
     const auto positive = bid_quantity >= ask_quantity;
     const auto difference = positive ? bid_quantity - ask_quantity : ask_quantity - bid_quantity;
-    const auto magnitude = static_cast<std::int64_t>(ratio_bps(difference, *total));
+    const auto magnitude = static_cast<std::int64_t>(common::clamped_ratio_bps(difference, *total));
     return positive ? magnitude : -magnitude;
 }
 

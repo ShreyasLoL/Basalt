@@ -1,5 +1,6 @@
 #include "basalt/strategy/builtins.hpp"
 
+#include "basalt/common/fixed_math.hpp"
 #include "basalt/strategy/indicators.hpp"
 
 #include <algorithm>
@@ -39,28 +40,6 @@ common::Result<std::int64_t> ceil_mul_div(const std::int64_t value, const std::u
     const auto quotient = product.value() / divisor;
     const auto remainder = product.value() % divisor;
     return common::Result<std::int64_t>::success(quotient + (remainder == 0 ? 0 : 1));
-}
-
-std::optional<std::int64_t> ratio_bps(const std::uint64_t numerator,
-                                      const std::uint64_t denominator) noexcept {
-    if (denominator == 0) return std::nullopt;
-    const auto whole = numerator / denominator;
-    if (whole > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max() / 10'000))
-        return std::numeric_limits<std::int64_t>::max();
-    const auto remainder = numerator % denominator;
-    // Compute floor(remainder*10,000/denominator) without an overflowing product.
-    std::uint64_t carry = 0;
-    std::uint64_t fraction = 0;
-    const auto complement = denominator - remainder;
-    for (std::uint32_t i = 0; i < 10'000; ++i) {
-        if (carry >= complement) {
-            carry -= complement;
-            ++fraction;
-        } else {
-            carry += remainder;
-        }
-    }
-    return static_cast<std::int64_t>(whole * 10'000 + fraction);
 }
 
 class BuiltinStrategy final : public IStrategy {
@@ -447,8 +426,8 @@ private:
             std::optional<StrategySignal> result;
             if (current && previous_bands_ && previous_close_) {
                 const auto width = current->upper - current->lower;
-                const auto width_bps = ratio_bps(static_cast<std::uint64_t>(std::max<std::int64_t>(0, width)),
-                                                 static_cast<std::uint64_t>(current->middle));
+                const auto width_bps = common::ratio_bps(static_cast<std::uint64_t>(std::max<std::int64_t>(0, width)),
+                                                         static_cast<std::uint64_t>(current->middle));
                 const bool volatility_ok = width_bps && *width_bps >= minimum_width_bps_;
                 std::optional<trading::Side> side;
                 std::string reason;
@@ -500,7 +479,7 @@ private:
             std::optional<StrategySignal> result;
             if (average && previous_close_ && *average > 0) {
                 const auto difference = close >= *average ? close - *average : *average - close;
-                const auto deviation = ratio_bps(static_cast<std::uint64_t>(difference), static_cast<std::uint64_t>(*average));
+                const auto deviation = common::ratio_bps(static_cast<std::uint64_t>(difference), static_cast<std::uint64_t>(*average));
                 const bool moving_toward = (close < *average && close > *previous_close_) ||
                                            (close > *average && close < *previous_close_);
                 std::optional<trading::Side> side;
