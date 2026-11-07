@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { ChartPanel } from "./ChartPanel";
+import { useWorkstation } from "./store";
+import { EMPTY_DASHBOARD } from "./types";
 
 const legacyFixture = {
   market: {
@@ -34,6 +37,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("BASALT workstation", () => {
   beforeEach(() => {
+    useWorkstation.setState({ ...EMPTY_DASHBOARD, optionalStatus: {} });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/health")) return jsonResponse({ error: "not_found" }, 404);
@@ -44,6 +48,7 @@ describe("BASALT workstation", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -83,5 +88,52 @@ describe("BASALT workstation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Analytics" }));
     expect(screen.getByText("No completed run is selected. BASALT does not show placeholder returns or synthetic performance figures.")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("makes zero /api/v1 calls between 30s re-probe intervals in legacy mode", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/health")) return jsonResponse({ error: "not_found" }, 404);
+      if (url.includes("/api/state")) return jsonResponse(legacyFixture);
+      return jsonResponse({ error: "not_found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<App />);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(useWorkstation.getState().mode).toBe("legacy");
+
+    const v1CallsAfterInitialProbe = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).includes("/api/v1"),
+    ).length;
+    expect(v1CallsAfterInitialProbe).toBe(1);
+
+    fetchSpy.mockClear();
+
+    await vi.advanceTimersByTimeAsync(29_000);
+    const v1CallsBetweenIntervals = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).includes("/api/v1"),
+    ).length;
+    const legacyCallsBetweenIntervals = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).includes("/api/state"),
+    ).length;
+    expect(v1CallsBetweenIntervals).toBe(0);
+    expect(legacyCallsBetweenIntervals).toBeGreaterThanOrEqual(29);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const v1CallsAfterReprobeWindow = fetchSpy.mock.calls.filter(([input]) =>
+      String(input).includes("/api/v1/health"),
+    ).length;
+    expect(v1CallsAfterReprobeWindow).toBe(1);
+  });
+
+  it("shows a clear no-history message in ChartPanel in legacy mode without fetching /bars", () => {
+    const fetchSpy = vi.fn(async () => jsonResponse({ error: "not_found" }, 404));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<ChartPanel instrumentId="SIM:LEGACY" mode="legacy" />);
+    expect(screen.getByText(/no history in legacy mode/i)).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

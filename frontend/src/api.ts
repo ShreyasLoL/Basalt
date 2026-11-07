@@ -193,12 +193,39 @@ function mapLegacyState(payload: LegacyApiState): Pick<
   };
 }
 
-export async function getDashboardSnapshot(): Promise<{
+export const V1_REPROBE_INTERVAL_MS = 30_000;
+
+export interface SnapshotOptions {
+  skipV1Probe?: boolean;
+}
+
+export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promise<{
   mode: Exclude<ApiMode, "connecting" | "disconnected">;
   health: DashboardState["health"];
   legacy: boolean;
+  probedV1: boolean;
   data: Pick<DashboardState, "marketWatch" | "book" | "trades" | "activity" | "selectedInstrumentId">;
 }> {
+  if (options.skipV1Probe) {
+    try {
+      const legacyState = await fetchLegacyState();
+      return {
+        mode: "legacy",
+        health: {
+          state: "DEGRADED",
+          version: null,
+          storage: null,
+          message: "Legacy CLOB API; canonical feed metadata is unavailable",
+        },
+        legacy: true,
+        probedV1: false,
+        data: mapLegacyState(legacyState),
+      };
+    } catch {
+      throw new Error("BASALT API is unavailable. Check the local server and reconnect.");
+    }
+  }
+
   try {
     const health = await fetchV1Health();
     const watch = await request<{ instruments: MarketRow[] }>("/api/v1/market/watch");
@@ -219,6 +246,7 @@ export async function getDashboardSnapshot(): Promise<{
         message: health.message ?? "REST v1 connected",
       },
       legacy: false,
+      probedV1: true,
       data: {
         marketWatch: watch.instruments,
         selectedInstrumentId: instrumentId,
@@ -239,6 +267,7 @@ export async function getDashboardSnapshot(): Promise<{
           message: "Legacy CLOB API; canonical feed metadata is unavailable",
         },
         legacy: true,
+        probedV1: true,
         data: mapLegacyState(legacyState),
       };
     } catch {

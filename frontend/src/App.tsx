@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ChartPanel } from "./ChartPanel";
 import {
   cancelOrder,
@@ -125,7 +125,15 @@ function EmptyState({
   );
 }
 
-function BookLadder({ levels, unit, best }: { levels: PriceLevel[]; unit: PriceUnit; best: number | null }) {
+const BookLadder = memo(function BookLadder({
+  levels,
+  unit,
+  best,
+}: {
+  levels: PriceLevel[];
+  unit: PriceUnit;
+  best: number | null;
+}) {
   const max = Math.max(1, ...levels.map((level) => level.totalVolume));
   if (levels.length === 0) {
     return <div className="table-empty">No resting liquidity in this book.</div>;
@@ -142,9 +150,15 @@ function BookLadder({ levels, unit, best }: { levels: PriceLevel[]; unit: PriceU
       ))}
     </div>
   );
-}
+});
 
-function BookPane({ book, side }: { book: BookSnapshot | null; side: "BUY" | "SELL" }) {
+const BookPane = memo(function BookPane({
+  book,
+  side,
+}: {
+  book: BookSnapshot | null;
+  side: "BUY" | "SELL";
+}) {
   const levels = side === "BUY" ? book?.bids ?? [] : book?.asks ?? [];
   const best = side === "BUY" ? book?.bestBid ?? null : book?.bestAsk ?? null;
   return (
@@ -161,9 +175,15 @@ function BookPane({ book, side }: { book: BookSnapshot | null; side: "BUY" | "SE
       <BookLadder levels={levels} unit={book?.priceUnit ?? "TICKS"} best={best} />
     </section>
   );
-}
+});
 
-function TradeTable({ trades, unit }: { trades: TradeRecord[]; unit: PriceUnit }) {
+const TradeTable = memo(function TradeTable({
+  trades,
+  unit,
+}: {
+  trades: TradeRecord[];
+  unit: PriceUnit;
+}) {
   if (trades.length === 0) {
     return <EmptyState title="No executions recorded" detail="Paper fills will appear here with their execution model and source." />;
   }
@@ -187,9 +207,9 @@ function TradeTable({ trades, unit }: { trades: TradeRecord[]; unit: PriceUnit }
       </table>
     </div>
   );
-}
+});
 
-function ActivityList({ records }: { records: ActivityRecord[] }) {
+const ActivityList = memo(function ActivityList({ records }: { records: ActivityRecord[] }) {
   if (records.length === 0) {
     return <EmptyState title="No system events" detail="Order, risk, feed and recovery events will be recorded here." />;
   }
@@ -204,9 +224,9 @@ function ActivityList({ records }: { records: ActivityRecord[] }) {
       ))}
     </div>
   );
-}
+});
 
-function MarketWatch({
+const MarketWatch = memo(function MarketWatch({
   rows,
   selected,
   onSelect,
@@ -255,7 +275,7 @@ function MarketWatch({
       )}
     </div>
   );
-}
+});
 
 function parseDecimalMicro(value: string): number | null {
   const match = /^(\d{1,11})(?:\.(\d{1,4}))?$/.exec(value.trim());
@@ -265,7 +285,7 @@ function parseDecimalMicro(value: string): number | null {
   return Number.isSafeInteger(micro) && micro > 0 ? micro : null;
 }
 
-function OrderTicket({
+const OrderTicket = memo(function OrderTicket({
   mode,
   instrumentId,
   onMessage,
@@ -395,21 +415,18 @@ function OrderTicket({
       </form>
     </section>
   );
-}
+});
 
-function Overview({
-  rows,
-  book,
-  trades,
-  health,
+const Overview = memo(function Overview({
   onNavigate,
 }: {
-  rows: MarketRow[];
-  book: BookSnapshot | null;
-  trades: TradeRecord[];
-  health: ReturnType<typeof useWorkstation.getState>["health"];
   onNavigate: (workspace: WorkspaceName) => void;
 }) {
+  const rows = useWorkstation((state) => state.marketWatch);
+  const book = useWorkstation((state) => state.book);
+  const trades = useWorkstation((state) => state.trades);
+  const health = useWorkstation((state) => state.health);
+  const recentTrades = useMemo(() => trades.slice(0, 8), [trades]);
   const row = rows[0];
   return (
     <>
@@ -451,13 +468,13 @@ function Overview({
           <div><div className="eyebrow">RECENT PAPER EXECUTIONS</div><h2>Time and sales</h2></div>
           <button className="text-button" onClick={() => onNavigate("Paper Trading")}>Paper trading →</button>
         </div>
-        <TradeTable trades={trades.slice(0, 8)} unit={book?.priceUnit ?? "TICKS"} />
+        <TradeTable trades={recentTrades} unit={book?.priceUnit ?? "TICKS"} />
       </section>
     </>
   );
-}
+});
 
-function ActiveOrders({
+const ActiveOrders = memo(function ActiveOrders({
   orders,
   unit,
   mode,
@@ -502,28 +519,52 @@ function ActiveOrders({
       </table>
     </div>
   );
-}
+});
 
-function InstrumentWorkstation({
-  selectedInstrumentId,
-  book,
-  mode,
+const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
+  filter,
+  onSelect,
+}: {
+  filter: string;
+  onSelect: (id: string) => void;
+}) {
+  const marketWatch = useWorkstation((state) => state.marketWatch);
+  const selectedInstrumentId = useWorkstation((state) => state.selectedInstrumentId);
+  const filteredRows = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    return marketWatch.filter((row) =>
+      query.length === 0 || row.symbol.toLowerCase().includes(query) || row.exchange.toLowerCase().includes(query),
+    );
+  }, [filter, marketWatch]);
+
+  return (
+    <>
+      <PageHeader title="Market Watch" subtitle="Instrument quotes with source, quality and event freshness." />
+      <MarketWatch rows={filteredRows} selected={selectedInstrumentId} onSelect={onSelect} />
+    </>
+  );
+});
+
+const InstrumentWorkstation = memo(function InstrumentWorkstation({
   onMessage,
 }: {
-  selectedInstrumentId: string | null;
-  book: BookSnapshot | null;
-  mode: ApiMode;
   onMessage: (message: string, error?: boolean) => void;
 }) {
+  const selectedInstrumentId = useWorkstation((state) => state.selectedInstrumentId);
+  const book = useWorkstation((state) => state.book);
+  const mode = useWorkstation((state) => state.mode);
+  const trades = useWorkstation((state) => state.trades);
+  const recentTrades = useMemo(() => trades.slice(0, 20), [trades]);
+
   return (
     <>
       <PageHeader title="Instrument Workstation" subtitle={selectedInstrumentId ?? "Select an instrument from Market Watch."} />
       <div className="workstation-grid">
         <div className="stack">
-          <ChartPanel instrumentId={selectedInstrumentId} />
+          <ChartPanel instrumentId={selectedInstrumentId} mode={mode} />
           <section className="panel">
             <div className="section-heading"><div><div className="eyebrow">TIME AND SALES</div><h2>Recent executions</h2></div></div>
-            <TradeTable trades={useWorkstation((state) => state.trades).slice(0, 20)} unit={book?.priceUnit ?? "TICKS"} />
+            <TradeTable trades={recentTrades} unit={book?.priceUnit ?? "TICKS"} />
           </section>
         </div>
         <div className="stack">
@@ -533,17 +574,15 @@ function InstrumentWorkstation({
       </div>
     </>
   );
-}
+});
 
-function OrdersScreen({
-  book,
-  mode,
+const OrdersScreen = memo(function OrdersScreen({
   onMessage,
 }: {
-  book: BookSnapshot | null;
-  mode: ApiMode;
   onMessage: (message: string, error?: boolean) => void;
 }) {
+  const book = useWorkstation((state) => state.book);
+  const mode = useWorkstation((state) => state.mode);
   return (
     <>
       <PageHeader title="Order Book" subtitle="External observed liquidity and internal simulated liquidity are kept separate." />
@@ -558,9 +597,9 @@ function OrdersScreen({
       </section>
     </>
   );
-}
+});
 
-function StrategyLab() {
+const StrategyLab = memo(function StrategyLab() {
   const strategies = useWorkstation((state) => state.strategies);
   const status = useWorkstation((state) => state.optionalStatus.strategies);
   return (
@@ -581,7 +620,7 @@ function StrategyLab() {
       </section>
     </>
   );
-}
+});
 
 function StrategyControls({ id }: { id: string }) {
   const [message, setMessage] = useState("");
@@ -603,15 +642,14 @@ function StrategyControls({ id }: { id: string }) {
   return <div className="button-row"><button className="subtle-button" disabled={busy} onClick={() => void command("start")}>Start</button><button className="subtle-button" disabled={busy} onClick={() => void command("pause")}>Pause</button><span className="quiet-label">{message}</span></div>;
 }
 
-function PaperTrading({
-  book,
-  mode,
+const PaperTrading = memo(function PaperTrading({
   onMessage,
 }: {
-  book: BookSnapshot | null;
-  mode: ApiMode;
   onMessage: (message: string, error?: boolean) => void;
 }) {
+  const book = useWorkstation((state) => state.book);
+  const mode = useWorkstation((state) => state.mode);
+  const trades = useWorkstation((state) => state.trades);
   const [busy, setBusy] = useState(false);
   async function reset(seed: boolean) {
     setBusy(true);
@@ -647,17 +685,21 @@ function PaperTrading({
       </section>
       <section className="panel">
         <div className="section-heading"><div><div className="eyebrow">EXECUTION BLOTTER</div><h2>Paper fills</h2></div></div>
-        <TradeTable trades={useWorkstation((state) => state.trades)} unit={book?.priceUnit ?? "TICKS"} />
+        <TradeTable trades={trades} unit={book?.priceUnit ?? "TICKS"} />
       </section>
     </>
   );
-}
+});
 
 function EndpointNotice({ endpoint }: { endpoint: string }) {
   return <div className="inline-notice">This server build does not provide {endpoint}; BASALT will show an empty state until the corresponding phase is available.</div>;
 }
 
-function PortfolioRisk({ onMessage }: { onMessage: (message: string, error?: boolean) => void }) {
+const PortfolioRisk = memo(function PortfolioRisk({
+  onMessage,
+}: {
+  onMessage: (message: string, error?: boolean) => void;
+}) {
   const portfolio = useWorkstation((state) => state.portfolio);
   const risk = useWorkstation((state) => state.risk);
   const mode = useWorkstation((state) => state.mode);
@@ -708,9 +750,13 @@ function PortfolioRisk({ onMessage }: { onMessage: (message: string, error?: boo
       {risk?.rejections.length ? <section className="panel"><div className="section-heading"><div><div className="eyebrow">RISK EVENTS</div><h2>Recent rejections</h2></div></div><div className="event-list">{risk.rejections.map((entry, index) => <div className="event-row" key={entry.eventSeq + ":" + index}><span className="mono quiet">#{entry.eventSeq}</span><span className="event-type reject">{entry.code}</span><div className="event-copy"><span>{entry.message}</span></div></div>)}</div></section> : null}
     </>
   );
-}
+});
 
-function Backtesting({ onMessage }: { onMessage: (message: string, error?: boolean) => void }) {
+const Backtesting = memo(function Backtesting({
+  onMessage,
+}: {
+  onMessage: (message: string, error?: boolean) => void;
+}) {
   const datasets = useWorkstation((state) => state.datasets);
   const datasetStatus = useWorkstation((state) => state.optionalStatus.datasets);
   const [dataset, setDataset] = useState("");
@@ -753,9 +799,9 @@ function Backtesting({ onMessage }: { onMessage: (message: string, error?: boole
       </div>
     </>
   );
-}
+});
 
-function Replay() {
+const Replay = memo(function Replay() {
   const [session, setSession] = useState("");
   const [message, setMessage] = useState("No recorded session selected.");
   async function command(action: string, extra: Record<string, unknown> = {}) {
@@ -790,9 +836,9 @@ function Replay() {
       </section>
     </>
   );
-}
+});
 
-function Analytics() {
+const Analytics = memo(function Analytics() {
   return (
     <>
       <PageHeader title="Analytics" subtitle="Performance metrics are calculated from completed paper or backtest ledgers." />
@@ -802,12 +848,18 @@ function Analytics() {
       </div>
     </>
   );
-}
+});
 
-function DataSources() {
+const DataSources = memo(function DataSources() {
+  const mode = useWorkstation((state) => state.mode);
   const [sources, setSources] = useState<Array<{ id: string; name: string; state: string; source: string; quality: string; subscriptions?: number }>>([]);
   const [available, setAvailable] = useState(false);
   useEffect(() => {
+    if (mode !== "v1") {
+      setSources([]);
+      setAvailable(false);
+      return;
+    }
     let active = true;
     void fetchOptional<{ providers: typeof sources }>("/api/v1/data-sources").then((response) => {
       if (active) {
@@ -818,7 +870,7 @@ function DataSources() {
       if (active) setAvailable(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [mode]);
   return (
     <>
       <PageHeader title="Data Sources" subtitle="Provider connectivity is separate from internal simulated liquidity." />
@@ -829,24 +881,31 @@ function DataSources() {
       <section className="panel info-panel"><div className="eyebrow">PROVENANCE</div><p>Every canonical event records its source, quality, event time, receive time, and instrument mapping.</p></section>
     </>
   );
-}
+});
 
-function SystemMonitor() {
+const SystemMonitor = memo(function SystemMonitor() {
+  const mode = useWorkstation((state) => state.mode);
   const metrics = useWorkstation((state) => state.systemMetrics);
   const activity = useWorkstation((state) => state.activity);
-  const streamEvents = useWorkstation((state) => state.streamEvents);
+  const streamEventCount = useWorkstation((state) => state.streamEvents.length);
   const streamConnected = useWorkstation((state) => state.streamConnected);
   const lastEventSeq = useWorkstation((state) => state.lastEventSeq);
   const replayGapDetected = useWorkstation((state) => state.replayGapDetected);
   const status = useWorkstation((state) => state.optionalStatus.systemMetrics);
+  const streamDotState = streamConnected ? "OK" : mode === "legacy" ? "DEGRADED" : "ERROR";
+  const streamLabel = streamConnected
+    ? "Stream connected"
+    : mode === "legacy"
+      ? "Stream unavailable in legacy mode"
+      : "Stream disconnected";
   return (
     <>
       <PageHeader title="System Monitor" subtitle="Pipeline timings and queue health come from measured local telemetry." />
       <section className="panel stream-status" aria-live="polite">
-        <div><StatusDot state={streamConnected ? "OK" : "ERROR"} /><strong>{streamConnected ? "Stream connected" : "Stream disconnected"}</strong></div>
+        <div><StatusDot state={streamDotState} /><strong>{streamLabel}</strong></div>
         <span className="mono">Last event sequence: {lastEventSeq || "—"}</span>
         {replayGapDetected && <span className="warning-copy">Sequence recovery requested; REST snapshot reconciliation is in progress.</span>}
-        <span className="quiet-label">Bounded event buffer · {streamEvents.length}/512</span>
+        <span className="quiet-label">Bounded event buffer · {streamEventCount}/512</span>
       </section>
       {status === "unavailable" && <EndpointNotice endpoint="/api/v1/system/metrics" />}
       {metrics ? (
@@ -858,9 +917,9 @@ function SystemMonitor() {
       <section className="panel"><div className="section-heading"><div><div className="eyebrow">AUDIT TRAIL</div><h2>Recent system events</h2></div></div><ActivityList records={activity} /></section>
     </>
   );
-}
+});
 
-function Settings() {
+const Settings = memo(function Settings() {
   const mode = useWorkstation((state) => state.mode);
   const health = useWorkstation((state) => state.health);
   return (
@@ -875,14 +934,20 @@ function Settings() {
       <section className="panel info-panel"><div className="eyebrow">CREDENTIALS</div><p>Provider tokens are loaded by the local service from environment or protected configuration and are never rendered in this page.</p></section>
     </>
   );
-}
+});
 
 export default function App() {
-  const state = useWorkstation();
-  const refresh = useWorkstation((value) => value.refresh);
-  const setSelected = useWorkstation((value) => value.setSelectedInstrument);
-  const applyFrames = useWorkstation((value) => value.applyStreamFrames);
-  const setStreamConnected = useWorkstation((value) => value.setStreamConnected);
+  const mode = useWorkstation((state) => state.mode);
+  const connected = useWorkstation((state) => state.connected);
+  const error = useWorkstation((state) => state.error);
+  const health = useWorkstation((state) => state.health);
+  const lastUpdated = useWorkstation((state) => state.lastUpdated);
+  const primarySource = useWorkstation((state) => state.marketWatch[0]?.source ?? null);
+  const quality = useWorkstation((state) => state.marketWatch[0]?.quality ?? "DISCONNECTED");
+  const refresh = useWorkstation((state) => state.refresh);
+  const setSelected = useWorkstation((state) => state.setSelectedInstrument);
+  const applyFrames = useWorkstation((state) => state.applyStreamFrames);
+  const setStreamConnected = useWorkstation((state) => state.setStreamConnected);
   const [workspace, setWorkspace] = useState<WorkspaceName>("Overview");
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [filter, setFilter] = useState("");
@@ -894,7 +959,10 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (state.mode !== "v1") return;
+    if (mode !== "v1") {
+      setStreamConnected(false);
+      return;
+    }
     return connectWebSocket(
       applyFrames,
       setStreamConnected,
@@ -904,7 +972,7 @@ export default function App() {
         void refresh();
       },
     );
-  }, [state.mode, applyFrames, setStreamConnected, refresh]);
+  }, [mode, applyFrames, setStreamConnected, refresh]);
 
   useEffect(() => {
     if (!toast) return;
@@ -912,36 +980,29 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const filteredRows = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    return state.marketWatch.filter((row) =>
-      query.length === 0 || row.symbol.toLowerCase().includes(query) || row.exchange.toLowerCase().includes(query),
-    );
-  }, [filter, state.marketWatch]);
+  const notify = useCallback((message: string, isError = false) => {
+    setToast({ message, error: isError });
+  }, []);
 
-  function notify(message: string, error = false) {
-    setToast({ message, error });
-  }
-
-  function selectInstrument(instrumentId: string) {
+  const selectInstrument = useCallback((instrumentId: string) => {
     setSelected(instrumentId);
     setWorkspace("Instrument Workstation");
-  }
+  }, [setSelected]);
 
   function renderWorkspace() {
     switch (workspace) {
       case "Overview":
-        return <Overview rows={state.marketWatch} book={state.book} trades={state.trades} health={state.health} onNavigate={setWorkspace} />;
+        return <Overview onNavigate={setWorkspace} />;
       case "Market Watch":
-        return <><PageHeader title="Market Watch" subtitle="Instrument quotes with source, quality and event freshness." /><MarketWatch rows={filteredRows} selected={state.selectedInstrumentId} onSelect={selectInstrument} /></>;
+        return <MarketWatchWorkspace filter={filter} onSelect={selectInstrument} />;
       case "Instrument Workstation":
-        return <InstrumentWorkstation selectedInstrumentId={state.selectedInstrumentId} book={state.book} mode={state.mode} onMessage={notify} />;
+        return <InstrumentWorkstation onMessage={notify} />;
       case "Order Book":
-        return <OrdersScreen book={state.book} mode={state.mode} onMessage={notify} />;
+        return <OrdersScreen onMessage={notify} />;
       case "Strategy Lab":
         return <StrategyLab />;
       case "Paper Trading":
-        return <PaperTrading book={state.book} mode={state.mode} onMessage={notify} />;
+        return <PaperTrading onMessage={notify} />;
       case "Portfolio & Risk":
         return <PortfolioRisk onMessage={notify} />;
       case "Backtesting":
@@ -959,7 +1020,13 @@ export default function App() {
     }
   }
 
-  const quality = state.marketWatch[0]?.quality ?? "DISCONNECTED";
+  const sidebarStatusDot = !connected ? "ERROR" : mode === "legacy" ? "DEGRADED" : "OK";
+  const sidebarStatusText = !connected
+    ? "Waiting for local service"
+    : mode === "legacy"
+      ? "Legacy CLOB compatibility"
+      : "Local service online";
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -968,7 +1035,7 @@ export default function App() {
           <div><strong>BASALT</strong><span>RESEARCH WORKSTATION</span></div>
         </div>
         <div className="sidebar-status">
-          <div className="status-line"><StatusDot state={state.connected ? "OK" : "ERROR"} /><span>{state.connected ? "Local service online" : "Waiting for local service"}</span></div>
+          <div className="status-line"><StatusDot state={sidebarStatusDot} /><span>{sidebarStatusText}</span></div>
           <div className="status-meta">PAPER TRADING · NO LIVE ORDERS</div>
         </div>
         <nav aria-label="Workspaces">
@@ -989,7 +1056,7 @@ export default function App() {
             </div>
           ))}
         </nav>
-        <div className="sidebar-footer"><span>ENGINE</span><strong>{state.health?.state ?? "UNKNOWN"}</strong><small>{state.health?.version ?? "Local build"}</small></div>
+        <div className="sidebar-footer"><span>ENGINE</span><strong>{health?.state ?? "UNKNOWN"}</strong><small>{health?.version ?? "Local build"}</small></div>
       </aside>
 
       <main className="main-shell">
@@ -997,23 +1064,28 @@ export default function App() {
           <div className="breadcrumb"><span>Workspace</span><i>/</i><strong>{workspace}</strong></div>
           <div className="topbar-actions">
             <label className="search-box"><span aria-hidden="true">⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter instruments" aria-label="Filter instruments" /></label>
-            <div className="feed-indicator"><StatusDot state={quality} /><span>{sourceLabel(state.marketWatch[0]?.source ?? null)}</span><QualityBadge quality={quality} /></div>
-            <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh market and system state" title="Refresh">↻</button>
+            <div className="feed-indicator"><StatusDot state={quality} /><span>{sourceLabel(primarySource)}</span><QualityBadge quality={quality} /></div>
+            <button className="icon-button" onClick={() => void refresh({ forceV1Probe: true })} aria-label="Refresh market and system state" title="Refresh">↻</button>
           </div>
         </header>
 
-        {state.error && (
+        {error ? (
           <div className="connection-banner" role="alert">
-            <span>{state.error}</span>
-            <button className="text-button" onClick={() => void refresh()}>Retry</button>
+            <span>{error}</span>
+            <button className="text-button" onClick={() => void refresh({ forceV1Probe: true })}>Retry</button>
           </div>
-        )}
+        ) : mode === "legacy" ? (
+          <div className="connection-banner degraded-banner" role="status">
+            <span>Legacy CLOB compatibility mode — REST v1, WebSocket streaming, and historical bars are unavailable on this server. Re-probing v1 every 30s.</span>
+            <button className="text-button" onClick={() => void refresh({ forceV1Probe: true })}>Retry</button>
+          </div>
+        ) : null}
         {toast && <div className={"toast " + (toast.error ? "error" : "success")} role="status">{toast.message}<button onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
 
         <div className="workspace-content">{renderWorkspace()}</div>
         <footer className="app-footer">
           <span>BASALT · LOCAL-FIRST MARKET RESEARCH</span>
-          <span>{state.lastUpdated ? "Updated " + new Date(state.lastUpdated).toLocaleTimeString() : "Awaiting data"} · {state.mode.toUpperCase()}</span>
+          <span>{lastUpdated ? "Updated " + new Date(lastUpdated).toLocaleTimeString() : "Awaiting data"} · {mode.toUpperCase()}</span>
         </footer>
       </main>
     </div>

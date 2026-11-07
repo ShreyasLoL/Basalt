@@ -146,6 +146,7 @@ export interface DashboardState {
   connected: boolean;
   streamConnected: boolean;
   lastUpdated: number | null;
+  lastV1ProbeAt: number | null;
   error: string | null;
   health: SystemHealth | null;
   marketWatch: MarketRow[];
@@ -168,6 +169,7 @@ export const EMPTY_DASHBOARD: DashboardState = {
   connected: false,
   streamConnected: false,
   lastUpdated: null,
+  lastV1ProbeAt: null,
   error: null,
   health: null,
   marketWatch: [],

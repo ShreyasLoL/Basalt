@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_DASHBOARD, type MarketRow } from "./types";
 import { useWorkstation } from "./store";
 
@@ -67,5 +67,115 @@ describe("bounded WebSocket event store", () => {
     expect(state.lastEventSeq).toBe(601);
     expect(state.replayGapDetected).toBe(true);
     expect(state.activity.at(-1)?.action).toBe("STREAM_GAP");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("merges REST refresh by sequence without regressing lastEventSeq or overwriting newer stream state", async () => {
+    useWorkstation.setState({
+      ...EMPTY_DASHBOARD,
+      mode: "v1",
+      connected: true,
+      streamConnected: true,
+      lastEventSeq: 120,
+      replayGapDetected: false,
+      marketWatch: [{
+        ...marketRow,
+        lastPrice: 1_500_000,
+        bidPrice: 1_499_000,
+        askPrice: 1_501_000,
+        volume: 90,
+        eventTimeNs: 5_000,
+        receiveTimeNs: 5_010,
+      }],
+      trades: [{
+        tradeId: 99,
+        instrumentId: "NSE:123",
+        price: 1_500_000,
+        priceUnit: "MICRO_INR",
+        quantity: 10,
+        buyOrderId: 11,
+        sellOrderId: 12,
+        aggressorSide: "BUY",
+        eventTimeNs: 5_000,
+        model: "PAPER",
+      }],
+      activity: [{
+        eventSeq: 120,
+        action: "ORDER",
+        status: "FILLED",
+        message: "Newer stream fill",
+        eventTimeNs: 5_000,
+      }],
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/health")) {
+        return new Response(JSON.stringify({ schema_version: 1, state: "OK", version: "1.0.0" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/v1/market/watch")) {
+        return new Response(JSON.stringify({
+          instruments: [{
+            ...marketRow,
+            lastPrice: 1_400_000,
+            bidPrice: 1_399_000,
+            askPrice: 1_401_000,
+            volume: 40,
+            eventTimeNs: 3_000,
+            receiveTimeNs: 3_010,
+          }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("/snapshot")) {
+        return new Response(JSON.stringify({
+          book: {
+            instrumentId: "NSE:123",
+            priceUnit: "MICRO_INR",
+            bids: [],
+            asks: [],
+            restingOrders: [],
+            bestBid: 1_499_000,
+            bestAsk: 1_501_000,
+            spread: 2_000,
+          },
+          trades: [{
+            tradeId: 50,
+            instrumentId: "NSE:123",
+            price: 1_400_000,
+            priceUnit: "MICRO_INR",
+            quantity: 5,
+            buyOrderId: 1,
+            sellOrderId: 2,
+            aggressorSide: "SELL",
+            eventTimeNs: 3_000,
+            model: "PAPER",
+          }],
+          activity: [{
+            eventSeq: 80,
+            action: "ORDER",
+            status: "NEW",
+            message: "Older REST snapshot event",
+            eventTimeNs: 3_000,
+          }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    }));
+
+    await useWorkstation.getState().refresh();
+    const state = useWorkstation.getState();
+
+    expect(state.lastEventSeq).toBe(120);
+    expect(state.marketWatch[0].lastPrice).toBe(1_500_000);
+    expect(state.marketWatch[0].eventTimeNs).toBe(5_000);
+    expect(state.trades.map((trade) => trade.tradeId)).toEqual([50, 99]);
+    expect(state.activity.map((record) => record.eventSeq)).toEqual([80, 120]);
   });
 });

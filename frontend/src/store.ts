@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import { fetchOptional, getDashboardSnapshot } from "./api";
+import { fetchOptional, getDashboardSnapshot, V1_REPROBE_INTERVAL_MS } from "./api";
 import {
   EMPTY_DASHBOARD,
   type ActivityRecord,
   type DashboardState,
   type DataSourceType,
   type FeedQualityState,
+  type MarketRow,
   type StreamEvent,
   type SystemMetrics,
   type TradeRecord,
@@ -84,9 +85,77 @@ function parseSystemMetrics(payload: Record<string, unknown>): SystemMetrics | n
   };
 }
 
+function mergeMarketWatch(
+  currentRows: MarketRow[],
+  snapshotRows: MarketRow[],
+  streamHasNewerSeq: boolean,
+): MarketRow[] {
+  if (snapshotRows.length === 0) return currentRows;
+  const currentById = new Map(currentRows.map((row) => [row.instrumentId, row]));
+  return snapshotRows.map((snapshotRow) => {
+    const currentRow = currentById.get(snapshotRow.instrumentId);
+    if (!currentRow) return snapshotRow;
+    const currentIsNewerByTime =
+      currentRow.eventTimeNs !== null &&
+      (snapshotRow.eventTimeNs === null || currentRow.eventTimeNs >= snapshotRow.eventTimeNs);
+    if (streamHasNewerSeq || currentIsNewerByTime) {
+      return {
+        ...snapshotRow,
+        priceUnit: currentRow.priceUnit,
+        lastPrice: currentRow.lastPrice ?? snapshotRow.lastPrice,
+        bidPrice: currentRow.bidPrice ?? snapshotRow.bidPrice,
+        askPrice: currentRow.askPrice ?? snapshotRow.askPrice,
+        spread: currentRow.spread ?? snapshotRow.spread,
+        volume: currentRow.volume ?? snapshotRow.volume,
+        source: currentRow.source ?? snapshotRow.source,
+        quality: currentRow.quality,
+        eventTimeNs: currentRow.eventTimeNs ?? snapshotRow.eventTimeNs,
+        receiveTimeNs: currentRow.receiveTimeNs ?? snapshotRow.receiveTimeNs,
+      };
+    }
+    return snapshotRow;
+  });
+}
+
+function mergeTradesBySequence(
+  currentTrades: TradeRecord[],
+  snapshotTrades: TradeRecord[],
+): TradeRecord[] {
+  const byId = new Map<number, TradeRecord>();
+  for (const trade of snapshotTrades) {
+    byId.set(trade.tradeId, trade);
+  }
+  for (const trade of currentTrades) {
+    byId.set(trade.tradeId, trade);
+  }
+  return Array.from(byId.values())
+    .sort((left, right) => left.tradeId - right.tradeId)
+    .slice(-TRADE_CAPACITY);
+}
+
+function mergeActivityBySequence(
+  currentActivity: ActivityRecord[],
+  snapshotActivity: ActivityRecord[],
+): ActivityRecord[] {
+  const bySeq = new Map<number, ActivityRecord>();
+  for (const record of snapshotActivity) {
+    bySeq.set(record.eventSeq, record);
+  }
+  for (const record of currentActivity) {
+    bySeq.set(record.eventSeq, record);
+  }
+  return Array.from(bySeq.values())
+    .sort((left, right) => left.eventSeq - right.eventSeq)
+    .slice(-ACTIVITY_CAPACITY);
+}
+
+export interface RefreshOptions {
+  forceV1Probe?: boolean;
+}
+
 interface WorkstationStore extends DashboardState {
   optionalStatus: Record<string, "ready" | "unavailable">;
-  refresh: () => Promise<void>;
+  refresh: (options?: RefreshOptions) => Promise<void>;
   refreshOptional: () => Promise<void>;
   setStreamConnected: (connected: boolean) => void;
   applyStreamFrames: (frames: Record<string, unknown>[]) => void;
@@ -97,16 +166,53 @@ interface WorkstationStore extends DashboardState {
 export const useWorkstation = create<WorkstationStore>((set, get) => ({
   ...EMPTY_DASHBOARD,
   optionalStatus: {},
-  refresh: async () => {
-    set({ mode: get().mode === "connecting" ? "connecting" : get().mode, error: null });
+  refresh: async (options) => {
+    const initialState = get();
+    const now = Date.now();
+    const skipV1Probe =
+      initialState.mode === "legacy" &&
+      !options?.forceV1Probe &&
+      initialState.lastV1ProbeAt !== null &&
+      now - initialState.lastV1ProbeAt < V1_REPROBE_INTERVAL_MS;
+
+    set({ mode: initialState.mode === "connecting" ? "connecting" : initialState.mode, error: null });
     try {
-      const snapshot = await getDashboardSnapshot();
+      const probeTimestamp = Date.now();
+      const snapshot = await getDashboardSnapshot({ skipV1Probe });
+      const current = get();
+      const snapshotMaxSeq = Math.max(0, ...snapshot.data.activity.map((item) => item.eventSeq));
+      const nextLastEventSeq = Math.max(current.lastEventSeq, snapshotMaxSeq);
+      const preserveStreamState =
+        snapshot.mode === "v1" &&
+        current.mode === "v1" &&
+        current.streamConnected &&
+        !current.replayGapDetected;
+      const streamHasNewerSeq = current.lastEventSeq > snapshotMaxSeq;
+      const validSelection =
+        current.selectedInstrumentId !== null &&
+        snapshot.data.marketWatch.some((row) => row.instrumentId === current.selectedInstrumentId);
+
       set({
-        ...snapshot.data,
+        marketWatch: preserveStreamState
+          ? mergeMarketWatch(current.marketWatch, snapshot.data.marketWatch, streamHasNewerSeq)
+          : snapshot.data.marketWatch,
+        selectedInstrumentId: validSelection
+          ? current.selectedInstrumentId
+          : snapshot.data.selectedInstrumentId,
+        book: snapshot.data.book,
+        trades: preserveStreamState
+          ? mergeTradesBySequence(current.trades, snapshot.data.trades)
+          : snapshot.data.trades,
+        activity: preserveStreamState
+          ? mergeActivityBySequence(current.activity, snapshot.data.activity)
+          : snapshot.data.activity,
+        lastEventSeq: snapshot.mode === "v1" ? nextLastEventSeq : current.lastEventSeq,
         mode: snapshot.mode,
         connected: true,
+        streamConnected: snapshot.mode === "v1" ? current.streamConnected : false,
         health: snapshot.health,
         lastUpdated: Date.now(),
+        lastV1ProbeAt: snapshot.probedV1 ? probeTimestamp : current.lastV1ProbeAt,
         replayGapDetected: false,
         error: null,
       });
@@ -115,12 +221,14 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       set({
         mode: "disconnected",
         connected: false,
+        streamConnected: false,
         error: error instanceof Error ? error.message : "Could not load BASALT state",
         health: { state: "ERROR", version: null, storage: null, message: "API unavailable" },
       });
     }
   },
   refreshOptional: async () => {
+    if (get().mode !== "v1") return;
     const endpoints = [
       ["strategies", "/api/v1/strategies"],
       ["portfolio", "/api/v1/portfolio/1"],
