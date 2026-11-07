@@ -171,6 +171,45 @@ TEST(RiskEngineTest, AcceptedChecksReserveCapacityAndClientIdsAreIdempotent) {
     EXPECT_TRUE(engine.evaluate(second, snapshot, limits).accepted);
 }
 
+TEST(RiskEngineTest, IdempotentReplayStillFailsOnActiveKillSwitchStaleDataOrClosedMarket) {
+    KillSwitch kill;
+    RiskEngine engine(kill);
+    const auto order = intent("order-replay-gate");
+    const auto snapshot = risk_snapshot();
+    RiskLimits limits;
+    ASSERT_TRUE(engine.evaluate(order, snapshot, limits).accepted);
+
+    // Stale data and closed session must reject a retry before reporting replay.
+    auto stale_snapshot = snapshot;
+    stale_snapshot.data_quality_ok = false;
+    const auto stale_retry = engine.evaluate(order, stale_snapshot, limits);
+    EXPECT_FALSE(stale_retry.accepted);
+    EXPECT_FALSE(stale_retry.duplicate_retry);
+    EXPECT_EQ(stale_retry.code, "STALE_DATA");
+
+    auto aged_snapshot = snapshot;
+    aged_snapshot.data_age_ns = limits.max_stale_age_ns + 1U;
+    EXPECT_EQ(engine.evaluate(order, aged_snapshot, limits).code, "STALE_DATA");
+
+    auto closed_snapshot = snapshot;
+    closed_snapshot.market_open = false;
+    const auto closed_retry = engine.evaluate(order, closed_snapshot, limits);
+    EXPECT_FALSE(closed_retry.accepted);
+    EXPECT_EQ(closed_retry.code, "MARKET_CLOSED");
+
+    // Once conditions are healthy again, the idempotent replay succeeds...
+    const auto healthy_retry = engine.evaluate(order, snapshot, limits);
+    EXPECT_TRUE(healthy_retry.accepted);
+    EXPECT_TRUE(healthy_retry.duplicate_retry);
+
+    // ...until the kill switch latches (strategy, account or global).
+    (void)kill.activate(KillScope::Global, 0, "operator", "halt", 3'000'000'000);
+    const auto killed_retry = engine.evaluate(order, snapshot, limits);
+    EXPECT_FALSE(killed_retry.accepted);
+    EXPECT_FALSE(killed_retry.duplicate_retry);
+    EXPECT_EQ(killed_retry.code, "KILL_SWITCH_ACTIVE");
+}
+
 TEST(RiskEngineTest, InvalidTickMissingQuoteAndOverflowFailClosed) {
     KillSwitch kill;
     RiskEngine engine(kill);

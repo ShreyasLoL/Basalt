@@ -360,6 +360,22 @@ RiskDecision RiskEngine::evaluate_unlogged(const OrderIntent& intent, const Risk
     const auto prior_id = idempotency_.find(intent.client_order_id);
     if (prior_id != idempotency_.end()) {
         if (prior_id->second != request_signature) return rejected("DUPLICATE_ORDER");
+        // An idempotent retry must never report acceptance when the original
+        // order would now fail a time-varying safety gate. The prior acceptance
+        // and its reservation are left untouched; only this retry is refused.
+        auto refused = [&](const std::string_view code, const std::string_view rule,
+                           const std::int64_t observed, const std::int64_t limit) {
+            RiskDecision decision = rejected(std::string(code));
+            decision.checks.push_back({std::string(rule), std::string(code), false, observed, limit});
+            return decision;
+        };
+        if (kill_switch_.active(intent.account_id, intent.strategy_id))
+            return refused("KILL_SWITCH_ACTIVE", "GLOBAL_ACCOUNT_STRATEGY_LATCH", 1, 0);
+        if (!snapshot.data_quality_ok || snapshot.data_age_ns > limits.max_stale_age_ns)
+            return refused("STALE_DATA", "MAX_DATA_AGE",
+                           static_cast<std::int64_t>(std::min<std::uint64_t>(snapshot.data_age_ns, static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))),
+                           static_cast<std::int64_t>(std::min<std::uint64_t>(limits.max_stale_age_ns, static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))));
+        if (!snapshot.market_open) return refused("MARKET_CLOSED", "MARKET_SESSION", 0, 1);
         RiskDecision replay;
         replay.accepted = true;
         replay.duplicate_retry = true;
