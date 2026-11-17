@@ -8,9 +8,11 @@
 #include <httplib.h>
 
 #include <cstdint>
+#include <chrono>
 #include <mutex>
 #include <random>
 #include <string>
+#include <vector>
 
 namespace basalt::server {
 
@@ -36,6 +38,8 @@ public:
 private:
     int port_;
     std::string bind_address_{"127.0.0.1"};
+    std::vector<std::string> cors_allowed_origins_{};
+    std::chrono::steady_clock::time_point start_time_{std::chrono::steady_clock::now()};
     httplib::Server server_{};
     SimulationFacade simulation_{};
     platform::PlatformRunner* platform_runner_{};

@@ -383,6 +383,7 @@ common::Result<void> PlatformRunner::process_event(const market_data::CanonicalM
     if (event.kind != market_data::MarketEventKind::Quote || event.instrument_id != config_.instrument_id)
         return common::Result<void>::success();
     ++ticks_processed_;
+    latest_market_event_ = event;
 
     const auto current_position = ledger_.position(config_.account_id, config_.instrument_id);
     if (!current_position) return common::Result<void>::failure(current_position.error());
@@ -413,6 +414,8 @@ common::Result<void> PlatformRunner::process_event(const market_data::CanonicalM
     signals_ += dispatched.value().approved_signals.size() + dispatched.value().rejected_signals.size();
     for (const auto& rejected : dispatched.value().rejected_signals) {
         risk_rejection_codes_.push_back(rejected.decision.code);
+        risk_rejections_.emplace_back(rejected.decision.code,
+            event.provider_sequence.value_or(static_cast<std::uint64_t>(ticks_processed_)));
     }
     for (std::size_t index = 0; index < dispatched.value().approved_signals.size(); ++index) {
         if (kill_switch_.active(config_.account_id, config_.strategy_id)) {
@@ -470,10 +473,12 @@ common::Result<PlatformSessionSnapshot> PlatformRunner::snapshot_locked() const 
     snapshot.fills = fills_;
     snapshot.risk_rejections = risk_rejection_codes_.size();
     snapshot.risk_rejection_codes = risk_rejection_codes_;
+    snapshot.risk_rejection_events = risk_rejections_;
     snapshot.total_pnl_micro = pnl.value();
     snapshot.ledger_hash = hash_ledger(portfolio.value(), ledger_.journal(), ledger_.fills());
     snapshot.execution_halted = halted_ || kill_switch_.active(config_.account_id, config_.strategy_id);
     snapshot.portfolio = portfolio.value();
+    snapshot.risk_limits = config_.risk_limits;
     return common::Result<PlatformSessionSnapshot>::success(std::move(snapshot));
 }
 
@@ -486,6 +491,46 @@ common::Result<trading::PortfolioSummary> PlatformRunner::portfolio(
     const common::AccountId account_id) const {
     std::lock_guard lock(mutex_);
     return ledger_.summary(account_id);
+}
+
+std::vector<PlatformMarketSnapshot> PlatformRunner::market_watch() const {
+    std::lock_guard lock(mutex_);
+    std::vector<PlatformMarketSnapshot> rows;
+    const auto instruments = instruments_.list(market_data::Exchange::Sim, true);
+    rows.reserve(instruments.size());
+    for (const auto& instrument : instruments) {
+        std::optional<market_data::CanonicalMarketEvent> event;
+        if (latest_market_event_ && latest_market_event_->instrument_id == instrument.id)
+            event = latest_market_event_;
+        rows.push_back({instrument, std::move(event)});
+    }
+    return rows;
+}
+
+common::Result<PlatformMarketSnapshot> PlatformRunner::market_snapshot(
+    const common::InstrumentId instrument_id) const {
+    std::lock_guard lock(mutex_);
+    const auto* instrument = instruments_.find(instrument_id);
+    if (instrument == nullptr || instrument->exchange != market_data::Exchange::Sim) {
+        return common::Result<PlatformMarketSnapshot>::failure(
+            {"UNKNOWN_INSTRUMENT", "Instrument ID is not present in the SIM instrument catalog"});
+    }
+    std::optional<market_data::CanonicalMarketEvent> event;
+    if (latest_market_event_ && latest_market_event_->instrument_id == instrument_id)
+        event = latest_market_event_;
+    return common::Result<PlatformMarketSnapshot>::success({*instrument, std::move(event)});
+}
+
+std::vector<trading::ExecutionFill> PlatformRunner::recent_fills(const std::size_t limit) const {
+    std::lock_guard lock(mutex_);
+    const auto& fills = ledger_.fills();
+    const auto first = fills.size() > limit ? fills.size() - limit : 0;
+    return {fills.begin() + static_cast<std::ptrdiff_t>(first), fills.end()};
+}
+
+PlatformTelemetrySnapshot PlatformRunner::telemetry() const {
+    std::lock_guard lock(mutex_);
+    return PlatformTelemetrySnapshot{pipeline_.stats(), event_bus_.stats()};
 }
 
 common::Result<void> PlatformRunner::verify_reconciliation() const {

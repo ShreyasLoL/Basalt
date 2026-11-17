@@ -2,7 +2,7 @@
 
 ## Local-first defaults
 
-Bind API and WebSocket listeners to 127.0.0.1. Do not bind 0.0.0.0 unless an explicit secure deployment profile with authentication and network controls is implemented. Enforce payload and subscription limits, input validation, timeouts, rate limits and safe error messages. For browser deployments, prefer same-origin serving; CORS allowlist defaults to the local UI origin rather than wildcard in the production workstation.
+Bind API and WebSocket listeners to 127.0.0.1. Do not bind 0.0.0.0 unless an explicit secure deployment profile with authentication and network controls is implemented. Enforce payload and subscription limits, input validation, timeouts, rate limits and safe error messages. For browser deployments, prefer same-origin serving; the explicit CORS allowlist defaults to empty rather than wildcard.
 
 ### HTTP gateway request policy (implemented)
 
@@ -11,10 +11,12 @@ Bind API and WebSocket listeners to 127.0.0.1. Do not bind 0.0.0.0 unless an exp
 | Check | Rule | Failure |
 |---|---|---|
 | Host | Must be `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>` (case-insensitive; the port may be omitted only when the server port is 80). An explicitly opted-in, non-wildcard remote bind address is also accepted as an IP-literal authority. Blocks DNS rebinding, because an attacker hostname never matches. | 403 `FORBIDDEN_HOST` |
-| Origin (when present) | Must be exactly `http://` + one of the allowed authorities. `null`, `https`, other ports (including the Vite dev port) and other hosts are rejected. | 403 `FORBIDDEN_ORIGIN` |
+| Origin (when present) | Must be a loopback HTTP origin for the listening port or an exact `http(s)://host[:port]` entry in `BASALT_CORS_ALLOWED_ORIGINS`. Paths, wildcards, credentials, `null` and unlisted origins are rejected. | 403 `FORBIDDEN_ORIGIN` |
 | Content-Type for POST/PUT/PATCH/DELETE | Media type must be `application/json` (parameters ignored). Because this is not a CORS "simple" type, browsers must preflight any cross-origin mutation, and the preflight is refused by the Origin rule. | 415 `UNSUPPORTED_MEDIA_TYPE` |
 
-There is no `Access-Control-Allow-Origin: *`. An allowlisted Origin is echoed with `Vary: Origin`; `OPTIONS /api/*` returns 204 with `Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS`, `Access-Control-Allow-Headers: Content-Type` and a 600 s max-age only for an allowlisted origin. `POST /api/benchmark` accepts `order_count` 1–10,000 (default 10,000), matching the MCP `run_benchmark` cap; other values return 400. These rules are covered by `basalt_http_tests` (pure policy cases plus real loopback HTTP requests on an ephemeral port).
+There is no `Access-Control-Allow-Origin: *`. An accepted Origin is echoed with `Vary: Origin`; `OPTIONS /api/*` returns 204 with `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: Content-Type, X-Request-ID, Idempotency-Key` and a 600 s max-age. The explicit list is configured with comma-separated `BASALT_CORS_ALLOWED_ORIGINS`; empty is the strict default. `POST /api/benchmark` accepts `order_count` 1–10,000 (default 10,000), matching the MCP `run_benchmark` cap; other values return 400. These rules are covered by `basalt_http_tests` (pure policy cases plus real loopback HTTP requests on an ephemeral port).
+
+The bundled `cpp-httplib` transport does not expose a WebSocket upgrade hook. The health route reports `websocket_available: false`, and `/api/v1/stream` returns a schema-versioned 501. The frontend skips reconnect attempts when the server reports the stream as unavailable. No WebSocket handshake or streamed frame is claimed as implemented.
 
 ## Credentials
 

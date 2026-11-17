@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,7 +35,8 @@ struct RequestDecision {
 // True when `origin` is exactly "http://" + one of allowed_authorities().
 // "null", other schemes, other ports and other hostnames are rejected.
 [[nodiscard]] bool is_allowed_origin(std::string_view origin, int port,
-                                     std::string_view bind_address = "127.0.0.1");
+                                     std::string_view bind_address = "127.0.0.1",
+                                     std::span<const std::string> allowlist = {});
 
 // True when the media type (parameters ignored) is application/json.
 [[nodiscard]] bool is_json_content_type(std::string_view content_type);
@@ -51,7 +53,8 @@ struct RequestDecision {
                                                       std::optional<std::string_view> content_type,
                                                       std::string_view method,
                                                       int port,
-                                                      std::string_view bind_address = "127.0.0.1");
+                                                      std::string_view bind_address = "127.0.0.1",
+                                                      std::span<const std::string> allowlist = {});
 
 [[nodiscard]] constexpr bool valid_benchmark_order_count(const std::uint64_t count) noexcept {
     return count >= 1 && count <= MAX_HTTP_BENCHMARK_ORDER_COUNT;

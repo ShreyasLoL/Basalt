@@ -623,7 +623,7 @@ FUNCTION cancel_order(order_id: OrderId) -> CancelResult:
 
 The C++ executable `basalt_server` starts an HTTP server on `http://127.0.0.1:8080` (configurable via CLI `--port`).
 * `GET /` serves the single-page web interface (`web/index.html`, or an embedded fallback HTML string if run from a different working directory so it never fails with a 404).
-* All API routes use `Content-Type: application/json` and CORS headers (`Access-Control-Allow-Origin: *`).
+* State-changing API routes require `Content-Type: application/json`. The current gateway never uses wildcard CORS: same-origin loopback requests are accepted, and additional exact origins require `BASALT_CORS_ALLOWED_ORIGINS`.
 
 ### 7.1 Endpoint Specification
 

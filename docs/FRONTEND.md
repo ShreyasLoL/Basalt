@@ -4,6 +4,8 @@
 
 Target is React + TypeScript + Vite + Tailwind, Zustand for normalized UI state, and Lightweight Charts for licensed local chart presentation. Static assets are served by the local C++ gateway with the legacy web/index.html as fallback. The frontend calls only schema-versioned REST v1 and WebSocket v1. It contains no matching, risk, portfolio accounting or synthetic quote logic. Empty, stale, disconnected and unavailable values are shown as such; there are no fake charts, trades, benchmark outputs or success states.
 
+The current bundled HTTP gateway reports `websocket_available: false` because cpp-httplib has no upgrade hook. The client skips stream connection and reconnect attempts when that flag is false; REST v1 remains available.
+
 ## Workspaces
 
 1. **Overview:** feed/system health, watchlist summary, portfolio headline and recent paper events.

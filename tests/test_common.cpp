@@ -86,6 +86,22 @@ TEST(Config, ParsesAllowlistedSettingsAndRejectsUnknownEnum) {
     EXPECT_EQ(invalid.error().code, "INVALID_LOG_FORMAT");
 }
 
+TEST(Config, ParsesExactCorsOriginsAndRejectsWildcardsOrPaths) {
+    const auto config = ConfigLoader::parse({
+        {"BASALT_CORS_ALLOWED_ORIGINS", "http://localhost:5173, https://research.example.com"}});
+    ASSERT_TRUE(config);
+    ASSERT_EQ(config.value().cors_allowed_origins.size(), 2U);
+    EXPECT_EQ(config.value().cors_allowed_origins[0], "http://localhost:5173");
+    EXPECT_EQ(config.value().cors_allowed_origins[1], "https://research.example.com");
+
+    for (const auto& invalid_origin : {"*", "http://localhost:5173/", "file://localhost",
+                                       "http://user@localhost", "https://localhost:0"}) {
+        const auto invalid = ConfigLoader::parse({{"BASALT_CORS_ALLOWED_ORIGINS", invalid_origin}});
+        ASSERT_FALSE(invalid) << invalid_origin;
+        EXPECT_EQ(invalid.error().code, "INVALID_CORS_ORIGIN");
+    }
+}
+
 TEST(Logger, RedactsSensitiveFieldsAndEmbeddedAssignments) {
     std::ostringstream output;
     Logger logger(output, LogFormat::Json, LogLevel::Debug);

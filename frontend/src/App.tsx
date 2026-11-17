@@ -959,7 +959,7 @@ export default function App() {
   }, [refresh]);
 
   useEffect(() => {
-    if (mode !== "v1") {
+    if (mode !== "v1" || health?.websocketAvailable === false) {
       setStreamConnected(false);
       return;
     }
@@ -972,7 +972,7 @@ export default function App() {
         void refresh();
       },
     );
-  }, [mode, applyFrames, setStreamConnected, refresh]);
+  }, [mode, health?.websocketAvailable, applyFrames, setStreamConnected, refresh]);
 
   useEffect(() => {
     if (!toast) return;

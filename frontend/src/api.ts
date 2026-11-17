@@ -97,6 +97,7 @@ interface V1HealthResponse {
   version?: string;
   storage?: string;
   message?: string;
+  websocket_available?: boolean;
 }
 
 export interface OrderCommand {
@@ -216,6 +217,7 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
           version: null,
           storage: null,
           message: "Legacy CLOB API; canonical feed metadata is unavailable",
+          websocketAvailable: false,
         },
         legacy: true,
         probedV1: false,
@@ -244,6 +246,7 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
         version: health.version ?? null,
         storage: health.storage ?? null,
         message: health.message ?? "REST v1 connected",
+        websocketAvailable: health.websocket_available ?? null,
       },
       legacy: false,
       probedV1: true,
@@ -265,6 +268,7 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
           version: null,
           storage: null,
           message: "Legacy CLOB API; canonical feed metadata is unavailable",
+          websocketAvailable: false,
         },
         legacy: true,
         probedV1: true,

@@ -71,13 +71,13 @@ TEST(PlatformRunnerIntegrationTest, DeterministicSyntheticPathReachesPortfolioAp
     ASSERT_EQ(response->status, 200);
     const Json body = Json::parse(response->body);
     EXPECT_EQ(body.at("schema_version"), 1);
-    EXPECT_EQ(body.at("account_id"), 1);
-    EXPECT_EQ(body.at("cash_balance_micro"), halted_run.value().portfolio.cash_balance_micro);
-    EXPECT_EQ(body.at("fees_micro"), halted_run.value().portfolio.total_fees_micro);
-    EXPECT_EQ(body.at("realized_pnl_micro"), halted_run.value().portfolio.realized_pnl_micro);
-    EXPECT_EQ(body.at("unrealized_pnl_micro"), halted_run.value().portfolio.unrealized_pnl_micro);
+    EXPECT_EQ(body.at("accountId"), "1");
+    EXPECT_EQ(body.at("cashMicro"), halted_run.value().portfolio.cash_balance_micro);
+    EXPECT_EQ(body.at("feesMicro"), halted_run.value().portfolio.total_fees_micro);
+    EXPECT_EQ(body.at("realizedPnlMicro"), halted_run.value().portfolio.realized_pnl_micro);
+    EXPECT_EQ(body.at("unrealizedPnlMicro"), halted_run.value().portfolio.unrealized_pnl_micro);
     EXPECT_TRUE(body.at("positions").is_array());
-    EXPECT_TRUE(body.at("data_age_ns").is_null());
+    EXPECT_TRUE(body.at("dataAgeNs").is_null());
 
     const auto missing = client.Get("/api/v1/portfolio/999");
     ASSERT_TRUE(missing);

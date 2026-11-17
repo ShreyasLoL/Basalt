@@ -22,12 +22,11 @@ namespace {
 
 using json = nlohmann::json;
 
-// CORS is not wildcarded. The pre-routing guard echoes Access-Control-Allow-Origin
-// only for an allowlisted loopback origin; preflight responses add the method and
-// header allowances below.
+// CORS is not wildcarded. The pre-routing guard echoes only same-origin or
+// explicitly configured origins; preflight responses add the method/header list.
 void set_preflight_headers(httplib::Response& response) {
-    response.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    response.set_header("Access-Control-Allow-Headers", "Content-Type");
+    response.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    response.set_header("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Idempotency-Key");
     response.set_header("Access-Control-Max-Age", "600");
 }
 
@@ -112,6 +111,74 @@ bool parse_unsigned_path(const std::string& text, std::uint64_t& value) {
     return error == std::errc{} && end == text.data() + text.size();
 }
 
+std::string request_id(const httplib::Request& request) {
+    if (request.has_header("X-Request-ID")) return request.get_header_value("X-Request-ID");
+    if (request.has_param("request_id")) return request.get_param_value("request_id");
+    return {};
+}
+
+void send_v1_error(httplib::Response& response, const httplib::Request& request,
+                   const int status, const std::string& code, const std::string& message,
+                   json details = json::object()) {
+    send_json(response, json{{"schema_version", 1}, {"code", code}, {"message", message},
+                             {"request_id", request_id(request)}, {"details", std::move(details)}}, status);
+}
+
+json market_row(const platform::PlatformMarketSnapshot& item) {
+    const auto& event = item.event;
+    json last = nullptr;
+    json bid = nullptr;
+    json ask = nullptr;
+    json spread = nullptr;
+    json volume = nullptr;
+    json source = nullptr;
+    std::string quality = "DISCONNECTED";
+    json event_time = nullptr;
+    json receive_time = nullptr;
+    if (event) {
+        last = event->price_micro ? json(*event->price_micro) : json(nullptr);
+        bid = event->bid_micro ? json(*event->bid_micro) : json(nullptr);
+        ask = event->ask_micro ? json(*event->ask_micro) : json(nullptr);
+        if (event->bid_micro && event->ask_micro) spread = *event->ask_micro - *event->bid_micro;
+        volume = event->quantity ? json(*event->quantity) : json(nullptr);
+        source = std::string(common::to_string(event->source));
+        quality = std::string(common::to_string(event->quality));
+        event_time = event->event_time_ns;
+        receive_time = event->receive_time_utc_ns;
+    }
+    return json{{"instrumentId", std::to_string(item.instrument.id)},
+                {"symbol", item.instrument.display_symbol.empty()
+                    ? item.instrument.symbol : item.instrument.display_symbol},
+                {"exchange", std::string(market_data::to_string(item.instrument.exchange))},
+                {"priceUnit", "MICRO_INR"}, {"lastPrice", std::move(last)},
+                {"bidPrice", std::move(bid)}, {"askPrice", std::move(ask)},
+                {"spread", std::move(spread)}, {"volume", std::move(volume)},
+                {"source", std::move(source)}, {"quality", quality},
+                {"eventTimeNs", std::move(event_time)}, {"receiveTimeNs", std::move(receive_time)}};
+}
+
+bool parse_bounded_depth(const httplib::Request& request, std::size_t& depth) {
+    depth = 20;
+    if (!request.has_param("depth")) return true;
+    std::uint64_t requested = 0;
+    if (!parse_unsigned_path(request.get_param_value("depth"), requested) || requested < 1 || requested > 200)
+        return false;
+    depth = static_cast<std::size_t>(requested);
+    return true;
+}
+
+json trade_json(const trading::ExecutionFill& fill) {
+    const bool is_buy = fill.side == trading::Side::Buy;
+    return json{{"tradeId", fill.execution_id},
+                {"instrumentId", std::to_string(fill.instrument_id)},
+                {"price", fill.price_micro}, {"priceUnit", "MICRO_INR"},
+                {"quantity", fill.quantity}, {"buyOrderId", is_buy ? fill.order_id : 0},
+                {"sellOrderId", is_buy ? 0 : fill.order_id},
+                {"aggressorSide", is_buy ? "BUY" : "SELL"},
+                {"eventTimeNs", fill.time_ns},
+                {"model", "Conservative quote paper execution"}};
+}
+
 } // namespace
 
 HttpServer::HttpServer(const int port) : port_(port) {
@@ -121,7 +188,7 @@ HttpServer::HttpServer(const int port) : port_(port) {
 
 HttpServer::HttpServer(const common::AppConfig& config, platform::PlatformRunner* platform_runner)
     : port_(static_cast<int>(config.port)), bind_address_(config.bind_address),
-      platform_runner_(platform_runner) {
+      cors_allowed_origins_(config.cors_allowed_origins), platform_runner_(platform_runner) {
     const auto validated = common::ConfigLoader::validate(config);
     if (!validated) throw std::invalid_argument(validated.error().message);
     register_routes();
@@ -152,7 +219,8 @@ bool HttpServer::guard_request(const httplib::Request& request, httplib::Respons
     const auto origin = optional_header(request, "Origin");
     const auto decision = validate_request_origin(optional_header(request, "Host"), origin,
                                                   optional_header(request, "Content-Type"),
-                                                  request.method, port_, bind_address_);
+                                                  request.method, port_, bind_address_,
+                                                  cors_allowed_origins_);
     response.set_header("Vary", "Origin");
     if (!decision.allowed()) {
         send_json(response, json{{"error", decision.code}, {"code", decision.code},
@@ -196,50 +264,256 @@ void HttpServer::register_routes() {
         if (request.has_header("Origin")) set_preflight_headers(response);
     });
 
-    server_.Get(R"(/api/v1/portfolio/([^/]+))",
-                [this](const httplib::Request& request, httplib::Response& response) {
-        constexpr int schema_version = 1;
-        const auto send_v1_error = [&](const int status, const std::string& code,
-                                       const std::string& message) {
-            send_json(response, json{{"schema_version", schema_version}, {"code", code},
-                                     {"message", message},
-                                     {"request_id", request.has_param("request_id")
-                                         ? request.get_param_value("request_id") : ""},
-                                     {"details", json::object()}}, status);
-        };
+    server_.Get("/api/v1/health", [this](const httplib::Request&, httplib::Response& response) {
+        const auto elapsed = std::chrono::steady_clock::now() - start_time_;
+        const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+        const bool connected = platform_runner_ != nullptr;
+        send_json(response, json{{"schema_version", 1},
+                                 {"state", connected ? "OK" : "DEGRADED"},
+                                 {"version", "1.0.0"},
+                                 {"uptime_seconds", std::max<std::int64_t>(0, uptime)},
+                                 {"storage", "in_memory_session"},
+                                 {"websocket_available", false},
+                                 {"message", connected
+                                     ? "REST v1 connected; WebSocket streaming is unavailable in this server build"
+                                     : "HTTP server is running without a platform read model"}});
+    });
+
+    server_.Get("/api/v1/market/watch", [this](const httplib::Request& request,
+                                                  httplib::Response& response) {
         if (platform_runner_ == nullptr) {
-            send_v1_error(503, "PLATFORM_UNAVAILABLE", "Portfolio read model is not connected");
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE",
+                          "Market data read model is not connected");
             return;
         }
+        json instruments = json::array();
+        for (const auto& item : platform_runner_->market_watch()) instruments.push_back(market_row(item));
+        send_json(response, json{{"schema_version", 1}, {"instruments", std::move(instruments)}});
+    });
+
+    server_.Get(R"(/api/v1/instruments/([^/]+)/snapshot)",
+                [this](const httplib::Request& request, httplib::Response& response) {
+        std::size_t depth = 20;
+        if (!parse_bounded_depth(request, depth)) {
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "depth must be an integer from 1 to 200");
+            return;
+        }
+        static_cast<void>(depth);
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE",
+                          "Instrument snapshot read model is not connected");
+            return;
+        }
+        common::InstrumentId instrument_id = 0;
+        if (!parse_unsigned_path(request.matches[1], instrument_id) || instrument_id == 0) {
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "Instrument ID must be a positive integer");
+            return;
+        }
+        const auto snapshot = platform_runner_->market_snapshot(instrument_id);
+        if (!snapshot) {
+            send_v1_error(response, request, 404, snapshot.error().code, snapshot.error().message);
+            return;
+        }
+        const auto& event = snapshot.value().event;
+        const auto row = market_row(snapshot.value());
+        json quote{{"instrumentId", std::to_string(instrument_id)},
+                   {"lastPrice", row.at("lastPrice")}, {"bidPrice", row.at("bidPrice")},
+                   {"askPrice", row.at("askPrice")}, {"spread", row.at("spread")},
+                   {"source", row.at("source")}, {"quality", row.at("quality")},
+                   {"eventTimeNs", row.at("eventTimeNs")}, {"receiveTimeNs", row.at("receiveTimeNs")},
+                   {"eventSeq", event && event->provider_sequence ? json(*event->provider_sequence) : json(0)}};
+        const json book{{"instrumentId", std::to_string(instrument_id)}, {"priceUnit", "MICRO_INR"},
+                        {"bids", json::array()}, {"asks", json::array()},
+                        {"restingOrders", json::array()}, {"bestBid", row.at("bidPrice")},
+                        {"bestAsk", row.at("askPrice")}, {"spread", row.at("spread")}};
+        json trades = json::array();
+        for (const auto& fill : platform_runner_->recent_fills(200)) {
+            if (fill.instrument_id == instrument_id) trades.push_back(trade_json(fill));
+        }
+        const json event_sequence = quote.at("eventSeq");
+        send_json(response, json{{"schema_version", 1}, {"quote", std::move(quote)},
+                                 {"depth", json{{"bids", json::array()}, {"asks", json::array()}}},
+                                 {"book", book}, {"trades", std::move(trades)},
+                                 {"activity", json::array()}, {"sequence", event_sequence}});
+    });
+
+    server_.Get(R"(/api/v1/instruments/([^/]+))",
+                [this](const httplib::Request& request, httplib::Response& response) {
+        common::InstrumentId instrument_id = 0;
+        if (!parse_unsigned_path(request.matches[1], instrument_id) || instrument_id == 0) {
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "Instrument ID must be a positive integer");
+            return;
+        }
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE",
+                          "Instrument catalog is not connected");
+            return;
+        }
+        const auto found = platform_runner_->market_snapshot(instrument_id);
+        if (!found) {
+            send_v1_error(response, request, 404, found.error().code, found.error().message);
+            return;
+        }
+        const auto& instrument = found.value().instrument;
+        json sessions = json::array();
+        for (const auto& session : instrument.sessions)
+            sessions.push_back({{"openLocal", session.open_local}, {"closeLocal", session.close_local}});
+        json mappings = json::array();
+        for (const auto& mapping : instrument.provider_mappings)
+            mappings.push_back({{"provider", mapping.provider}, {"providerKey", mapping.provider_key},
+                                {"validFromNs", mapping.valid_from_ns},
+                                {"validToNs", mapping.valid_to_ns ? json(*mapping.valid_to_ns) : json(nullptr)}});
+        send_json(response, json{{"schema_version", 1}, {"instrumentId", std::to_string(instrument.id)},
+                                 {"exchange", std::string(market_data::to_string(instrument.exchange))},
+                                 {"segment", instrument.segment}, {"symbol", instrument.symbol},
+                                 {"displaySymbol", instrument.display_symbol}, {"currency", instrument.currency},
+                                 {"timezone", instrument.timezone}, {"priceUnit", "MICRO_INR"},
+                                 {"tickSizeMicro", instrument.tick_size_micro}, {"lotSize", instrument.lot_size},
+                                 {"quantityStep", instrument.quantity_step}, {"active", instrument.active},
+                                 {"sessions", std::move(sessions)}, {"providerMappings", std::move(mappings)},
+                                 {"mappingStatus", instrument.provider_mappings.empty() ? "UNMAPPED" : "MAPPED"}});
+    });
+
+    server_.Get(R"(/api/v1/portfolio/([^/]+))",
+                [this](const httplib::Request& request, httplib::Response& response) {
         common::AccountId account_id = 0;
         if (!parse_unsigned_path(request.matches[1], account_id) || account_id == 0) {
-            send_v1_error(400, "INVALID_ACCOUNT_ID", "Account ID must be a positive unsigned integer");
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "Account ID must be a positive integer");
+            return;
+        }
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE", "Portfolio read model is not connected");
             return;
         }
         const auto portfolio = platform_runner_->portfolio(account_id);
         if (!portfolio) {
             const int status = portfolio.error().code == "ACCOUNT_NOT_FOUND" ? 404 : 500;
-            send_v1_error(status, portfolio.error().code, portfolio.error().message);
+            send_v1_error(response, request, status, portfolio.error().code, portfolio.error().message);
             return;
         }
+        std::int64_t market_value = 0;
+        bool all_positions_marked = true;
         json positions = json::array();
         for (const auto& [instrument_id, position] : portfolio.value().positions) {
-            positions.push_back({{"instrument_id", instrument_id},
+            if (position.mark_micro) {
+                const auto value = common::checked_multiply(*position.mark_micro, position.quantity);
+                if (value) {
+                    const auto total = common::checked_add(market_value, value.value());
+                    if (total) market_value = total.value();
+                    else all_positions_marked = false;
+                } else all_positions_marked = false;
+            } else all_positions_marked = false;
+            positions.push_back({{"instrumentId", std::to_string(instrument_id)},
                                  {"quantity", position.quantity},
-                                 {"average_cost_micro", position.average_cost_micro},
-                                 {"mark_micro", position.mark_micro ? json(*position.mark_micro) : json(nullptr)},
-                                 {"mark_source", position.mark_source},
-                                 {"realized_pnl_micro", position.realized_pnl_micro},
-                                 {"unrealized_pnl_micro", position.unrealized_pnl_micro}});
+                                 {"averageCostMicro", position.average_cost_micro},
+                                 {"markMicro", position.mark_micro ? json(*position.mark_micro) : json(nullptr)},
+                                 {"markSource", position.mark_source}});
         }
-        send_json(response, json{{"schema_version", schema_version},
-                                 {"account_id", portfolio.value().account_id},
-                                 {"cash_balance_micro", portfolio.value().cash_balance_micro},
-                                 {"positions", std::move(positions)},
-                                 {"fees_micro", portfolio.value().total_fees_micro},
-                                 {"realized_pnl_micro", portfolio.value().realized_pnl_micro},
-                                 {"unrealized_pnl_micro", portfolio.value().unrealized_pnl_micro},
-                                 {"data_age_ns", nullptr}});
+        json equity = nullptr;
+        if (all_positions_marked) {
+            const auto calculated = common::checked_add(portfolio.value().cash_balance_micro, market_value);
+            if (calculated) equity = calculated.value();
+        }
+        send_json(response, json{{"schema_version", 1}, {"accountId", std::to_string(account_id)},
+                                 {"cashMicro", portfolio.value().cash_balance_micro},
+                                 {"equityMicro", std::move(equity)},
+                                 {"realizedPnlMicro", portfolio.value().realized_pnl_micro},
+                                 {"unrealizedPnlMicro", portfolio.value().unrealized_pnl_micro},
+                                 {"feesMicro", portfolio.value().total_fees_micro},
+                                 {"positions", std::move(positions)}, {"dataAgeNs", nullptr}});
+    });
+
+    server_.Get(R"(/api/v1/risk/([^/]+))",
+                [this](const httplib::Request& request, httplib::Response& response) {
+        common::AccountId account_id = 0;
+        if (!parse_unsigned_path(request.matches[1], account_id) || account_id == 0) {
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "Account ID must be a positive integer");
+            return;
+        }
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE", "Risk read model is not connected");
+            return;
+        }
+        const auto state = platform_runner_->snapshot();
+        if (!state) {
+            send_v1_error(response, request, 500, state.error().code, state.error().message);
+            return;
+        }
+        if (state.value().portfolio.account_id != account_id) {
+            send_v1_error(response, request, 404, "ACCOUNT_NOT_FOUND", "Risk read model is available only for the active paper account");
+            return;
+        }
+        const auto& limits = state.value().risk_limits;
+        const json limit_rows = json::array({
+            json{{"name", "Max order quantity"}, {"used", nullptr}, {"limit", limits.max_order_quantity}, {"unit", "shares"}},
+            json{{"name", "Max position quantity"}, {"used", nullptr}, {"limit", limits.max_position_quantity}, {"unit", "shares"}},
+            json{{"name", "Max order notional"}, {"used", nullptr}, {"limit", limits.max_order_notional_micro}, {"unit", "micro-INR"}},
+            json{{"name", "Max gross exposure"}, {"used", nullptr}, {"limit", limits.max_gross_exposure_micro}, {"unit", "micro-INR"}},
+            json{{"name", "Max open orders"}, {"used", nullptr}, {"limit", limits.max_open_orders}, {"unit", "orders"}}
+        });
+        json rejections = json::array();
+        const auto& recent_rejections = state.value().risk_rejection_events;
+        const auto first_rejection = recent_rejections.size() > 100 ? recent_rejections.size() - 100 : 0;
+        for (auto index = first_rejection; index < recent_rejections.size(); ++index) {
+            const auto& [code, event_sequence] = recent_rejections[index];
+            rejections.push_back({{"code", code}, {"message", code}, {"eventSeq", event_sequence}});
+        }
+        send_json(response, json{{"schema_version", 1}, {"killSwitch", state.value().execution_halted},
+                                 {"limits", limit_rows}, {"rejections", std::move(rejections)}});
+    });
+
+    server_.Get("/api/v1/trades", [this](const httplib::Request& request, httplib::Response& response) {
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE", "Trade read model is not connected");
+            return;
+        }
+        std::uint64_t limit = 100;
+        if (request.has_param("limit") &&
+            (!parse_unsigned_path(request.get_param_value("limit"), limit) || limit == 0 || limit > 200)) {
+            send_v1_error(response, request, 400, "INVALID_ARGUMENT", "limit must be an integer from 1 to 200");
+            return;
+        }
+        std::optional<common::InstrumentId> instrument_filter;
+        if (request.has_param("instrument_id")) {
+            common::InstrumentId id = 0;
+            if (!parse_unsigned_path(request.get_param_value("instrument_id"), id) || id == 0) {
+                send_v1_error(response, request, 400, "INVALID_ARGUMENT", "instrument_id must be a positive integer");
+                return;
+            }
+            instrument_filter = id;
+        }
+        json trades = json::array();
+        for (const auto& fill : platform_runner_->recent_fills(200)) {
+            if (!instrument_filter || fill.instrument_id == *instrument_filter) {
+                trades.push_back(trade_json(fill));
+                if (trades.size() >= limit) break;
+            }
+        }
+        send_json(response, json{{"schema_version", 1}, {"trades", std::move(trades)}});
+    });
+
+    server_.Get("/api/v1/system/metrics", [this](const httplib::Request& request,
+                                                    httplib::Response& response) {
+        if (platform_runner_ == nullptr) {
+            send_v1_error(response, request, 503, "PLATFORM_UNAVAILABLE", "Runtime metrics are not connected");
+            return;
+        }
+        const auto metrics = platform_runner_->telemetry();
+        const auto& pipeline = metrics.pipeline;
+        const auto& bus = metrics.event_bus;
+        send_json(response, json{{"schema_version", 1}, {"stages", json::array()},
+                                 {"eventRate", nullptr},
+                                 {"queueDepth", bus.durable_depth + bus.quote_depth},
+                                 {"replacements", bus.quote_replacements},
+                                 {"dropped", bus.quote_overflows + bus.durable_timeouts},
+                                 {"duplicates", pipeline.duplicates}, {"outOfOrder", pipeline.out_of_order},
+                                 {"received", pipeline.received}, {"accepted", pipeline.accepted},
+                                 {"invalid", pipeline.invalid}});
+    });
+
+    server_.Get("/api/v1/stream", [](const httplib::Request& request, httplib::Response& response) {
+        send_v1_error(response, request, 501, "STREAM_UNAVAILABLE",
+                      "The current cpp-httplib gateway has no WebSocket upgrade support");
     });
 
     server_.Get("/api/state", [this](const httplib::Request& request, httplib::Response& response) {
@@ -467,6 +741,16 @@ void HttpServer::register_routes() {
             send_json(response, error_json(error.what()), 500);
         }
     });
+
+    const auto unsupported_v1 = [](const httplib::Request& request, httplib::Response& response) {
+        send_v1_error(response, request, 501, "NOT_IMPLEMENTED",
+                      "This schema-versioned route is documented but is not implemented by this server build");
+    };
+    server_.Get(R"(/api/v1(?:/.*)?)", unsupported_v1);
+    server_.Post(R"(/api/v1(?:/.*)?)", unsupported_v1);
+    server_.Put(R"(/api/v1(?:/.*)?)", unsupported_v1);
+    server_.Patch(R"(/api/v1(?:/.*)?)", unsupported_v1);
+    server_.Delete(R"(/api/v1(?:/.*)?)", unsupported_v1);
 }
 
 bool HttpServer::run() {

@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace basalt::platform {
@@ -45,10 +46,22 @@ struct PlatformSessionSnapshot {
     std::size_t fills{};
     std::size_t risk_rejections{};
     std::vector<std::string> risk_rejection_codes{};
+    std::vector<std::pair<std::string, std::uint64_t>> risk_rejection_events{};
     std::int64_t total_pnl_micro{};
     std::uint64_t ledger_hash{};
     bool execution_halted{};
     trading::PortfolioSummary portfolio{};
+    trading::RiskLimits risk_limits{};
+};
+
+struct PlatformMarketSnapshot {
+    market_data::InstrumentDefinition instrument{};
+    std::optional<market_data::CanonicalMarketEvent> event{};
+};
+
+struct PlatformTelemetrySnapshot {
+    market_data::PipelineStats pipeline{};
+    market_data::EventBusStats event_bus{};
 };
 
 // A synchronous, deterministic application boundary that connects the offline
@@ -66,6 +79,11 @@ public:
     [[nodiscard]] common::Result<PlatformSessionSnapshot> snapshot() const;
     [[nodiscard]] common::Result<trading::PortfolioSummary> portfolio(
         common::AccountId account_id) const;
+    [[nodiscard]] std::vector<PlatformMarketSnapshot> market_watch() const;
+    [[nodiscard]] common::Result<PlatformMarketSnapshot> market_snapshot(
+        common::InstrumentId instrument_id) const;
+    [[nodiscard]] std::vector<trading::ExecutionFill> recent_fills(std::size_t limit) const;
+    [[nodiscard]] PlatformTelemetrySnapshot telemetry() const;
     [[nodiscard]] common::Result<void> verify_reconciliation() const;
     [[nodiscard]] trading::KillSwitchEvent activate_kill_switch(
         std::string actor, std::string reason);
@@ -95,7 +113,9 @@ private:
     std::size_t orders_{};
     std::size_t fills_{};
     std::vector<std::string> risk_rejection_codes_{};
+    std::vector<std::pair<std::string, std::uint64_t>> risk_rejections_{};
     std::optional<common::Error> callback_error_{};
+    std::optional<market_data::CanonicalMarketEvent> latest_market_event_{};
 
     [[nodiscard]] common::Result<void> initialize();
     [[nodiscard]] common::Result<void> process_event(

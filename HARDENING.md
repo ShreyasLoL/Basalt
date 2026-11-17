@@ -24,12 +24,40 @@ Phase 1 result: added `PlatformRunner`, an opt-in `HttpServer` portfolio read mo
 
 ## Phase 2 — REST v1 and WebSocket
 
-- [ ] Diff every route in `docs/API_SPEC.md` against the HTTP implementation and record status.
-- [ ] Implement health, market watch, instrument snapshot and schema-correct WebSocket stream.
-- [ ] Implement remaining strategy, portfolio, risk, dataset and metrics groups where supported; return documented spec-correct errors elsewhere.
-- [ ] Preserve legacy routes and implement configurable same-origin/allowlist CORS with strict default and correct preflight.
-- [ ] Add HTTP tests for routes, JSON shape, CORS, malformed/oversized requests, WebSocket handshake and a streamed message.
-- [ ] Verify frontend v1 mode and correct any client mismatch; run typecheck and Vitest.
+- [x] Diff every route in `docs/API_SPEC.md` against the HTTP implementation and record status.
+- [x] Implement health, market watch, instrument metadata, instrument snapshot and REST errors. WebSocket is deferred because the bundled `cpp-httplib` has no upgrade hook; health reports `websocket_available: false`, `/api/v1/stream` returns schema-versioned 501, and the frontend skips retries.
+- [x] Implement supported portfolio, risk and telemetry groups; return schema-versioned `NOT_IMPLEMENTED` for unsupported v1 routes.
+- [x] Preserve legacy routes and implement configurable exact-origin CORS with an empty explicit allowlist by default and correct preflight.
+- [x] Add HTTP tests for implemented route shapes, unsupported routes, CORS allow/deny, malformed/oversized bodies and depth validation. A real WebSocket handshake and streamed frame remain deferred with the transport.
+- [x] Verify frontend v1 mode and correct the portfolio camelCase mismatch; run typecheck, Vitest and Vite build.
+
+### Phase 2 route audit
+
+| API_SPEC route | Status in this build |
+|---|---|
+| GET `/api/v1/health` | Implemented; reports in-memory storage and WebSocket availability. |
+| GET `/api/v1/market/watch` | Implemented from the deterministic SIM read model; unobserved instruments remain disconnected/null. |
+| GET `/api/v1/instruments/{id}` | Implemented for the active SIM catalog. |
+| GET `/api/v1/instruments/{id}/snapshot` | Implemented for quote, paper fills and frontend book shape; depth/book levels and activity are empty because the platform read model does not connect a CLOB. Depth query is validated 1–200. |
+| GET `/api/v1/order-books/{id}` | 501 `NOT_IMPLEMENTED`; the platform runner does not expose a CLOB snapshot. |
+| GET `/api/v1/trades` | Implemented for recent paper fills, bounded to 200. |
+| POST `/api/v1/orders` | 501 `NOT_IMPLEMENTED`; legacy paper CLOB remains on `/api/orders`. |
+| DELETE `/api/v1/orders/{id}` | 501 `NOT_IMPLEMENTED`. |
+| PATCH `/api/v1/orders/{id}` | 501 `NOT_IMPLEMENTED`. |
+| GET `/api/v1/orders` | 501 `NOT_IMPLEMENTED`. |
+| GET `/api/v1/portfolio/{account_id}` | Implemented with camelCase frontend fields and null equity when marks are unavailable. |
+| GET `/api/v1/risk/{account_id}` | Implemented for the active paper account; configured limits and session rejection codes are exposed, utilization remains null. |
+| POST `/api/v1/strategies` | 501 `NOT_IMPLEMENTED`. |
+| GET `/api/v1/strategies` | 501 `NOT_IMPLEMENTED`. |
+| POST `/api/v1/strategies/{id}/commands` | 501 `NOT_IMPLEMENTED`. |
+| POST `/api/v1/backtests` | 501 `NOT_IMPLEMENTED`. |
+| GET `/api/v1/backtests/{id}` | 501 `NOT_IMPLEMENTED`. |
+| POST `/api/v1/replay/{session}/commands` | 501 `NOT_IMPLEMENTED`. |
+| POST `/api/v1/benchmarks` | 501 `NOT_IMPLEMENTED`; legacy benchmark remains on `/api/benchmark`. |
+| GET `/api/v1/system/metrics` | Implemented for observed pipeline/event-bus counters; latency stages and event rate are null/unavailable. |
+| WebSocket `/api/v1/stream` | Deferred: returns 501 `STREAM_UNAVAILABLE`; no upgrade or streamed-frame test is claimed. |
+
+Phase 2 result: REST read routes now match the frontend's camelCase types, portfolio JSON was corrected, CORS supports `BASALT_CORS_ALLOWED_ORIGINS` with exact origins and no wildcard, and unsupported routes return schema-versioned errors. The WebSocket route is explicitly unavailable because the bundled transport does not support upgrades. HTTP tests cover route shapes, errors, CORS, malformed JSON, oversized payloads and bounded depth. Final clean-first Release build passed all 81 Ninja targets with no warnings; CTest passed 149/149 in 6.54 seconds; Vitest passed 10/10 in 4.86 seconds; frontend typecheck and Vite build passed (42 modules, 1.07 seconds). A WebSocket handshake and streamed frame remain deferred.
 
 ## Phase 3 — Confirmed bug and risk fixes
 
