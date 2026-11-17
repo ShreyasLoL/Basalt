@@ -268,6 +268,7 @@ TEST(RiskEngineTest, PersistsDecisionsAndRestoresClientOrderIdempotency) {
         rejected_snapshot.market_open = false;
         EXPECT_EQ(engine.evaluate(rejected_order, rejected_snapshot).code, "MARKET_CLOSED");
     }
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened_log(path);
     ASSERT_TRUE(reopened_log.recover());
     const auto frames = reopened_log.read_all();
@@ -322,13 +323,35 @@ TEST(KillSwitchTest, PersistsLatchAndRequiresHealthyAuthorizedDurableReset) {
     EXPECT_TRUE(reset.value().persisted);
     EXPECT_FALSE(kill.active(1));
 
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened_log(path);
     ASSERT_TRUE(reopened_log.recover());
+    const auto durable_frames = reopened_log.read_all();
+    ASSERT_TRUE(durable_frames);
+    ASSERT_EQ(durable_frames.value().size(), 2U);
+    const auto& durable_event = durable_frames.value().front().payload;
+    EXPECT_NE(durable_event.find("\"schema_version\":1"), std::string::npos);
+    EXPECT_NE(durable_event.find("\"kind\":\"kill_switch\""), std::string::npos);
+    EXPECT_NE(durable_event.find("\"actor\":\"operator\""), std::string::npos);
+    EXPECT_NE(durable_event.find("\"reason\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_EQ(durable_event.find("manual stop"), std::string::npos);
     KillSwitch restarted(KillSwitch::event_log_sink(reopened_log));
-    ASSERT_TRUE(restarted.restore(reopened_log.read_all().value()));
+    ASSERT_TRUE(restarted.restore(durable_frames.value()));
     EXPECT_FALSE(restarted.active(1));
     EXPECT_EQ(restarted.events().size(), 2U);
     EXPECT_TRUE(restarted.events()[0].working_orders_cancelled);
+    EXPECT_EQ(restarted.events()[0].reason, "[REDACTED]");
+}
+
+TEST(KillSwitchTest, CanonicalSerializerRedactsFreeTextAndUnsafeActorIdentifiers) {
+    KillSwitchEvent event{7, KillScope::Strategy, 42, true, "desk secret", "token=private-value",
+                          1'000, false, false};
+    const auto payload = serialize_kill_switch_event(event);
+    EXPECT_NE(payload.find("\"schema_version\":1"), std::string::npos);
+    EXPECT_NE(payload.find("\"scope\":\"STRATEGY\""), std::string::npos);
+    EXPECT_NE(payload.find("\"actor\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_NE(payload.find("\"reason\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_EQ(payload.find("private-value"), std::string::npos);
 }
 
 TEST(KillSwitchTest, LatchesEvenWhenJournalIsUnavailableAndCannotBeReset) {
@@ -662,6 +685,7 @@ TEST(PortfolioLedgerTest, EventLogJournalRestoresAccountsPositionsAndCashAfterRe
         ASSERT_TRUE(ledger.apply_fill(fill(1, 50, Side::Buy, 4, 10'000, 200)));
         ASSERT_TRUE(ledger.verify_reconciliation());
     }
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened(path);
     ASSERT_TRUE(reopened.recover());
     const auto frames = reopened.read_all();

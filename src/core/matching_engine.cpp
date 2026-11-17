@@ -52,13 +52,23 @@ void MatchingEngine::refresh_book_stats() noexcept {
 
 OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
     OrderResult result{};
-    result.order_id = request.id;
+    OrderId order_id = request.id;
+    std::string exhausted_message;
+    if (order_id == 0) {
+        if (next_auto_order_id_ == 0) {
+            exhausted_message = "Automatic Order ID space exhausted";
+        } else {
+            order_id = next_auto_order_id_;
+            next_auto_order_id_ = order_id == std::numeric_limits<OrderId>::max() ? 0 : order_id + 1U;
+        }
+    }
+    result.order_id = order_id;
     result.initial_quantity = request.quantity;
     result.remaining_quantity = request.quantity;
 
     std::string rejection;
-    if (request.id == 0) rejection = "Order ID must be greater than zero";
-    else if (book_.has_order(request.id)) rejection = "Duplicate active Order ID";
+    if (!exhausted_message.empty()) rejection = std::move(exhausted_message);
+    else if (book_.has_order(order_id)) rejection = "Duplicate active Order ID";
     else if (!valid_side(request.side)) rejection = "Invalid order side";
     else if (!valid_type(request.type)) rejection = "Invalid order type";
     else if (request.quantity == 0 || request.quantity > MAX_ORDER_QUANTITY) {
@@ -77,7 +87,7 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
         ActivityRecord record{};
         record.sequence = result.sequence;
         record.action = ActionType::Reject;
-        record.order_id = request.id;
+        record.order_id = order_id;
         record.side = request.side;
         record.order_type = request.type;
         record.price = request.price;
@@ -88,11 +98,15 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
         return result;
     }
 
+    if (request.id != 0 && next_auto_order_id_ != 0 && order_id >= next_auto_order_id_) {
+        next_auto_order_id_ = order_id == std::numeric_limits<OrderId>::max() ? 0 : order_id + 1U;
+    }
+
     const SequenceNumber submit_sequence = ++next_sequence_;
     // Logical nanoseconds keep timestamps monotonic and replay-identical across runs.
     const TimestampNs timestamp = static_cast<TimestampNs>(submit_sequence);
     Order incoming{};
-    incoming.id = request.id;
+    incoming.id = order_id;
     incoming.side = request.side;
     incoming.type = request.type;
     incoming.price = request.type == OrderType::Market ? 0 : request.price;
@@ -124,7 +138,7 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
             ActivityRecord rejected{};
             rejected.sequence = submit_sequence;
             rejected.action = ActionType::Reject;
-            rejected.order_id = request.id;
+            rejected.order_id = order_id;
             rejected.side = request.side;
             rejected.order_type = request.type;
             rejected.price = incoming.price;
@@ -168,7 +182,7 @@ OrderResult MatchingEngine::submit_order(const OrderRequest& request) {
     ActivityRecord submit{};
     submit.sequence = submit_sequence;
     submit.action = ActionType::Submit;
-    submit.order_id = request.id;
+    submit.order_id = order_id;
     submit.side = request.side;
     submit.order_type = request.type;
     submit.price = incoming.price;
@@ -266,11 +280,9 @@ void MatchingEngine::seed_demo_book() {
     constexpr Quantity bid_quantities[] = {150, 220, 180, 260, 310};
     constexpr Quantity ask_quantities[] = {120, 200, 240, 190, 280};
     for (std::size_t i = 0; i < 5; ++i) {
-        const OrderId bid_id = next_auto_order_id_++;
-        const OrderId ask_id = next_auto_order_id_++;
-        (void)submit_order(OrderRequest{bid_id, Side::Buy, OrderType::Limit,
+        (void)submit_order(OrderRequest{0, Side::Buy, OrderType::Limit,
                                         bid_prices[i], bid_quantities[i]});
-        (void)submit_order(OrderRequest{ask_id, Side::Sell, OrderType::Limit,
+        (void)submit_order(OrderRequest{0, Side::Sell, OrderType::Limit,
                                         ask_prices[i], ask_quantities[i]});
     }
 }

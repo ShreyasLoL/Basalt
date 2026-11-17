@@ -20,6 +20,17 @@ std::string_view scope_name(const KillScope scope) {
     return "UNKNOWN";
 }
 
+std::string durable_actor(const std::string_view actor) {
+    if (actor.empty() || actor.size() > 64) return "[REDACTED]";
+    for (const unsigned char character : actor) {
+        const bool alphanumeric = (character >= 'a' && character <= 'z') ||
+            (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+        if (!alphanumeric && character != '_' && character != '-' && character != '.' && character != ':')
+            return "[REDACTED]";
+    }
+    return std::string(actor);
+}
+
 std::string_view side_name(const Side side) { return side == Side::Buy ? "BUY" : "SELL"; }
 std::string_view order_type_name(const OrderType type) { return type == OrderType::Market ? "MARKET" : "LIMIT"; }
 
@@ -95,22 +106,22 @@ RiskDecision rejected(std::string code) {
 
 } // namespace
 
+std::string serialize_kill_switch_event(const KillSwitchEvent& event) {
+    const Json json{{"schema_version", 1}, {"kind", "kill_switch"},
+        {"sequence", event.sequence}, {"scope", scope_name(event.scope)},
+        {"target_id", event.target_id}, {"active", event.active},
+        {"actor", durable_actor(event.actor)}, {"reason", "[REDACTED]"},
+        {"time_ns", event.time_ns},
+        {"working_orders_cancelled", event.working_orders_cancelled}};
+    return json.dump();
+}
+
 KillSwitch::KillSwitch(EventSink sink, CancelSink cancel_sink)
     : sink_(std::move(sink)), cancel_sink_(std::move(cancel_sink)) {}
 
 KillSwitch::EventSink KillSwitch::event_log_sink(persistence::EventLog& log) {
     return [&log](const KillSwitchEvent& event) {
-        Json json = Json::object();
-        json["kind"] = "kill_switch";
-        json["sequence"] = event.sequence;
-        json["scope"] = scope_name(event.scope);
-        json["target_id"] = event.target_id;
-        json["active"] = event.active;
-        json["actor"] = event.actor;
-        json["reason"] = event.reason;
-        json["time_ns"] = event.time_ns;
-        json["working_orders_cancelled"] = event.working_orders_cancelled;
-        const auto appended = log.append_next(json.dump());
+        const auto appended = log.append_next(serialize_kill_switch_event(event));
         if (!appended) return common::Result<void>::failure(appended.error());
         return common::Result<void>::success();
     };
@@ -127,6 +138,8 @@ common::Result<void> KillSwitch::restore(const std::vector<persistence::LogFrame
         }
         if (!json.is_object() || json.value("kind", std::string{}) != "kill_switch") continue;
         try {
+            if (json.contains("schema_version") && json.at("schema_version").get<int>() != 1)
+                return common::Result<void>::failure({"KILL_SWITCH_FORMAT", "Persisted kill-switch schema is unsupported"});
             auto scope = parse_scope(json.at("scope").get<std::string>());
             if (!scope) return common::Result<void>::failure(scope.error());
             KillSwitchEvent event;
@@ -134,8 +147,8 @@ common::Result<void> KillSwitch::restore(const std::vector<persistence::LogFrame
             event.scope = scope.value();
             event.target_id = json.at("target_id").get<std::uint64_t>();
             event.active = json.at("active").get<bool>();
-            event.actor = json.value("actor", std::string{});
-            event.reason = json.value("reason", std::string{});
+            event.actor = durable_actor(json.value("actor", std::string{}));
+            event.reason = "[REDACTED]";
             event.time_ns = json.at("time_ns").get<std::int64_t>();
             event.working_orders_cancelled = json.value("working_orders_cancelled", false);
             event.persisted = true;

@@ -437,15 +437,10 @@ struct McpServer::Impl {
         const auto size = std::filesystem::file_size(kill_log.path(), error);
         if (error || size > MAX_AUDIT_BYTES) return common::Result<void>::failure(
             {"KILL_LOG_LIMIT", "Kill-switch persistence limit reached"});
-        Json frame{{"kind", "kill_switch"}, {"sequence", event.sequence},
-            {"scope", event.scope == trading::KillScope::Global ? "GLOBAL" :
-                (event.scope == trading::KillScope::Account ? "ACCOUNT" : "STRATEGY")},
-            {"target_id", event.target_id}, {"active", event.active}, {"actor", "local-stdio"},
-            {"reason", "[REDACTED]"}, {"time_ns", event.time_ns},
-            {"working_orders_cancelled", event.working_orders_cancelled}};
-        if (frame.dump().size() > 4096U) return common::Result<void>::failure(
+        const std::string frame = trading::serialize_kill_switch_event(event);
+        if (frame.size() > 4096U) return common::Result<void>::failure(
             {"KILL_LOG_LIMIT", "Kill-switch record exceeds its fixed size"});
-        const auto appended = kill_log.append(event.sequence, frame.dump());
+        const auto appended = kill_log.append(event.sequence, frame);
         if (!appended) return appended;
         std::filesystem::permissions(kill_log.path(), std::filesystem::perms::owner_read |
             std::filesystem::perms::owner_write, std::filesystem::perm_options::replace, error);

@@ -41,6 +41,7 @@ TEST(EventLogTest, RequiresRecoveryAndReopensAppendOnlyFrames) {
     ASSERT_TRUE(log.append(1, "one"));
     ASSERT_TRUE(log.append(3, "three"));
     EXPECT_EQ(log.append(3, "duplicate").error().code, "LOG_SEQUENCE");
+    ASSERT_TRUE(log.close());
 
     EventLog reopened(path);
     const auto report = reopened.recover();
@@ -60,6 +61,7 @@ TEST(EventLogTest, QuarantinesTornTailAndContinuesAtLastValidSequence) {
     EventLog writer(path);
     ASSERT_TRUE(writer.recover());
     ASSERT_TRUE(writer.append(1, "first"));
+    ASSERT_TRUE(writer.close());
     {
         std::ofstream damaged(path, std::ios::binary | std::ios::app);
         damaged.write("BLG1\x01", 5);
@@ -87,14 +89,13 @@ TEST(EventLogTest, VerifiesCrcAndRecoversOnlyThePriorCompletePrefix) {
     ASSERT_TRUE(writer.recover());
     ASSERT_TRUE(writer.append(1, "one"));
     ASSERT_TRUE(writer.append(2, "two"));
+    ASSERT_TRUE(writer.close());
     {
         std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
         file.seekp(22 + 3 + 22 + 1, std::ios::beg);
         const char damaged = 'X';
         file.write(&damaged, 1);
     }
-    EXPECT_EQ(writer.read_all().error().code, "LOG_CORRUPT");
-
     EventLog recovered(path);
     const auto report = recovered.recover();
     ASSERT_TRUE(report);
@@ -106,6 +107,50 @@ TEST(EventLogTest, VerifiesCrcAndRecoversOnlyThePriorCompletePrefix) {
     ASSERT_TRUE(frames);
     ASSERT_EQ(frames.value().size(), 1U);
     EXPECT_EQ(frames.value()[0].payload, "one");
+}
+
+TEST(EventLogTest, PersistentHandleClosesRecoversTornTailAndReopensAtValidSequence) {
+    TemporaryDirectory directory;
+    const auto path = directory.path() / "persistent.blog";
+    EventLog log(path);
+    ASSERT_TRUE(log.recover());
+    ASSERT_TRUE(log.append_next("one"));
+    ASSERT_TRUE(log.append_next("two"));
+    ASSERT_TRUE(log.close());
+    EXPECT_EQ(log.append_next("closed").error().code, "LOG_NOT_RECOVERED");
+    {
+        std::ofstream damaged(path, std::ios::binary | std::ios::app);
+        damaged.write("BLG1\\x01", 5);
+    }
+    const auto recovered = log.recover();
+    ASSERT_TRUE(recovered);
+    EXPECT_EQ(recovered.value().valid_frames, 2U);
+    EXPECT_EQ(recovered.value().discarded_bytes, 5U);
+    ASSERT_TRUE(log.append_next("three"));
+    const auto frames = log.read_all();
+    ASSERT_TRUE(frames);
+    ASSERT_EQ(frames.value().size(), 3U);
+    EXPECT_EQ(frames.value().back(), (LogFrame{3, "three"}));
+}
+
+TEST(EventLogTest, ExternalRotationIsAppliedOnlyAfterCloseAndRecover) {
+    TemporaryDirectory directory;
+    const auto path = directory.path() / "rotated.blog";
+    EventLog log(path);
+    ASSERT_TRUE(log.recover());
+    ASSERT_TRUE(log.append(1, "old generation"));
+    ASSERT_TRUE(log.close());
+    auto archived = path;
+    archived += ".1";
+    std::filesystem::rename(path, archived);
+
+    ASSERT_TRUE(log.recover());
+    EXPECT_EQ(log.last_sequence(), 0U);
+    ASSERT_TRUE(log.append(1, "new generation"));
+    const auto frames = log.read_all();
+    ASSERT_TRUE(frames);
+    ASSERT_EQ(frames.value().size(), 1U);
+    EXPECT_EQ(frames.value()[0].payload, "new generation");
 }
 
 TEST(EventLogTest, RejectsOversizedPayloadAndUsesStandardCrc32) {
@@ -219,6 +264,33 @@ TEST(CatalogTest, ReopensDeterministicTransactionalDatasetMetadata) {
         EXPECT_EQ(reopened.dataset("z-last").value().value(), first);
         EXPECT_FALSE(reopened.dataset("missing").value().has_value());
     }
+}
+
+TEST(CatalogTest, BatchUpsertReadsAndRewritesOnceAndLastDuplicateWins) {
+    TemporaryDirectory directory;
+    Catalog catalog(directory.path() / "batch-catalog.json");
+    ASSERT_TRUE(catalog.open());
+    std::vector<DatasetRecord> batch;
+    batch.reserve(2000);
+    for (std::uint32_t i = 0; i < 2000; ++i) {
+        const auto id = "dataset-" + std::to_string(i);
+        batch.push_back({id, 7, "csv", "batch-test", id + ".csv", "hash-" + std::to_string(i),
+                         std::nullopt, std::nullopt, static_cast<std::int64_t>(i), "test-only", 60});
+    }
+    ASSERT_TRUE(catalog.upsert_datasets(batch));
+    auto replacement = batch[17];
+    replacement.source = "replacement";
+    auto duplicate = replacement;
+    duplicate.path = "dataset-17-final.csv";
+    const std::vector<DatasetRecord> updates{replacement, duplicate};
+    ASSERT_TRUE(catalog.upsert_datasets(updates));
+    const auto records = catalog.datasets();
+    ASSERT_TRUE(records);
+    ASSERT_EQ(records.value().size(), 2000U);
+    EXPECT_EQ(catalog.dataset("dataset-17").value()->path, "dataset-17-final.csv");
+    EXPECT_EQ(catalog.dataset("dataset-17").value()->source, "replacement");
+    EXPECT_EQ(records.value().front().dataset_id, "dataset-0");
+    EXPECT_EQ(records.value().back().dataset_id, "dataset-999");
 }
 
 TEST(CatalogTest, AppliesAndRecordsVersionZeroToOneMigration) {

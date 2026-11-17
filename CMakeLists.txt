@@ -325,7 +325,7 @@ gtest_discover_tests(basalt_mcp_tests)
 basalt_enable_sanitizers(basalt_mcp_tests)
 
 add_executable(basalt_bench src/bench/main_bench.cpp)
-target_link_libraries(basalt_bench PRIVATE basalt_core)
+target_link_libraries(basalt_bench PRIVATE basalt_core basalt_persistence)
 if(MSVC)
     target_compile_options(basalt_bench PRIVATE /W4 /WX)
 else()

@@ -288,6 +288,42 @@ RunSummary run_arena_book(const WorkloadProfile profile,
     return summary;
 }
 
+BenchmarkResult run_arena_pressure_benchmark(const std::size_t order_count,
+                                             const std::size_t pool_capacity) {
+    ArenaOrderBook book(pool_capacity);
+    std::vector<std::uint64_t> latencies(order_count, 0);
+    std::uint64_t pool_exhaustions = 0;
+    TradeId trade_id = 0;
+    const auto batch_start = Clock::now();
+    for (std::size_t i = 0; i < order_count; ++i) {
+        const auto start = Clock::now();
+        Order incoming{};
+        incoming.id = static_cast<OrderId>(i + 1U);
+        incoming.side = Side::Buy;
+        incoming.type = OrderType::Limit;
+        incoming.price = static_cast<Price>(10'000 - (i % 1'000U));
+        incoming.initial_quantity = 1;
+        incoming.remaining_quantity = 1;
+        incoming.sequence = static_cast<SequenceNumber>(i + 1U);
+        incoming.timestamp_ns = incoming.sequence;
+        std::vector<Trade> trades;
+        book.match_against_book(incoming, incoming.sequence, trade_id, incoming.timestamp_ns, trades);
+        if (book.last_error() == "POOL_EXHAUSTED") ++pool_exhaustions;
+        latencies[i] = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count());
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - batch_start);
+    auto result = summarize("Arena Capacity Pressure", "ArenaOrderBook (undersized pool)",
+                            latencies, elapsed, 0, 0);
+    result.pool_exhaustions = pool_exhaustions;
+    result.pool_allocations = book.pool_allocations();
+    result.pool_peak_active = book.pool_peak_active();
+    result.pool_capacity = book.pool_capacity();
+    std::string error;
+    if (!book.verify_invariants(&error)) throw std::runtime_error("Arena pressure invariant failure: " + error);
+    return result;
+}
+
 RunSummary run_event_bus(const WorkloadProfile profile, const std::size_t count) {
     const bool slow_consumer = profile == WorkloadProfile::SlowConsumerBackpressure;
     const std::size_t capacity = slow_consumer ? std::min<std::size_t>(64, count) : count;
@@ -395,6 +431,15 @@ std::vector<BenchmarkResult> BenchmarkRunner::run_all(const std::size_t order_co
         results.insert(results.end(), profile_results.begin(), profile_results.end());
     }
     return results;
+}
+
+BenchmarkResult BenchmarkRunner::run_arena_pressure(const std::size_t order_count,
+                                                     const std::size_t pool_capacity) const {
+    if (order_count == 0 || pool_capacity == 0)
+        throw std::invalid_argument("Arena pressure benchmark requires positive order count and capacity");
+    if (pool_capacity >= order_count)
+        throw std::invalid_argument("Arena pressure capacity must be smaller than the order count");
+    return run_arena_pressure_benchmark(order_count, pool_capacity);
 }
 
 std::string format_ascii_table(const std::vector<BenchmarkResult>& results) {

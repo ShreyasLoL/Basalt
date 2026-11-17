@@ -198,6 +198,9 @@ AdvancedOrderResult MultiInstrumentEngine::submit_validated(const AdvancedOrderR
                             request.type == AdvancedOrderType::Fok || request.type == AdvancedOrderType::Limit;
     Quantity remaining = request.quantity;
     bool incoming_cancelled = false;
+    const auto report_cancellation = [&](const OrderId order_id, const bool is_incoming) {
+        result.stp_cancellations.push_back({order_id, is_incoming, ++next_sequence_});
+    };
     while (remaining > 0 && !incoming_cancelled) {
         if (request.side == Side::Buy) {
             if (book.asks.empty()) break;
@@ -208,13 +211,17 @@ AdvancedOrderResult MultiInstrumentEngine::submit_validated(const AdvancedOrderR
                 const auto resting_copy = *order;
                 if (same_owner(request, resting_copy.request)) {
                     if (request.stp_policy == STPPolicy::CancelNewest) {
+                        report_cancellation(request.id, true);
                         incoming_cancelled = true;
                         result.message = "Self-trade prevention cancelled the incoming order";
                         break;
                     }
-                    locations_.erase(order->request.id);
+                    const auto resting_id = resting_copy.request.id;
+                    report_cancellation(resting_id, false);
+                    locations_.erase(resting_id);
                     order = level->second.erase(order);
                     if (request.stp_policy == STPPolicy::CancelBoth) {
+                        report_cancellation(request.id, true);
                         incoming_cancelled = true;
                         result.message = "Self-trade prevention cancelled both orders";
                         break;
@@ -253,13 +260,17 @@ AdvancedOrderResult MultiInstrumentEngine::submit_validated(const AdvancedOrderR
                 const auto resting_copy = *order;
                 if (same_owner(request, resting_copy.request)) {
                     if (request.stp_policy == STPPolicy::CancelNewest) {
+                        report_cancellation(request.id, true);
                         incoming_cancelled = true;
                         result.message = "Self-trade prevention cancelled the incoming order";
                         break;
                     }
-                    locations_.erase(order->request.id);
+                    const auto resting_id = resting_copy.request.id;
+                    report_cancellation(resting_id, false);
+                    locations_.erase(resting_id);
                     order = level->second.erase(order);
                     if (request.stp_policy == STPPolicy::CancelBoth) {
+                        report_cancellation(request.id, true);
                         incoming_cancelled = true;
                         result.message = "Self-trade prevention cancelled both orders";
                         break;

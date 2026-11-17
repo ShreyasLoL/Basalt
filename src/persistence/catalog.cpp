@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <unordered_map>
 
 namespace basalt::persistence {
 namespace {
@@ -139,17 +140,27 @@ common::Result<void> Catalog::write_records(const std::vector<DatasetRecord>& in
 }
 
 common::Result<void> Catalog::upsert_dataset(const DatasetRecord& record) {
+    return upsert_datasets(std::span<const DatasetRecord>(&record, 1));
+}
+
+common::Result<void> Catalog::upsert_datasets(const std::span<const DatasetRecord> updates) {
     if (!opened_) return common::Result<void>::failure({"CATALOG_NOT_OPEN", "Open the catalog before writing"});
-    if (record.dataset_id.empty() || record.path.empty() || record.license_tag.empty())
-        return common::Result<void>::failure({"CATALOG_RECORD", "Dataset ID, path and license tag are required"});
+    for (const auto& record : updates) {
+        if (record.dataset_id.empty() || record.path.empty() || record.license_tag.empty())
+            return common::Result<void>::failure({"CATALOG_RECORD", "Dataset ID, path and license tag are required"});
+    }
+    if (updates.empty()) return common::Result<void>::success();
     const auto old = read_records(path_);
     if (!old) return common::Result<void>::failure(old.error());
     auto records = old.value();
-    const auto found = std::find_if(records.begin(), records.end(), [&](const auto& value) {
-        return value.dataset_id == record.dataset_id;
-    });
-    if (found == records.end()) records.push_back(record);
-    else *found = record;
+    std::unordered_map<std::string, std::size_t> index;
+    index.reserve(records.size() + updates.size());
+    for (std::size_t i = 0; i < records.size(); ++i) index.emplace(records[i].dataset_id, i);
+    for (const auto& record : updates) {
+        const auto [found, inserted] = index.emplace(record.dataset_id, records.size());
+        if (inserted) records.push_back(record);
+        else records[found->second] = record;
+    }
     return write_records(records);
 }
 

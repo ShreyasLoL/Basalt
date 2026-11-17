@@ -183,15 +183,27 @@ TEST(MultiInstrumentEngine, AppliesAllSelfTradePreventionPolicies) {
         const auto result = engine.submit_order(incoming);
         EXPECT_TRUE(result.trades.empty());
         if (policy == STPPolicy::CancelNewest) {
+            ASSERT_EQ(result.stp_cancellations.size(), 1U);
+            EXPECT_EQ(result.stp_cancellations[0], (STPCancellation{2, true, result.sequence + 1U}));
             EXPECT_EQ(result.remaining_quantity, 1U);
             EXPECT_EQ(engine.get_snapshot(14).bids.size(), 1U);
             EXPECT_EQ(engine.active_order_count(), 1U);
+            EXPECT_FALSE(engine.cancel_order(14, 2).success);
         } else if (policy == STPPolicy::CancelOldest) {
+            ASSERT_EQ(result.stp_cancellations.size(), 1U);
+            EXPECT_EQ(result.stp_cancellations[0], (STPCancellation{1, false, result.sequence + 1U}));
             EXPECT_EQ(engine.get_snapshot(14).bids.size(), 0U);
             EXPECT_EQ(engine.get_snapshot(14).asks.size(), 1U);
             EXPECT_EQ(engine.active_order_count(), 1U);
+            EXPECT_FALSE(engine.cancel_order(14, 1).success);
+            EXPECT_TRUE(engine.cancel_order(14, 2).success);
         } else {
+            ASSERT_EQ(result.stp_cancellations.size(), 2U);
+            EXPECT_EQ(result.stp_cancellations[0], (STPCancellation{1, false, result.sequence + 1U}));
+            EXPECT_EQ(result.stp_cancellations[1], (STPCancellation{2, true, result.sequence + 2U}));
             EXPECT_EQ(engine.active_order_count(), 0U);
+            EXPECT_FALSE(engine.cancel_order(14, 1).success);
+            EXPECT_FALSE(engine.cancel_order(14, 2).success);
         }
         expect_invariants(engine);
     }

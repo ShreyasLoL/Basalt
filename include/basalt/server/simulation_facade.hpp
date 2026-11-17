@@ -36,7 +36,6 @@ public:
 private:
     mutable std::mutex mutex_{};
     MatchingEngine engine_{};
-    OrderId next_order_id_{10'000};
     [[nodiscard]] OrderResult submit_locked(OrderRequest request);
 };
 

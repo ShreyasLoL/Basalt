@@ -38,6 +38,8 @@ public:
         bool compare_baseline = true) const;
     [[nodiscard]] std::vector<BenchmarkResult> run_all(
         std::size_t order_count, bool compare_baseline = true) const;
+    [[nodiscard]] BenchmarkResult run_arena_pressure(
+        std::size_t order_count, std::size_t pool_capacity) const;
 };
 
 [[nodiscard]] std::string format_ascii_table(const std::vector<BenchmarkResult>& results);

@@ -135,4 +135,14 @@ TEST(BenchmarkRunnerTest, ReportsMarketBurstAndSlowConsumerQueueOutcomes) {
     EXPECT_EQ(slow[0].queue_high_water, 64U);
 }
 
+TEST(BenchmarkRunnerTest, ArenaPressureReportsCapacityAndDeterministicExhaustion) {
+    const BenchmarkRunner runner;
+    const auto pressure = runner.run_arena_pressure(100, 10);
+    EXPECT_EQ(pressure.orders_processed, 100U);
+    EXPECT_EQ(pressure.pool_capacity, 10U);
+    EXPECT_EQ(pressure.pool_allocations, 10U);
+    EXPECT_EQ(pressure.pool_peak_active, 10U);
+    EXPECT_EQ(pressure.pool_exhaustions, 90U);
+}
+
 } // namespace basalt::bench

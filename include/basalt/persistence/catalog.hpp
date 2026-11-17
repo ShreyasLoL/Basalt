@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <span>
 #include <vector>
 
 namespace basalt::persistence {
@@ -30,6 +32,7 @@ public:
     explicit Catalog(std::filesystem::path path) : path_(std::move(path)) {}
     [[nodiscard]] common::Result<void> open();
     [[nodiscard]] common::Result<void> upsert_dataset(const DatasetRecord& record);
+    [[nodiscard]] common::Result<void> upsert_datasets(std::span<const DatasetRecord> records);
     [[nodiscard]] common::Result<std::optional<DatasetRecord>> dataset(std::string_view id) const;
     [[nodiscard]] common::Result<std::vector<DatasetRecord>> datasets() const;
     [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }

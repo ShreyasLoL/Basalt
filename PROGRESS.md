@@ -187,3 +187,14 @@ All commits are local. Never push.
 - [x] `ctest --test-dir build-release --output-on-failure`: 144/144 passed in 4.81 seconds (loopback access enabled).
 - [x] `basalt_demo --ticks 8`: 8 ticks, 6 signals, 4 orders, 4 fills, 2 `ORDER_QUANTITY_LIMIT` rejections; total PnL -5,500 micro-INR and ledger reconciliation passed.
 - [x] Frontend was unchanged; Phase 0 typecheck and Vitest baseline remain applicable (10/10).
+
+## Hardening follow-up — Phase 3 (2026-11-17)
+
+- [x] MCP and trading persistence now share one schema-versioned kill-switch serializer. Durable free-text reasons are always redacted; actor IDs retain only 1–64 safe ASCII identifier characters. Restore redacts legacy reasons without rewriting append-only frames. ADR-008 records this policy.
+- [x] The existing portable O(1) ratio helper and seeded/extreme parity tests remain the source of truth; added a benchmark against the former 10,000-step loop. Checksums matched for 1,000 inputs (4,000 ns helper, 3,566,400 ns legacy loop).
+- [x] Moved automatic order-ID allocation into `MatchingEngine`, including seeded orders and facade batch operations. Regression coverage includes monotonic IDs after cancel, explicit high IDs, max-ID exhaustion and facade batches.
+- [x] STP results now report each incoming/resting cancellation and event sequence. Tests verify policy outcomes, stale IDs, and book/index invariants after erasure.
+- [x] EventLog holds one append handle, flushes the stream and OS buffers per append, and exposes `close()` plus `recover()` for operator-controlled rotation. Torn-tail recovery and rotation/reopen tests pass. A 1,000-append durable run measured 9,738,620,200 ns on this Windows host.
+- [x] Catalog batch upserts validate all rows, read once, merge through a hash index and atomically write one sorted document. A 2,000-record import/replacement test passes.
+- [x] Added arena pressure mode: 10,000 non-crossing orders attempted against 2,500 nodes produced 2,500 allocations and 7,500 reported exhaustions. Full measurements and caveats are in `docs/PERFORMANCE.md`.
+- [x] Clean-first Release build passed all 81 Ninja targets without warnings; final CTest passed 156/156 in 5.69 seconds with loopback access; frontend typecheck, Vitest 10/10 and Vite build (42 modules, 1.22 seconds) passed.

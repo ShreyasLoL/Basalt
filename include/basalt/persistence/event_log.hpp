@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -36,6 +37,9 @@ public:
     [[nodiscard]] common::Result<void> append(common::EventSequence sequence,
                                                const std::string& payload);
     [[nodiscard]] common::Result<common::EventSequence> append_next(const std::string& payload);
+    // Flushes and closes the append handle. A subsequent append requires recover(),
+    // which also handles externally rotated/replaced files before reopening.
+    [[nodiscard]] common::Result<void> close();
     [[nodiscard]] common::Result<std::vector<LogFrame>> read_all() const;
     [[nodiscard]] common::EventSequence last_sequence() const noexcept { return last_sequence_.load(); }
     [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
@@ -48,6 +52,8 @@ private:
     std::atomic<common::EventSequence> last_sequence_{};
     bool recovered_{};
     mutable std::mutex mutex_{};
+    std::ofstream append_stream_{};
+    [[nodiscard]] common::Result<void> open_append_locked();
     [[nodiscard]] common::Result<void> append_locked(common::EventSequence sequence,
                                                       const std::string& payload);
 };

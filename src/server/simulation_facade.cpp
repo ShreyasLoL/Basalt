@@ -1,6 +1,5 @@
 #include "basalt/server/simulation_facade.hpp"
 
-#include <limits>
 #include <utility>
 
 namespace basalt::server {
@@ -32,14 +31,6 @@ std::vector<Trade> SimulationFacade::recent_trades(const std::size_t limit) cons
 }
 
 OrderResult SimulationFacade::submit_locked(OrderRequest request) {
-    if (request.id == 0) {
-        while (engine_.book().has_order(next_order_id_) && next_order_id_ < std::numeric_limits<OrderId>::max())
-            ++next_order_id_;
-        request.id = next_order_id_;
-        if (next_order_id_ < std::numeric_limits<OrderId>::max()) ++next_order_id_;
-    } else if (request.id >= next_order_id_ && request.id < std::numeric_limits<OrderId>::max()) {
-        next_order_id_ = request.id + 1U;
-    }
     return engine_.submit_order(request);
 }
 

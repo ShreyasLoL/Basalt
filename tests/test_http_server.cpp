@@ -1,5 +1,6 @@
 #include "basalt/server/http_server.hpp"
 #include "basalt/server/request_guard.hpp"
+#include "basalt/server/simulation_facade.hpp"
 
 #include <gtest/gtest.h>
 #include <httplib.h>
@@ -36,6 +37,20 @@ TEST(RequestGuardTest, AcceptsOnlyLoopbackHostAuthoritiesForTheServerPort) {
     EXPECT_FALSE(is_allowed_host("", kPort));
     EXPECT_TRUE(is_allowed_host("localhost", 80));
     EXPECT_TRUE(is_allowed_host("localhost:80", 80));
+}
+
+TEST(SimulationFacadeTest, SeedAndBatchUseMatchingEnginesSingleAutomaticIdSequence) {
+    basalt::server::SimulationFacade facade(true);
+    const auto first = facade.submit_order({0, basalt::Side::Buy, basalt::OrderType::Limit, 9000, 1});
+    ASSERT_EQ(first.status, basalt::OrderStatus::New);
+    EXPECT_EQ(first.order_id, 11U);
+    const auto batch = facade.submit_batch({
+        {0, basalt::Side::Buy, basalt::OrderType::Limit, 8999, 1},
+        {0, basalt::Side::Buy, basalt::OrderType::Limit, 8998, 1}});
+    ASSERT_EQ(batch.size(), 2U);
+    EXPECT_EQ(batch[0].order_id, 12U);
+    EXPECT_EQ(batch[1].order_id, 13U);
+    EXPECT_TRUE(facade.verify_invariants());
 }
 
 TEST(RequestGuardTest, ExplicitRemoteBindAddressIsAddedButWildcardIsNot) {

@@ -47,6 +47,10 @@ Adapters implement a common interface and are opt-in. Vendor fees/limits/licensi
 
 The workstation renders real API state with explicit empty/stale/degraded status. It avoids invented metrics and does not synthesize strategy returns. This is preferred over a visually rich mock dashboard because the product is an observability and research tool.
 
+## ADR-008 — Canonical durable kill-switch events redact free text
+
+Trading and MCP adapters serialize kill-switch state through one schema-versioned encoder. Durable `reason` is always `[REDACTED]`; raw reasons remain available only to the in-process event result. Durable `actor` is retained only as a stable identifier made of 1–64 ASCII letters, digits, underscore, dash, dot or colon; all other values are redacted. Restore applies the same policy, including when reading legacy frames without a schema version. Append-only legacy frames are not rewritten, so deployments that have already persisted free-text reasons must handle those old files as sensitive data. EventLog retains an open append handle, flushes the stream and OS file buffers on each successful append, and requires `close()` before operator rotation; automatic rotation and multi-segment replay remain unsupported.
+
 ## Rejected infrastructure triggers
 
 Consider message brokers or external time-series databases only after measured local bottlenecks (for example, sustained data volumes exceeding configured local retention or multiple independent consumers with incompatible availability needs). No numerical trigger is treated as universal; capture workload and operational cost first.

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -252,14 +253,13 @@ TEST(MatchingEngine, ValidationRejectsInvalidOrders) {
     EXPECT_EQ(submit(engine, 1, Side::Buy, 0, 10000).status, OrderStatus::Rejected);
     EXPECT_EQ(submit(engine, 2, Side::Buy, 1, 0).status, OrderStatus::Rejected);
     EXPECT_EQ(submit(engine, 3, Side::Buy, 1, -1).status, OrderStatus::Rejected);
-    EXPECT_EQ(submit(engine, 0, Side::Buy, 1, 10000).status, OrderStatus::Rejected);
     EXPECT_EQ(submit(engine, 4, Side::Buy, MAX_ORDER_QUANTITY + 1, 10000).status,
               OrderStatus::Rejected);
     EXPECT_EQ(submit(engine, 5, Side::Buy, 1, MAX_ORDER_PRICE + 1).status,
               OrderStatus::Rejected);
     (void)submit(engine, 6, Side::Buy, 1, 10000);
     EXPECT_EQ(submit(engine, 6, Side::Sell, 1, 10100).status, OrderStatus::Rejected);
-    EXPECT_EQ(engine.stats().total_orders_rejected, 7U);
+    EXPECT_EQ(engine.stats().total_orders_rejected, 6U);
     EXPECT_EQ(engine.book().active_order_count(), 1U);
     expect_invariants(engine);
 }
@@ -323,4 +323,29 @@ TEST(MatchingEngine, DeterministicReplayTest) {
     EXPECT_EQ(first.get_snapshot(), second.get_snapshot());
     expect_invariants(first);
     expect_invariants(second);
+}
+
+TEST(MatchingEngine, AutomaticIdsAreUnifiedMonotonicAndExhaustSafely) {
+    MatchingEngine engine;
+    engine.seed_demo_book();
+    auto first = engine.submit_order({0, Side::Buy, OrderType::Limit, 9000, 1});
+    ASSERT_EQ(first.status, OrderStatus::New);
+    EXPECT_EQ(first.order_id, 11U);
+    ASSERT_TRUE(engine.cancel_order(first.order_id).success);
+
+    auto explicit_order = engine.submit_order({500, Side::Buy, OrderType::Limit, 8999, 1});
+    ASSERT_EQ(explicit_order.status, OrderStatus::New);
+    auto after_explicit = engine.submit_order({0, Side::Buy, OrderType::Limit, 8998, 1});
+    ASSERT_EQ(after_explicit.status, OrderStatus::New);
+    EXPECT_EQ(after_explicit.order_id, 501U);
+    EXPECT_NE(after_explicit.order_id, first.order_id);
+
+    const auto max_id = std::numeric_limits<OrderId>::max();
+    ASSERT_EQ(engine.submit_order({max_id, Side::Sell, OrderType::Limit, 20'000, 1}).status,
+              OrderStatus::New);
+    const auto exhausted = engine.submit_order({0, Side::Buy, OrderType::Limit, 8997, 1});
+    EXPECT_EQ(exhausted.status, OrderStatus::Rejected);
+    EXPECT_EQ(exhausted.order_id, 0U);
+    EXPECT_NE(exhausted.message.find("exhausted"), std::string::npos);
+    expect_invariants(engine);
 }

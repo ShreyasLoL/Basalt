@@ -61,13 +61,15 @@ Phase 2 result: REST read routes now match the frontend's camelCase types, portf
 
 ## Phase 3 — Confirmed bug and risk fixes
 
-- [ ] Unify MCP and KillSwitch persistence through one canonical event schema; document actor and reason-redaction decisions in an ADR.
-- [ ] Replace ratio-basis-point loops with a portable multiply/divide helper; add randomized/extreme tests and a microbenchmark.
-- [ ] Unify automatic order-ID allocation across MatchingEngine and SimulationFacade; test collision freedom.
-- [ ] Emit observable STP cancellation results and verify safe book/map erasure ordering; add regression coverage.
-- [ ] Keep EventLog's file handle open with defined flush policy and rotation/reopen behavior; test torn-write recovery and benchmark.
-- [ ] Add Catalog batch upsert or append journal/compaction; test large imports and complexity.
-- [ ] Add a genuinely undersized arena benchmark, report exhaustion, and correct README claims.
+- [x] Unify MCP and KillSwitch persistence through one canonical event schema; document actor and reason-redaction decisions in an ADR.
+- [x] Keep the portable ratio-basis-point helper and seeded/extreme regression coverage; add an O(1)-versus-legacy microbenchmark.
+- [x] Unify automatic order-ID allocation across MatchingEngine and SimulationFacade; test direct, seeded, batch, explicit-ID advancement and exhaustion behavior.
+- [x] Emit observable STP cancellation results and verify safe book/map erasure ordering with regression coverage.
+- [x] Keep EventLog's append handle open with a per-append durable flush policy and explicit close/recover rotation boundary; test torn-write recovery and benchmark append throughput.
+- [x] Add Catalog batch upsert with one read/merge/write path; test a 2,000-record import and replacement semantics.
+- [x] Add a genuinely undersized arena benchmark, report deterministic exhaustion, and document the separate pressure case.
+
+Phase 3 result: clean-first Release build passed all 81 Ninja targets with no warnings; final CTest passed 156/156 in 5.69 seconds with loopback access enabled; frontend typecheck passed, Vitest passed 10/10, and Vite built 42 modules in 1.22 seconds. The fixed-math microbenchmark matched checksums (4,000 ns for the helper and 3,566,400 ns for the legacy loop, 1,000 operations). EventLog durable append measured 9,738,620,200 ns for 1,000 appends on this Windows host. The 10,000-attempt arena pressure run reported capacity 2,500, 2,500 allocations and 7,500 exhaustions. These single-host measurements are recorded in `docs/PERFORMANCE.md`; Phase 3 is committed locally and not pushed.
 
 ## Phase 4 — Testing infrastructure
 

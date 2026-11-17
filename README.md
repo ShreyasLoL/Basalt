@@ -233,6 +233,8 @@ Measurements include throughput, latency percentiles, queue high-water marks, ac
 
 Benchmark parity checks compare logical outcomes, including trades, cancellations and final book snapshots.
 
+`basalt_bench --arena-pressure --orders 10000` runs a separate capacity-pressure case with a deliberately undersized arena pool and reports successful pool allocations and exhaustion count. `basalt_bench --microbench fixed-math` compares the O(1) fixed-point ratio helper with the previous 10,000-step implementation; `--microbench event-log` measures durable appends through the persistent EventLog handle. Recorded methodology and one run are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 Performance numbers are workload- and machine-dependent. The recorded measurements are single-host results, not production latency guarantees. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for methodology and raw output.
 
 ### 8. MCP interface
