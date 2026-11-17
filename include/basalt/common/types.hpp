@@ -98,6 +98,17 @@ private:
     return Result<std::int64_t>::success(left + right);
 }
 
+[[nodiscard]] inline Result<std::int64_t> checked_subtract(const std::int64_t left,
+                                                            const std::int64_t right) {
+    constexpr std::int64_t minimum = std::numeric_limits<std::int64_t>::min();
+    constexpr std::int64_t maximum = std::numeric_limits<std::int64_t>::max();
+    if ((right > 0 && left < minimum + right) || (right < 0 && left > maximum + right)) {
+        return Result<std::int64_t>::failure(
+            Error{"ARITHMETIC_OVERFLOW", "Signed 64-bit subtraction overflow"});
+    }
+    return Result<std::int64_t>::success(left - right);
+}
+
 [[nodiscard]] inline Result<std::int64_t> checked_multiply(const std::int64_t left,
                                                             const std::int64_t right) {
     constexpr std::int64_t minimum = std::numeric_limits<std::int64_t>::min();

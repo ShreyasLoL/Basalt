@@ -1,4 +1,4 @@
-# Phase 4 persistence implementation
+# Persistence implementation
 
 ## Backend selection
 
@@ -8,7 +8,7 @@ The configured Windows/Clang toolchain does not provide SQLite (`cmake --find-pa
 
 `Catalog` writes a deterministic JSON document with sorted dataset IDs, schema version 1, and a migration record containing the migration name and SHA-256 of its definition. Single and batch upserts validate first, read the catalog once, merge through a dataset-ID hash index, sort once for deterministic output, and atomically replace the file once. The merge is O(existing records + batch records), plus the final O(N log N) sort and single JSON rewrite; bulk history imports should use `upsert_datasets` instead of repeated single upserts. A version 0 catalog is migrated by adding the version 1 metadata defaults for license, interval, instrument and range. Unknown future schema versions and invalid migration checksums fail closed. Reopening reads the persisted catalog rather than reconstructing it from process memory.
 
-Persistence is implemented by domain: catalog metadata and historical bars use JSON/CSV files, while selected trading, risk and kill-switch state uses event-log journals. This is not a complete relational persistence layer for every entity in `DATA_MODEL.md`; that model remains a proposed schema pending the review described in ADR-009.
+Persistence is implemented by domain: catalog metadata and historical bars use JSON/CSV files, while selected trading, risk and kill-switch state uses event-log journals. The active formats and in-memory boundaries are enumerated in `DATA_MODEL.md`; this is not a complete relational persistence layer. ADR-009 and ADR-010 explain why SQLite is deferred and what evidence would change the decision.
 
 ## `.blog` event frames
 

@@ -15,14 +15,14 @@ using namespace basalt;
 backtest::BacktestEvent event(const std::uint64_t sequence, const std::int64_t open_time,
                               const std::int64_t close_time, const std::int64_t open,
                               const std::int64_t high, const std::int64_t low,
-                              const std::int64_t close) {
+                              const std::int64_t close, const common::InstrumentId instrument_id = 7) {
     backtest::BacktestEvent record{};
     record.sequence = sequence;
     record.open_time_ns = open_time;
     record.close_time_ns = close_time;
     record.session_key = "SIM-SESSION-1";
     record.event.event_id = "fixture-" + std::to_string(sequence);
-    record.event.instrument_id = 7;
+    record.event.instrument_id = instrument_id;
     record.event.kind = market_data::MarketEventKind::Bar;
     record.event.event_time_ns = close_time;
     record.event.receive_time_utc_ns = close_time;
@@ -60,6 +60,51 @@ backtest::BacktestConfig config() {
     value.bar_interval_ns = 100;
     return value;
 }
+
+class BuyOnceStrategy final : public strategy::IStrategy {
+public:
+    strategy::StrategyDescriptor descriptor() const override {
+        strategy::StrategyDescriptor value{};
+        value.strategy_id = "TEST_BUY_ONCE";
+        value.name = "Test buy once";
+        value.stable_hash = "test-buy-once-v1";
+        value.required_channels = {market_data::MarketEventKind::Bar};
+        return value;
+    }
+    common::Result<void, strategy::StrategyError> configure(const strategy::StrategyConfig&) override {
+        configured_ = true;
+        return common::Result<void, strategy::StrategyError>::success();
+    }
+    common::Result<void, strategy::StrategyError> initialise(const strategy::StrategyContext& context) override {
+        if (!configured_ || context.instrument.id == 0)
+            return common::Result<void, strategy::StrategyError>::failure({"BAD_CONTEXT", "instrument is required"});
+        return common::Result<void, strategy::StrategyError>::success();
+    }
+    common::Result<std::vector<strategy::StrategySignal>, strategy::StrategyError> on_event(
+        const market_data::CanonicalMarketEvent&, const strategy::StrategyContext& context) override {
+        if (sent_) return common::Result<std::vector<strategy::StrategySignal>, strategy::StrategyError>::success({});
+        sent_ = true;
+        strategy::StrategySignal signal{};
+        signal.signal_id = "buy-once-" + std::to_string(context.instrument.id);
+        signal.reason = "deterministic portfolio test";
+        signal.intent.client_order_id = signal.signal_id;
+        signal.intent.account_id = context.account_id;
+        signal.intent.instrument_id = context.instrument.id;
+        signal.intent.strategy_id = context.strategy_id;
+        signal.intent.side = trading::Side::Buy;
+        signal.intent.type = trading::OrderType::Market;
+        signal.intent.quantity = context.order_quantity;
+        signal.intent.tick_size_micro = context.instrument.tick_size_micro;
+        signal.intent.lot_size = context.instrument.lot_size;
+        signal.intent.created_at_ns = context.now_ns;
+        return common::Result<std::vector<strategy::StrategySignal>, strategy::StrategyError>::success({signal});
+    }
+    void on_execution(const trading::ExecutionReport&, const strategy::StrategyContext&) override {}
+    void on_stop() noexcept override {}
+private:
+    bool configured_{};
+    bool sent_{};
+};
 
 std::vector<backtest::BacktestEvent> bars() {
     return {event(1, 1'000, 1'099, 10, 10, 10, 10),
@@ -215,6 +260,8 @@ TEST(BacktestEngineTest, FillsOnlyAtTheNextBarOpenAndReplaysDeterministically) {
     EXPECT_EQ(first.value().fills.back().source, common::DataSourceType::Historical);
     EXPECT_TRUE(first.value().manifest_json.find("SIM-24x7") != std::string::npos);
     EXPECT_FALSE(first.value().warnings.empty());
+    EXPECT_NE(std::find(first.value().warnings.begin(), first.value().warnings.end(),
+                        "fees: none (cost-free)"), first.value().warnings.end());
     ASSERT_FALSE(first.value().manifest_sha256.empty());
     ASSERT_FALSE(first.value().output_sha256.empty());
 
@@ -325,4 +372,70 @@ TEST(BacktestEngineTest, FillTimeGapUpCashShortfallRejectsOrderWithoutAbortingRu
     EXPECT_EQ(first.value().input_event_sha256, second.value().input_event_sha256);
     EXPECT_EQ(first.value().output_sha256, second.value().output_sha256);
     EXPECT_EQ(first.value().manifest_sha256, second.value().manifest_sha256);
+}
+
+TEST(PortfolioBacktestEngineTest, SharesCapitalRiskAndProducesOneDeterministicLedger) {
+    auto make_leg = [](const common::InstrumentId id, const common::StrategyId strategy_id,
+                       const std::string& symbol, const std::int64_t initial_cash) {
+        auto settings = config();
+        settings.instrument.id = id;
+        settings.instrument.symbol = symbol;
+        settings.instrument.display_symbol = symbol;
+        settings.strategy_id = strategy_id;
+        settings.initial_cash_micro = initial_cash;
+        settings.execution.slippage_ticks = 0;
+        settings.half_spread_micro = 0;
+        strategy::StrategyConfig strategy_config{};
+        std::vector<backtest::BacktestEvent> source{
+            event(1, 1'000, 1'099, 100, 100, 100, 100, id),
+            event(2, 1'100, 1'199, 100, 100, 100, 100, id)};
+        return backtest::PortfolioBacktestLeg{settings, strategy_config, std::move(source),
+                                               std::make_unique<BuyOnceStrategy>()};
+    };
+    backtest::PortfolioBacktestConfig settings{};
+    settings.account_id = 11;
+    settings.initial_cash_micro = 150;
+    settings.risk_limits.max_gross_exposure_micro = 1'000;
+    settings.risk_limits.max_net_exposure_micro = 1'000;
+    backtest::PortfolioBacktestEngine engine;
+    std::vector<backtest::PortfolioBacktestLeg> first_legs;
+    first_legs.push_back(make_leg(7, 22, "SIM-A", 150));
+    first_legs.push_back(make_leg(8, 23, "SIM-B", 150));
+    auto first = engine.run(std::move(first_legs), settings);
+    ASSERT_TRUE(first) << first.error().code << ": " << first.error().message;
+    ASSERT_TRUE(first.value().valid);
+    ASSERT_EQ(first.value().fills.size(), 1U);
+    ASSERT_EQ(first.value().final_portfolio.positions.size(), 1U);
+    EXPECT_EQ(first.value().final_portfolio.cash_balance_micro, 50);
+    ASSERT_EQ(first.value().instruments.size(), 2U);
+    EXPECT_EQ(first.value().instruments[0].executions + first.value().instruments[1].executions, 1U);
+    ASSERT_EQ(first.value().risk_rejections.size(), 1U);
+    EXPECT_EQ(first.value().risk_rejections[0].first, "INSUFFICIENT_CASH");
+    EXPECT_EQ(first.value().fills.front().account_id, settings.account_id);
+    EXPECT_EQ(first.value().cash_journal.size(), 1U);
+    EXPECT_FALSE(first.value().ledger_sha256.empty());
+
+    std::vector<backtest::PortfolioBacktestLeg> second_legs;
+    second_legs.push_back(make_leg(7, 22, "SIM-A", 150));
+    second_legs.push_back(make_leg(8, 23, "SIM-B", 150));
+    auto second = engine.run(std::move(second_legs), settings);
+    ASSERT_TRUE(second) << second.error().code << ": " << second.error().message;
+    EXPECT_EQ(first.value().ledger_sha256, second.value().ledger_sha256);
+    ASSERT_EQ(first.value().fills.size(), second.value().fills.size());
+    EXPECT_EQ(first.value().fills.front().instrument_id, second.value().fills.front().instrument_id);
+    EXPECT_EQ(first.value().fills.front().price_micro, second.value().fills.front().price_micro);
+    EXPECT_EQ(first.value().fills.front().quantity, second.value().fills.front().quantity);
+    EXPECT_EQ(first.value().cash_journal, second.value().cash_journal);
+
+    auto exposure_limits = settings;
+    exposure_limits.initial_cash_micro = 1'000;
+    exposure_limits.risk_limits.max_gross_exposure_micro = 100;
+    std::vector<backtest::PortfolioBacktestLeg> exposure_legs;
+    exposure_legs.push_back(make_leg(7, 22, "SIM-A", 1'000));
+    exposure_legs.push_back(make_leg(8, 23, "SIM-B", 1'000));
+    const auto exposure_limited = engine.run(std::move(exposure_legs), exposure_limits);
+    ASSERT_TRUE(exposure_limited) << exposure_limited.error().code << ": " << exposure_limited.error().message;
+    ASSERT_EQ(exposure_limited.value().risk_rejections.size(), 1U);
+    EXPECT_EQ(exposure_limited.value().risk_rejections.front().first, "GROSS_EXPOSURE_LIMIT");
+    EXPECT_EQ(exposure_limited.value().fills.size(), 1U);
 }

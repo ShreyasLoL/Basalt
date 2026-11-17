@@ -99,3 +99,14 @@ Workload                       Implementation                        Ops/s    Av
 11. Market Data Burst          BoundedMarketEventBus                440492      2212      1600      2100      2300      7000     117300      10000         0   10000           0          0          0           0
 12. Slow Consumer Backpressure BoundedMarketEventBus                478126      1988      1600      2200      2300      4900     103900         64      9936      64           0          0          0           0
 ```
+
+## Phase 6 SPSC queue comparison
+
+`basalt_spsc_ring_benchmark` compares the bounded ring with a capacity-matched mutex/condition-variable deque using one producer and one consumer, 250,000 messages and capacity 1,024. It timestamps each message before enqueue attempts and measures through consumer dequeue; producer backpressure and consumer scheduling are included. The ring endpoints yield while full/empty; the mutex queue blocks on condition variables. Three consecutive runs on this Windows x64 Clang 22.1.8 Release workspace measured:
+
+| Queue | Throughput range | p50 latency | p95 latency | p99 latency | p99.9 latency |
+|---|---:|---:|---:|---:|---:|
+| SPSC ring | 17.44–18.64 million msg/s | 45.5–52.5 µs | 57.2–63.2 µs | 61.3–467.8 µs | 777.4–1,404.9 µs |
+| Mutex deque | 8.24–8.62 million msg/s | 57.3–78.2 µs | 146.1–155.0 µs | 179.8–235.6 µs | 230.6–324.4 µs |
+
+The ring had roughly twice the throughput and lower p50/p95 in these samples. Its p99 varied widely, and its p99.9 was worse in all three runs than the mutex samples. These are single-host microbenchmark observations, not production guarantees. The benchmark includes thread startup in throughput timing and does not model the bus's condition-variable wake path or event payload allocation; use the production event-bus benchmark and target-host measurements before making a latency claim.

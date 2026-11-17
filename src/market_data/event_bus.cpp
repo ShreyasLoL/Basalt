@@ -7,7 +7,7 @@ namespace basalt::market_data {
 
 BoundedMarketEventBus::BoundedMarketEventBus(const std::size_t durable_capacity,
                                              const std::size_t quote_capacity)
-    : durable_capacity_(durable_capacity), quote_capacity_(quote_capacity) {
+    : durable_capacity_(durable_capacity), quote_capacity_(quote_capacity), durable_(durable_capacity) {
     if (durable_capacity_ == 0 || quote_capacity_ == 0) {
         throw std::invalid_argument("Market event bus capacities must be positive");
     }
@@ -15,29 +15,61 @@ BoundedMarketEventBus::BoundedMarketEventBus(const std::size_t durable_capacity,
 
 bool BoundedMarketEventBus::publish_durable(CanonicalMarketEvent event,
                                            const std::chrono::milliseconds maximum_wait) {
-    std::unique_lock lock(mutex_);
-    const bool ready = not_full_.wait_for(lock, maximum_wait,
-        [this] { return closed_ || durable_.size() < durable_capacity_; });
-    if (!ready || closed_) {
-        if (!ready) ++durable_timeouts_;
-        return false;
+    const auto deadline = std::chrono::steady_clock::now() + maximum_wait;
+    while (true) {
+        std::unique_lock lock(mutex_);
+        const auto thread = std::this_thread::get_id();
+        if (durable_producer_thread_ == std::thread::id{}) durable_producer_thread_ = thread;
+        else if (durable_producer_thread_ != thread)
+            throw std::logic_error("Durable event lane requires exactly one producer thread");
+        if (closed_) return false;
+        ++publishers_in_flight_;
+        lock.unlock();
+
+        const bool published = durable_.try_push(std::move(event));
+
+        lock.lock();
+        --publishers_in_flight_;
+        if (published) {
+            not_empty_.notify_one();
+            return true;
+        }
+        if (closed_) {
+            not_empty_.notify_all();
+            return false;
+        }
+        const bool ready = not_full_.wait_until(lock, deadline,
+            [this] { return closed_ || !durable_.full(); });
+        if (!ready) {
+            ++durable_timeouts_;
+            return false;
+        }
     }
-    durable_.push_back(std::move(event));
-    not_empty_.notify_one();
-    return true;
 }
 
 std::optional<CanonicalMarketEvent> BoundedMarketEventBus::pop_durable(
     const std::chrono::milliseconds maximum_wait) {
-    std::unique_lock lock(mutex_);
-    if (!not_empty_.wait_for(lock, maximum_wait,
-            [this] { return closed_ || !durable_.empty(); }) || durable_.empty()) {
-        return std::nullopt;
+    const auto deadline = std::chrono::steady_clock::now() + maximum_wait;
+    {
+        std::lock_guard lock(mutex_);
+        const auto thread = std::this_thread::get_id();
+        if (durable_consumer_thread_ == std::thread::id{}) durable_consumer_thread_ = thread;
+        else if (durable_consumer_thread_ != thread)
+            throw std::logic_error("Durable event lane requires exactly one consumer thread");
     }
-    CanonicalMarketEvent event = std::move(durable_.front());
-    durable_.pop_front();
-    not_full_.notify_one();
-    return event;
+    while (true) {
+        auto event = durable_.try_pop();
+        if (event) {
+            std::lock_guard lock(mutex_);
+            not_full_.notify_one();
+            return event;
+        }
+        std::unique_lock lock(mutex_);
+        const bool ready = not_empty_.wait_until(lock, deadline,
+            [this] { return !durable_.empty() || (closed_ && publishers_in_flight_ == 0); });
+        if (!ready || (closed_ && publishers_in_flight_ == 0 && durable_.empty()))
+            return std::nullopt;
+    }
 }
 
 bool BoundedMarketEventBus::publish_quote(CanonicalMarketEvent event) {

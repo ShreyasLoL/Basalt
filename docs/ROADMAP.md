@@ -33,8 +33,8 @@ This roadmap controls the 2026 platform program. Each phase is a releasable loca
 ## Phase 4 — Persistence, history, event log
 
 - **Prerequisite:** event schemas frozen and Phase 3 canonical events.
-- **Scope/files:** SQLite WAL catalog, append-only .blog frames with length/version/sequence/CRC, checkpoint/recovery, bars/datasets/export. SQLite may be bundled or optional if the platform lacks it; fallback is a deterministic transactional file store, never a silent in-memory substitute.
-- **Acceptance:** reopen persisted catalog; recover valid log prefix; reject/truncate corrupt tail according to policy; snapshot plus replay yields identical state and event hash.
+- **Scope/files:** deterministic JSON dataset catalog, canonical CSV history, append-only .blog frames with length/version/sequence/CRC, checkpoint/recovery and export. SQLite is deferred in ADR-009; ADR-010 trims the logical schema to the formats and in-memory boundaries actually implemented.
+- **Acceptance:** reopen persisted catalog; recover valid log prefix; reject/quarantine a corrupt tail according to policy; checkpoint plus replay yields identical state and event hash.
 - **Rollback:** disable writes and load read-only last valid checkpoint/log; preserve files for recovery.
 
 ## Phase 5 — Risk, paper execution, ledger

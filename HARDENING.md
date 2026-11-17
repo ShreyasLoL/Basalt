@@ -92,18 +92,28 @@ Phase 5 result: confirmed the README still reported CTest 144/144 (`README.md:39
 
 ## Phase 6 — Architecture improvements
 
-- [ ] Write a short persistence design note; choose the smaller honest option (implement SQLite or trim the 20-entity target) and record an ADR.
-- [ ] Add an optional editable example fee schedule; keep default cost-free behavior and visibly warn in backtest output when no schedule is loaded.
-- [ ] Add multi-instrument backtesting with shared capital, per-instrument/portfolio risk and combined ledger; include integration test and demo.
-- [ ] Add a correctly ordered, cache-line-padded SPSC event ring; TSan stress test and honest benchmark against mutex implementation.
-- [ ] Replace remaining ledger checked arithmetic with the shared wide helper where simpler, retaining tests.
+- [x] Write a short persistence design note; trim the unsupported twenty-table SQLite target and record ADR-010. `docs/DATA_MODEL.md`, `docs/PERSISTENCE.md`, `docs/OPERATIONS.md` and the Phase 4 roadmap scope now describe active files and in-memory boundaries.
+- [x] Add a bounded strict JSON fee-schedule loader and editable illustrative example. Zero fees remain the default, and single-instrument and portfolio backtests emit `fees: none (cost-free)` when no schedule is configured. Added parser size/schema/range checks, including rejection of numeric narrowing overflow.
+- [x] Add `PortfolioBacktestEngine` with time-sorted instrument legs, one account/cash balance, shared `RiskEngine`, per-instrument plus portfolio exposure checks and one reconciled combined ledger. Integration coverage proves both shared-cash rejection and global gross-exposure rejection; `basalt_portfolio_backtest_demo` runs successfully.
+- [x] Replace the event bus durable deque with an aligned release/acquire SPSC ring. The bus records and enforces the producer/consumer thread contract; added empty/full/wraparound tests and 20,000-event concurrent ring/bus delivery coverage for the TSan job. Three local benchmark runs measured 17.44–18.64 million messages/s for the ring versus 8.24–8.62 million for the mutex deque; p99.9 tail latency was worse for the ring in every sample. See `docs/PERFORMANCE.md`.
+- [x] Add shared `checked_subtract` and use it in ledger and backtest arithmetic/magnitude paths. Added signed boundary and both overflow-direction tests; existing ledger reconciliation tests remain green.
+
+Phase 6 result: a clean Release build passed 85/85 Ninja targets with no warnings; CTest passed 164/164 in 6.20 seconds. A clean ASan+UBSan build passed 85/85 and CTest passed 164/164 in 13.34 seconds with no reports. Frontend typecheck passed, Vitest passed 10/10 across three files, Vite built 42 modules, and both demos ran. TSan and libFuzzer execution are deferred on this Windows Clang host; the CMake configuration rejects those local targets, while Linux CI is configured but this local branch has not been pushed. The SQLite finding was confirmed; the Phase 5 MCP legacy-file finding was a false positive, as recorded above.
 
 ## Phase 7 — Final audit
 
-- [ ] Run clean build, full CTest, sanitizer, fuzzer smoke, frontend typecheck/tests and both demos.
-- [ ] Mark every checklist item done, rejected with reason, or deferred with reason.
-- [ ] Report confirmed/false-positive findings, measured improvements, remaining risks and three recommended next steps.
+- [x] Run clean Release and ASan+UBSan builds, full CTest, frontend typecheck/tests/build and both demos.
+- [deferred] Run TSan and libFuzzer smoke locally; Windows CMake guards require a supported non-Windows toolchain. Linux CI has the jobs configured but has not run from this unpushed branch.
+- [x] Mark every checklist item done, rejected with reason, or deferred with reason.
+- [x] Report confirmed/false-positive findings, benchmark measurements, remaining platform limits and three recommended next steps in the Phase 7 report below.
 
 ## Phase reports
 
 Record each phase's confirmed/rejected findings, files changed, tests added, gate results and deferred items here as work completes.
+
+### Phase 7 final audit
+
+- Confirmed that the old SQLite table schema was not part of the active build; ADR-010 now trims that target. Confirmed the default fee schedule is empty and the backtest emits an explicit cost-free warning. Confirmed single-instrument backtests had no shared portfolio; the new runner uses one ledger and shared cash/risk. Confirmed the durable event lane was mutex-backed; it now uses the SPSC ring with an enforced thread contract. The Phase 5 MCP path finding remained a false positive after inspection.
+- Final gates: Release clean build 85/85; Release CTest 164/164; ASan+UBSan clean build 85/85 and CTest 164/164; frontend typecheck, Vitest 10/10 in 3 files and Vite build 42 modules; platform demo and portfolio demo both passed. HTTP tests require local loopback access; the restricted run failed to connect, and the loopback-enabled run passed.
+- Remaining limits: no local TSan or libFuzzer campaign on Windows. SPSC benchmark is host-specific; its throughput was higher, but p99.9 latency was worse and more variable. The example fee rates are placeholders and must be replaced with a user-verified schedule before fee-aware research.
+- Recommended next steps: (1) run Linux CI for TSan and all four fuzzers after the branch is pushed; (2) repeat the queue benchmark on the intended deployment hardware and under representative bus wake/backpressure loads; (3) validate a real, dated fee schedule from the chosen broker/exchange before using fee-aware backtests.

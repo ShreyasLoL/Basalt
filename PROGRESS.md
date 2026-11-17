@@ -219,3 +219,21 @@ All commits are local. Never push.
 - [x] Added `docs/THREAT_MODEL.md` for MCP/HTTP assets, boundaries, attacker model, STRIDE categories, controls and residual risks, with links to CORS and fuzz evidence.
 - [x] Verification: Release clean build passed 81/81 Ninja targets with no warnings; CTest passed 157/157 in 7.42 seconds with loopback access. `npm run typecheck` passed, Vitest passed 10/10 across 3 files, and Vite built 42 modules. `cmake --find-package -DNAME=SQLite3 -DCOMPILER_ID=Clang -DLANGUAGE=CXX -DMODE=EXIST` reported `SQLite3 not found`.
 - Phase 5 is committed locally and not pushed.
+
+## Hardening follow-up — Phase 6 architecture improvements (2026-11-18)
+
+- [x] Added `docs/PHASE-6-DESIGN.md` with a concise decision note before each of the five implementation items. Chose to trim the unsupported SQLite schema instead of adding a database dependency; ADR-010, `DATA_MODEL.md`, persistence/operations docs and the roadmap now describe active JSON, CSV, `.blog`, checkpoint and audit files plus in-memory boundaries.
+- [x] Added strict bounded fee schedule JSON parsing/file loading and `config/fees.example.json`. The zero-fee default remains unchanged, backtest warnings include `fees: none (cost-free)`, and tests reject unknown schema values and 32-bit narrowing overflow.
+- [x] Added shared-capital `PortfolioBacktestEngine`: event-time instrument legs, one account, shared cash/risk reservations, aggregate and instrument exposure checks, combined cash/fill ledger, deterministic ledger hash and per-instrument counts. Two-instrument integration tests cover shared-cash and gross-exposure rejections. `basalt_portfolio_backtest_demo` prints one fill, an `INSUFFICIENT_CASH` rejection and the combined hash.
+- [x] Added a bounded SPSC ring with release/acquire publication and cache-line-separated counters; the durable event bus enforces one producer and one consumer thread while retaining backpressure, close and quote coalescing. Added wrap/full/empty checks, 200,000-message ring stress and 20,000-event bus stress. Added a comparison executable and three local runs: ring 17.44–18.64M msg/s, mutex deque 8.24–8.62M msg/s; ring p50/p95 were lower in these samples but p99 varied widely and p99.9 was worse in every run. Full ranges are in `docs/PERFORMANCE.md`.
+- [x] Added shared checked subtraction and replaced local ledger/backtest overflow predicates, including magnitude handling. Boundary tests cover `INT64_MIN`, `INT64_MAX` and both overflow directions.
+- [x] Clean Release build passed 85/85 Ninja targets; Release CTest passed 164/164 in 6.20 s. Clean ASan+UBSan build passed 85/85; CTest passed 164/164 in 13.34 s with no sanitizer reports. Frontend typecheck passed; Vitest passed 10/10 over 3 files; Vite built 42 modules. Both the platform and portfolio demos passed.
+- [deferred] Local TSan and libFuzzer campaigns: this Windows CMake configuration rejects the unsupported platform. Linux CI jobs exist but are pending because this branch remains local and unpushed.
+- Phase 6 changes are committed locally on `codex/hardening-phase-6`; no push.
+
+## Hardening follow-up — Phase 7 final audit (2026-11-18)
+
+- [x] Completed clean Release and ASan+UBSan builds, full CTest runs, frontend gates, and both demos. Loopback access was enabled for HTTP/platform integration tests; the first restricted Release CTest run could not connect to local sockets, and the complete loopback-enabled run passed.
+- [x] Confirmed the false-positive MCP legacy-file finding from Phase 5; confirmed the SQLite mismatch and resolved it by trimming the target; confirmed and fixed the missing shared-capital and queue/arithmetic gaps described in Phase 6.
+- [deferred] TSan and libFuzzer smoke remain for a supported Linux runner; no remote CI result is claimed.
+- [x] Recorded remaining limits and three recommended next steps in `HARDENING.md`.
