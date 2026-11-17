@@ -37,3 +37,7 @@ Tokens are source-controlled and versioned. Figma MCP can inspect layouts/tokens
 ## Build and serving acceptance
 
 Frontend package lock is committed; scripts provide dev, typecheck, build and tests. Production build emits a static bundle into a known CMake/server asset directory; generated output is ignored unless release policy explicitly checks it in. Offline fallback remains visible if assets are absent. Validate routes with actual API fixtures and a browser smoke run; verify keyboard, responsive layout, stale badges, reconnect/gap, form validation and no secret leakage.
+
+## Current verification
+
+On 2026-11-18, `npm test -- --reporter=dot` passed 10/10 Vitest tests across 3 files (`api.test.ts`, `App.test.tsx`, and `store.test.ts`). This is the current unit/UI test count; it does not claim a browser end-to-end run. Typecheck and production build also passed in the same verification cycle.

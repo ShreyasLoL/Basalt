@@ -7,7 +7,7 @@ Scoring is 1–5. Product value, correctness, performance, learning value: 5 is 
 | C++20 domain core | 5 | 5 | 5 | 5 | 3 | 1 | 2 | 1 | 1 | Must have |
 | int64 fixed-point INR micro-units | 5 | 5 | 5 | 5 | 2 | 1 | 1 | 1 | 1 | Must have |
 | std::map + list + iterator index | 4 | 5 | 4 | 5 | 2 | 1 | 2 | 1 | 1 | Preserve baseline |
-| SQLite WAL + CRC .blog | 5 | 5 | 4 | 5 | 3 | 1 | 2 | 1 | 2 | Must have; local |
+| JSON catalog + CSV history + CRC .blog | 4 | 5 | 3 | 4 | 2 | 1 | 2 | 1 | 1 | Active local backend; SQLite deferred |
 | React/TS/Vite/Tailwind/Zustand | 5 | 4 | 4 | 4 | 3 | 1 | 2 | 1 | 2 | Workstation UI |
 | Lightweight Charts | 4 | 4 | 4 | 3 | 2 | 1 | 2 | 1 | 2 | Charting after license check |
 | SQLite only, no durable event log | 3 | 3 | 3 | 2 | 2 | 1 | 2 | 1 | 1 | Rejected: weaker deterministic recovery |
@@ -35,9 +35,9 @@ Money uses 1/10,000 INR integer units, with checked wide intermediates and expli
 
 External quotes never populate the internal CLOB. Named paper execution models define when a quote/bar/depth observation produces simulated fills. This protects against conflating broker market state with BASALT liquidity and makes results replayable.
 
-## ADR-005 — Durable log plus catalog
+## ADR-005 — Durable event log plus file catalog
 
-SQLite WAL provides queryable local catalog and transactions; append-only CRC-framed .blog records event order for replay/recovery. Checkpoints are cacheable derived state, not sole truth. If SQLite packaging is unavailable, deterministic transactional file storage is an explicit platform-specific substitute, never a silent downgrade.
+Append-only CRC-framed `.blog` records preserve event order for replay and recovery; checkpoints are derived state, not sole truth. The active dataset catalog is a deterministic JSON file and historical bars are canonical CSV files with content hashes. SQLite is not linked or used in the current build. The earlier SQLite WAL statement described a desired option, not an implemented backend; ADR-009 records the measured packaging constraint and conditions for reconsidering it.
 
 ## ADR-006 — Provider contract, not provider ranking
 
@@ -50,6 +50,12 @@ The workstation renders real API state with explicit empty/stale/degraded status
 ## ADR-008 — Canonical durable kill-switch events redact free text
 
 Trading and MCP adapters serialize kill-switch state through one schema-versioned encoder. Durable `reason` is always `[REDACTED]`; raw reasons remain available only to the in-process event result. Durable `actor` is retained only as a stable identifier made of 1–64 ASCII letters, digits, underscore, dash, dot or colon; all other values are redacted. Restore applies the same policy, including when reading legacy frames without a schema version. Append-only legacy frames are not rewritten, so deployments that have already persisted free-text reasons must handle those old files as sensitive data. EventLog retains an open append handle, flushes the stream and OS file buffers on each successful append, and requires `close()` before operator rotation; automatic rotation and multi-segment replay remain unsupported.
+
+## ADR-009 — Defer SQLite and use deterministic file persistence
+
+The active build does not use SQLite: the configured Windows/Clang environment did not provide the package, and no SQLite dependency is declared in CMake. The repository therefore uses deterministic JSON catalog metadata, canonical CSV history files with SHA-256 verification, and CRC-framed `.blog` journals for selected event and trading state. This keeps the current implementation offline, inspectable and testable without adding a second storage engine whose packaging, migration and backup behavior would also need support. It is a documented file-backed implementation, not a hidden in-memory substitute or a claim that the logical `DATA_MODEL.md` entities are all implemented.
+
+Revisit SQLite when measured catalog query/update cost or transactional cross-entity requirements exceed the current single-file design, or when a supported, pinned SQLite distribution and migration/backup plan are available across Windows, Linux and macOS. Any adoption should sit behind the existing storage boundary, preserve deterministic `.blog` replay, include migration/recovery tests, and replace this ADR only after comparative evidence. Until then, update logical entity counts to match the actual persisted model rather than implying that SQLite is present.
 
 ## Rejected infrastructure triggers
 

@@ -82,11 +82,13 @@ Phase 4 result: final Release clean build passed 81/81 targets without warnings 
 
 ## Phase 5 — Documentation drift
 
-- [ ] Recount Vitest tests and correct `docs/FRONTEND.md`, `PROGRESS.md` and the README verification table.
-- [ ] Remove leftover ATLAS-era branding from `web/index.html`.
-- [ ] Correct `docs/MCP.md` launch/configuration instructions and remove references to nonexistent MCP files/directories.
-- [ ] Reconcile SQLite WAL claims in `docs/DECISIONS.md` and `docs/PERSISTENCE.md` with an ADR for the JSON/event-log fallback and revisit criteria.
-- [ ] Add `docs/THREAT_MODEL.md` covering MCP/HTTP assets, trust boundaries, attacker model, STRIDE-style threats, mitigations and residual risks.
+- [x] Recounted the current Vitest suite at 10/10 across 3 files and updated `docs/FRONTEND.md`, the current `PROGRESS.md` entry and the README verification table. Historical 7/7 entries remain dated snapshots from before three tests were added.
+- [x] Replaced the leftover `A` mark in `web/index.html` with the BASALT `B`; an ATLAS string search found no remaining ATLAS-era copy.
+- [x] Verified `docs/MCP.md` had no `mcp/` or `.mcp.json` references. Confirmed the actual entry point is `basalt_server --mcp-stdio` (`src/server/main_server.cpp:29–42`) and added Windows/POSIX launch examples plus `BASALT_DATA_DIR` behavior.
+- [x] Corrected the SQLite claim in ADR-005 and the decision scorecard; added ADR-009 for the active JSON/CSV/`.blog` fallback and measurable SQLite revisit criteria. `docs/PERSISTENCE.md` now describes the current stores rather than treating SQLite as active.
+- [x] Added `docs/THREAT_MODEL.md` with assets, boundaries, attacker model, STRIDE threats, implemented controls, residual risks and links to CORS and fuzz evidence.
+
+Phase 5 result: confirmed the README still reported CTest 144/144 (`README.md:399` before update), while the current suite passes 157/157. The current Vitest run passed 10/10 across 3 files. Confirmed the SQLite contradiction in `docs/DECISIONS.md` (old scorecard/ADR-005) against `docs/PERSISTENCE.md:5` and the CMake package check (`SQLite3 not found`). The MCP legacy-file reference was a false positive: no `mcp/` or `.mcp.json` references were present in `docs/MCP.md`; launch behavior was verified against `src/server/main_server.cpp:29–42`. Release clean build passed 81/81 Ninja targets without warnings; CTest passed 157/157 in 7.42 seconds. Frontend typecheck and Vitest passed, and Vite built 42 modules. Phase 5 is committed locally and not pushed.
 
 ## Phase 6 — Architecture improvements
 

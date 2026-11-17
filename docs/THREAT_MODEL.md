@@ -1,0 +1,44 @@
+# BASALT MCP and HTTP Threat Model
+
+**Scope:** the local C++ MCP stdio server, the loopback HTTP gateway, and their local persistence paths. This describes the current implementation, not a deployment certification. Revisit it when the gateway is exposed beyond the local machine or any live-broker capability is proposed.
+
+## Assets and security goals
+
+- **Simulation integrity:** order-book state, paper fills, risk decisions, portfolio journals and deterministic replay inputs must not be confused with live market or brokerage state.
+- **Emergency controls:** the kill-switch latch and its durable events must remain observable and survive restart when persistence succeeds.
+- **Local records:** MCP audit entries, kill-switch frames, dataset catalog metadata, historical files and checkpoints should stay within the user's local data boundary and detect accidental corruption.
+- **Credentials and personal data:** provider credentials must not appear in HTTP/MCP responses, logs or audit records. Current MCP and HTTP tools do not submit live broker orders.
+- **Availability:** malformed or oversized input should not cause unbounded parsing, simulation work or durable file growth.
+
+## Trust boundaries
+
+1. **MCP client → child process:** the configured client starts `basalt_server --mcp-stdio` and owns its stdin/stdout pipes. The protocol is local stdio, not a network listener. Possession of the pipe grants access to the server's bounded read and simulation tools; there is no additional MCP user authentication.
+2. **Browser or local HTTP client → gateway:** the gateway binds to loopback by default. A single pre-routing policy checks Host, Origin and mutation content type before serving static content or reading request bodies. CORS is a browser policy and is not authentication for arbitrary local HTTP clients.
+3. **Server process → filesystem:** default MCP files are placed under `BASALT_DATA_DIR`, the executable directory, or the OS temporary `basalt-mcp` directory. The protocol cannot supply arbitrary file paths. File permissions are restricted to the owner where supported.
+4. **Build and dependency boundary:** C++ dependencies and frontend assets are trusted inputs to the local build. This threat model does not assess upstream dependency compromise or artifact signing.
+
+## Attacker model
+
+In scope are a malicious or compromised MCP caller with access to the configured stdio process; a hostile web page attempting cross-origin or DNS-rebinding requests; a local HTTP client sending malformed or excessive requests; and accidental corruption or truncation of local persistence files. The attacker may control request bytes but does not start with the user's operating-system account privileges.
+
+Out of scope are compromise of the user's account, a malicious administrator, physical access to an unlocked device, malicious build dependencies, and public/remote deployment. The gateway has no general user authentication. Binding it to a non-loopback address requires a separately designed authenticated deployment profile; loopback and CORS checks alone do not make remote exposure safe.
+
+## STRIDE review
+
+| Category | Threat | Controls present | Residual risk |
+|---|---|---|---|
+| **Spoofing** | A hostile web origin or DNS-rebinding hostname attempts to use the HTTP API. An untrusted process may be configured as the MCP client. | HTTP Host must match loopback or the explicitly configured bind IP; Origin must be loopback or an exact `BASALT_CORS_ALLOWED_ORIGINS` entry. Wildcard CORS is disabled. MCP is launched through stdio and does not listen on a port. | Host/Origin checks do not authenticate non-browser local HTTP clients. MCP trusts whoever can access its stdio pipe. Do not expose the gateway remotely without authentication and network controls. |
+| **Tampering** | Crafted tool arguments, HTTP bodies or local files attempt to alter simulation state or bypass validation. | MCP tools use closed schemas, typed/range validation, bounded operations, idempotency checks and fixed persistence paths. HTTP mutations require JSON and the body limit is 64 KiB. `.blog` frames use sequence and CRC checks; datasets use SHA-256 verification. | CRC detects accidental corruption, not a malicious rewrite. A process running as the same user can alter local files. There is no signed or remote immutable audit chain. |
+| **Repudiation** | A local simulation mutation cannot be reconstructed after the fact. | MCP mutations and failures produce bounded JSONL audit records with safe actor/method/outcome fields and a request-ID digest. Kill-switch state uses a shared versioned event schema; persistence failure is returned explicitly while the in-process latch remains active. | The audit is local, capped at 1 MiB with one bounded backup, and is not cryptographically signed or copied off-host. At-cap persistence rejects further durable writes. |
+| **Information disclosure** | Error responses, tools or logs expose credentials, arbitrary local files or free-text kill reasons. | Safe protocol errors omit stack traces and argument values; tools do not expose shell, arbitrary file access, environment dumps or live broker placement. Kill-switch free-text reasons are redacted in durable records. MCP data files use owner-only permissions where supported. | Same-user processes can read the user's files and simulation data. Local files are not encrypted at rest. Current tools intentionally expose bounded simulation state to their caller. |
+| **Denial of service** | Oversized frames, excessive calls or expensive inputs exhaust CPU, memory or disk. | MCP frames are capped at 256 KiB; HTTP bodies at 64 KiB. MCP calls have per-tool rate limits, bounded bars/replay/benchmark workloads, 1 MiB audit/log caps and bounded rotation. | Limits are per process/client and do not protect the host from many local processes, OS-level resource exhaustion, slow storage or all worst-case computational costs. |
+| **Elevation of privilege** | A request attempts to execute a command, escape a path boundary or gain live-trading authority. | MCP has no shell or arbitrary-path tool. Durable paths are selected by the host process, tool schemas are closed, and the system is simulation-only with no brokerage order API. | The server runs with the launching user's OS privileges. A future live-order or remote-control feature would change this boundary and requires a new security review. |
+
+## Verification and related controls
+
+- HTTP host/origin, CORS preflight, content-type and request-size policy: [Security](SECURITY.md), implemented in `src/server/request_guard.cpp` and `src/server/http_server.cpp`, with real loopback coverage in `tests/test_http_server.cpp`.
+- MCP schemas, limits, audit behavior and launch configuration: [MCP server](MCP.md), implemented in `src/server/mcp_server.cpp` and `src/server/main_server.cpp`.
+- Parser fuzz targets, corpus seeds and local runtime limitations: [Fuzz findings](../fuzz/FINDINGS.md). The Linux fuzz and TSan CI jobs are configured but have not run from the current local branch.
+- Persistence format and recovery limits: [Persistence](PERSISTENCE.md).
+
+This review does not claim WebSocket security testing: the current HTTP transport reports WebSocket streaming unavailable and returns a schema-versioned error for the stream route.

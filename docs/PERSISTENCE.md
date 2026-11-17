@@ -2,13 +2,13 @@
 
 ## Backend selection
 
-The configured Windows/Clang toolchain does not provide SQLite (`cmake --find-package -DNAME=SQLite3 ...` reports not found). Phase 4 therefore uses the roadmap's deterministic transactional file-store fallback. Catalog metadata and history are authoritative files on disk; the persistence library has no in-memory-only mode. The SQLite schema in `DATA_MODEL.md` remains the logical target as a SQLite package becomes available.
+The configured Windows/Clang toolchain does not provide SQLite (`cmake --find-package -DNAME=SQLite3 ...` reports not found), and the build has no SQLite dependency. The active backend is the deterministic file-store design: dataset catalog metadata is JSON, historical bars are canonical CSV files with SHA-256 verification, and selected event journals use CRC-framed `.blog` logs. There is no in-memory-only catalog mode. The relational entities in `DATA_MODEL.md` describe a logical target, not active SQLite tables; ADR-009 records why SQLite is deferred and when to revisit it.
 
 ## Catalog and migrations
 
 `Catalog` writes a deterministic JSON document with sorted dataset IDs, schema version 1, and a migration record containing the migration name and SHA-256 of its definition. Single and batch upserts validate first, read the catalog once, merge through a dataset-ID hash index, sort once for deterministic output, and atomically replace the file once. The merge is O(existing records + batch records), plus the final O(N log N) sort and single JSON rewrite; bulk history imports should use `upsert_datasets` instead of repeated single upserts. A version 0 catalog is migrated by adding the version 1 metadata defaults for license, interval, instrument and range. Unknown future schema versions and invalid migration checksums fail closed. Reopening reads the persisted catalog rather than reconstructing it from process memory.
 
-The file backend currently persists the dataset catalog. Instruments and trading entities use their domain repositories when those phases are implemented; this file is not a claim that all SQLite tables in the logical schema already exist.
+Persistence is implemented by domain: catalog metadata and historical bars use JSON/CSV files, while selected trading, risk and kill-switch state uses event-log journals. This is not a complete relational persistence layer for every entity in `DATA_MODEL.md`; that model remains a proposed schema pending the review described in ADR-009.
 
 ## `.blog` event frames
 

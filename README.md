@@ -391,18 +391,19 @@ Launch this mode through an MCP client that manages stdio servers. See [docs/MCP
 
 ## Verification
 
-The following hardening baseline was rerun on 2026-11-17:
+Latest local verification on 2026-11-18:
 
 | Check | Recorded result |
 |---|---:|
-| C++ Release clean-first build | Passed (81 Ninja targets) |
-| CTest suite | 144 / 144 (4.81 s) |
+| C++ Release clean-first build | Passed (81 Ninja targets, no warnings) |
+| CTest suite | 157 / 157 (7.42 s) |
+| ASan + UBSan CTest suite | 157 / 157 (24.90 s, no reports) |
 | Frontend typecheck | Passed |
 | Frontend Vitest suite | 10 / 10 (3 files) |
 | Frontend production build | Passed (42 modules) |
-| Compiler warnings under strict project flags | None |
+| TSan / libFuzzer campaigns | Deferred locally; Linux CI jobs configured, not yet run |
 
-The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP and HTTP modules. The first sandboxed CTest attempt could not connect to its local HTTP test listeners; the complete suite passed when rerun with loopback access.
+The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP, HTTP and platform integration modules. Loopback access was enabled for the complete CTest run. TSan and fuzzing platform limits are recorded in [fuzz/FINDINGS.md](fuzz/FINDINGS.md).
 
 See [HARDENING.md](HARDENING.md) for the phase checklist and detailed baseline evidence.
 
