@@ -73,10 +73,12 @@ Phase 3 result: clean-first Release build passed all 81 Ninja targets with no wa
 
 ## Phase 4 — Testing infrastructure
 
-- [ ] Run full ASan+UBSan suite and TSan where supported; fix findings and record exact commands/platform limits.
-- [ ] Add `BASALT_ENABLE_FUZZERS`, libFuzzer harnesses and seed corpora for blog recovery, CSV, JSON and MCP frames; run meaningful budgets, fix crashes/hangs, retain regressions and summarize in `fuzz/FINDINGS.md`.
-- [ ] Add randomized parity/invariant tests across all three order-book implementations.
-- [ ] Add CI for Linux Clang/GCC and Windows when feasible, including build, CTest, sanitizer and frontend gates; cache dependencies and add README badge.
+- [x] ASan+UBSan full suite passed; no reports. TSan option and Linux CI job added, but local TSan is deferred because this Windows Clang host lacks a supported runtime and WSL returns `Wsl/E_ACCESSDENIED`; remote CI has not run from this unpushed branch.
+- [deferred] Fuzzer option, four libFuzzer harnesses, seed corpora, coverage instrumentation, Linux 30-second budgets and `fuzz/FINDINGS.md` are implemented. Local harness linking failed with the Windows runtime's `annotate_string` mismatch; the Linux campaigns await a compatible run. No crash-free fuzz result is claimed.
+- [x] Randomized parity/invariant test covers all three order-book implementations, four profiles and two retained seeds.
+- [x] CI configured for Linux Clang/GCC and Windows MSVC with C++ build/CTest, frontend gates, Linux ASan/UBSan and TSan jobs, fuzz budgets, dependency cache and README status badge. Remote workflow validation is pending because this branch is not pushed.
+
+Phase 4 result: final Release clean build passed 81/81 targets without warnings and CTest passed 157/157 (7.77 s). Windows Clang 22.1.8 ASan+UBSan clean build passed 81/81 and CTest passed 157/157 (24.90 s) with no sanitizer reports. Frontend typecheck passed, Vitest passed 10/10 across 3 files, and Vite built 42 modules. Exact commands, Windows/WSL limitations and fuzz status are in `fuzz/FINDINGS.md`. The phase is committed locally; no push was made.
 
 ## Phase 5 — Documentation drift
 

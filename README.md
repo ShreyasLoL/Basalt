@@ -1,5 +1,7 @@
 # BASALT
 
+[![CI](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml/badge.svg)](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml)
+
 ### A local-first market simulation and quantitative trading research platform.
 
 BASALT is a C++20 systems project for exploring how electronic markets work — from order matching and market-data processing to strategy execution, risk management, paper trading, deterministic replay and performance analysis.

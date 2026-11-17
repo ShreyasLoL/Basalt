@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace basalt::persistence {
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] common::Result<std::vector<HistoricalBar>> read_bars(std::string_view dataset_id) const;
     [[nodiscard]] common::Result<void> export_csv(std::string_view dataset_id,
                                                    const std::filesystem::path& output) const;
+    [[nodiscard]] static common::Result<std::vector<HistoricalBar>> parse_csv(std::string_view bytes);
     [[nodiscard]] static std::string sha256(std::string_view bytes);
 
 private:

@@ -26,7 +26,7 @@ bool parse_integer(std::string_view text, T& value) {
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 
-common::Result<std::vector<HistoricalBar>> parse_csv(const std::string_view bytes) {
+common::Result<std::vector<HistoricalBar>> parse_csv_bytes(const std::string_view bytes) {
     if (bytes.empty()) {
         return common::Result<std::vector<HistoricalBar>>::failure(
             {"DATASET_HEADER", "CSV header must use the BASALT integer OHLCV schema"});
@@ -172,6 +172,10 @@ void sha256_compress_block(std::array<std::uint32_t, 8>& hash, const std::uint8_
 HistoryStore::HistoryStore(std::filesystem::path root, Catalog& catalog)
     : root_(std::move(root)), catalog_(catalog) {}
 
+common::Result<std::vector<HistoricalBar>> HistoryStore::parse_csv(const std::string_view bytes) {
+    return parse_csv_bytes(bytes);
+}
+
 common::Result<DatasetRecord> HistoryStore::import_csv(const std::filesystem::path& input_path,
                                                         const DatasetImport& metadata) {
     if (!safe_id(metadata.dataset_id) || metadata.instrument_id == 0 || metadata.interval_ns == 0 ||
@@ -187,7 +191,7 @@ common::Result<DatasetRecord> HistoryStore::import_csv(const std::filesystem::pa
     input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     if (!input && !input.eof()) return common::Result<DatasetRecord>::failure({"DATASET_READ", "Could not read input CSV"});
     input.close();
-    const auto parsed = parse_csv(buffer);
+    const auto parsed = parse_csv_bytes(buffer);
     if (!parsed) return common::Result<DatasetRecord>::failure(parsed.error());
     buffer = encode_csv(parsed.value());
     const auto filename = metadata.dataset_id + ".csv";
@@ -227,7 +231,7 @@ common::Result<std::vector<HistoricalBar>> HistoryStore::read_bars(const std::st
     input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     if (!input && !input.eof()) return common::Result<std::vector<HistoricalBar>>::failure({"DATASET_READ", "Could not read stored dataset"});
     if (sha256(bytes) != record.sha256) return common::Result<std::vector<HistoricalBar>>::failure({"DATASET_HASH", "Stored dataset SHA-256 does not match catalog"});
-    return parse_csv(bytes);
+    return parse_csv_bytes(bytes);
 }
 
 common::Result<void> HistoryStore::export_csv(const std::string_view dataset_id,
