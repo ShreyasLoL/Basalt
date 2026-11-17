@@ -1,6 +1,6 @@
 # BASALT implementation progress
 
-This is the authoritative Phase 0–10 checklist. `[x]` means the requirement was implemented and verified; `[~]` means work is underway or verification is externally blocked; `[ ]` means pending. Never mark a gate complete based on a plan, documentation, or compile-only result.
+This records the completed Phase 0–10 implementation history and its follow-up fixes. `[x]` means the requirement was implemented and verified; `[~]` means work is underway or verification is externally blocked; `[ ]` means pending. Never mark a gate complete based on a plan, documentation, or compile-only result. The current hardening plan and its new verification runs are tracked in `HARDENING.md`.
 
 ## Specification suite (18 files)
 
@@ -163,3 +163,13 @@ Each item is one local commit; verification lines record only commands actually 
 - [x] feat(phase-10): add local MCP stdio inspection and simulation interface — c635e9a
 
 All commits are local. Never push.
+
+## Hardening follow-up — Phase 0 baseline (2026-11-17)
+
+- [x] Reviewed the actual `docs/` specifications and CMake targets; architecture summary and the full hardening checklist are recorded in `HARDENING.md`.
+- [x] `cmake --build build-release --clean-first --parallel`: Release build succeeded across 75 Ninja targets with no warnings (about 15 seconds wall time).
+- [x] `ctest --test-dir build-release --output-on-failure`: 143/143 passed in 5.04 seconds with loopback access. The initial sandboxed run passed 137/143; the six HTTP tests could not connect to their local server fixtures inside the sandbox and all passed on the authorized rerun.
+- [x] `npm run typecheck`: passed.
+- [x] `npm test -- --reporter=dot`: 10/10 across 3 files, 6.12 seconds.
+- [x] `npm run build`: passed; Vite transformed 42 modules and built in 1.45 seconds.
+- [x] README verification table refreshed to this measured baseline. No source code changed in Phase 0.

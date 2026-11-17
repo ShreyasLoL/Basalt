@@ -377,22 +377,20 @@ Launch this mode through an MCP client that manages stdio servers. See [docs/MCP
 
 ## Verification
 
-The repository's current `PROGRESS.md` records the following Phase 10 verification:
+The following hardening baseline was rerun on 2026-11-17:
 
 | Check | Recorded result |
 |---|---:|
-| C++ Release build | Passed |
-| CTest suite | 123 / 123 |
+| C++ Release clean-first build | Passed (75 Ninja targets) |
+| CTest suite | 143 / 143 (5.04 s) |
 | Frontend typecheck | Passed |
-| Frontend Vitest suite | 7 / 7 |
-| Frontend production build | Passed |
-| MCP stdio lifecycle smoke test | Passed |
-| Loopback HTTP smoke test | Passed |
-| Compiler warnings under strict project flags | None reported |
+| Frontend Vitest suite | 10 / 10 (3 files) |
+| Frontend production build | Passed (42 modules) |
+| Compiler warnings under strict project flags | None |
 
-The Phase 10 test count is cumulative across the matching engine, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry and MCP modules.
+The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP and HTTP modules. The first sandboxed CTest attempt could not connect to its local HTTP test listeners; the complete suite passed when rerun with loopback access.
 
-These are the repository's recorded results. Re-run the build and tests in your own environment before relying on them.
+See [HARDENING.md](HARDENING.md) for the phase checklist and detailed baseline evidence.
 
 ---
 
