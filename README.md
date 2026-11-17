@@ -347,6 +347,16 @@ Open:
 http://127.0.0.1:8080
 ```
 
+The HTTP server also runs a deterministic, offline 12-tick paper session at startup. Its ledger is available at `GET /api/v1/portfolio/1`; the startup output reports the session counts.
+
+### Run the deterministic end-to-end demo
+
+```powershell
+.\build\basalt_demo.exe --ticks 12
+```
+
+The demo runs the synthetic provider through the market-data pipeline, a quote-driven example strategy, risk, conservative paper execution and the portfolio ledger. It prints the processed ticks, signals, accepted orders, fills, risk rejections, ledger hash and PnL. The strategy deliberately emits oversized example orders to demonstrate rejection; this is a wiring demonstration, not a trading strategy result. For Visual Studio builds, the executable is under `build/Release/`.
+
 The server defaults to loopback operation. Keep it local; do not expose the server to a public network without a separately reviewed authentication and deployment model.
 
 ### 6. Run the benchmark suite
@@ -381,8 +391,8 @@ The following hardening baseline was rerun on 2026-11-17:
 
 | Check | Recorded result |
 |---|---:|
-| C++ Release clean-first build | Passed (75 Ninja targets) |
-| CTest suite | 143 / 143 (5.04 s) |
+| C++ Release clean-first build | Passed (81 Ninja targets) |
+| CTest suite | 144 / 144 (4.81 s) |
 | Frontend typecheck | Passed |
 | Frontend Vitest suite | 10 / 10 (3 files) |
 | Frontend production build | Passed (42 modules) |

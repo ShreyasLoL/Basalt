@@ -167,9 +167,21 @@ All commits are local. Never push.
 ## Hardening follow-up — Phase 0 baseline (2026-11-17)
 
 - [x] Reviewed the actual `docs/` specifications and CMake targets; architecture summary and the full hardening checklist are recorded in `HARDENING.md`.
-- [x] `cmake --build build-release --clean-first --parallel`: Release build succeeded across 75 Ninja targets with no warnings (about 15 seconds wall time).
-- [x] `ctest --test-dir build-release --output-on-failure`: 143/143 passed in 5.04 seconds with loopback access. The initial sandboxed run passed 137/143; the six HTTP tests could not connect to their local server fixtures inside the sandbox and all passed on the authorized rerun.
+- [x] `cmake --build build-release --clean-first --parallel`: Phase 0 Release baseline succeeded across 75 Ninja targets with no warnings (about 15 seconds wall time).
+- [x] `ctest --test-dir build-release --output-on-failure`: Phase 0 baseline passed 143/143 in 5.04 seconds with loopback access. The initial sandboxed run passed 137/143; the six HTTP tests could not connect to their local server fixtures inside the sandbox and all passed on the authorized rerun.
 - [x] `npm run typecheck`: passed.
 - [x] `npm test -- --reporter=dot`: 10/10 across 3 files, 6.12 seconds.
 - [x] `npm run build`: passed; Vite transformed 42 modules and built in 1.45 seconds.
 - [x] README verification table refreshed to this measured baseline. No source code changed in Phase 0.
+
+## Hardening follow-up — Phase 1 end-to-end path (2026-11-17)
+
+- [x] Confirmed the missing glue: provider/pipeline, strategy/risk, paper execution and ledger existed as separate interfaces without a session orchestrator; the HTTP adapter exposed only the legacy matching facade.
+- [x] Added `PlatformRunner` to connect the seeded synthetic provider, `MarketDataPipeline`, bounded event bus, `StrategyRuntime`, `RiskEngine`, conservative quote execution and `PortfolioLedger`. Seed controls synthetic quote phase and virtual event time is fixed for repeatability.
+- [x] Added a deterministic example quote strategy and `basalt_demo`; the strategy intentionally emits oversized orders for rejection coverage and is not a trading recommendation.
+- [x] Added `GET /api/v1/portfolio/{account_id}` with schema-versioned portfolio fields and spec-shaped errors. The HTTP server initializes a 12-tick synthetic paper session and serves its ledger through this route.
+- [x] Added `PlatformRunnerIntegrationTest.DeterministicSyntheticPathReachesPortfolioApiAndHonorsRiskAndKillSwitch`: same-seed hash/PnL parity, different-seed divergence, oversized rejection codes, kill-switch halt, ledger reconciliation and actual HTTP response shape/status.
+- [x] `cmake --build build-release --clean-first --parallel`: 81 Ninja targets rebuilt successfully with no warnings; final server composition rebuilt incrementally without warnings.
+- [x] `ctest --test-dir build-release --output-on-failure`: 144/144 passed in 4.81 seconds (loopback access enabled).
+- [x] `basalt_demo --ticks 8`: 8 ticks, 6 signals, 4 orders, 4 fills, 2 `ORDER_QUANTITY_LIMIT` rejections; total PnL -5,500 micro-INR and ledger reconciliation passed.
+- [x] Frontend was unchanged; Phase 0 typecheck and Vitest baseline remain applicable (10/10).

@@ -13,11 +13,14 @@ Baseline run on 2026-11-17: `cmake --build build-release --clean-first --paralle
 
 ## Phase 1 — End-to-end path
 
-- [ ] Map actual provider, pipeline, strategy, risk, paper execution, ledger and API interfaces; identify missing glue.
-- [ ] Implement a deterministic synthetic-provider orchestrator.
-- [ ] Add a runnable demo reporting ticks, signals, orders, fills, risk rejections, ledger and PnL.
-- [ ] Add deterministic integration coverage for repeatability, risk rejection, kill switch and ledger/fill reconciliation.
-- [ ] Document demo invocation in README.
+- [x] Map actual provider, pipeline, strategy, risk, paper execution, ledger and API interfaces; identify missing glue.
+- [x] Implement a deterministic synthetic-provider orchestrator.
+- [x] Add a runnable demo reporting ticks, signals, orders, fills, risk rejections, ledger and PnL.
+- [x] Add deterministic integration coverage for repeatability, risk rejection, kill switch and ledger/fill reconciliation.
+- [x] Expose the portfolio through the specified HTTP read route and verify the response in the integration test.
+- [x] Document demo invocation in README.
+
+Phase 1 result: added `PlatformRunner`, an opt-in `HttpServer` portfolio read model (wired into the regular HTTP server after a deterministic 12-tick local session), and `basalt_demo`. Its quote-driven demonstration strategy deliberately submits over-limit orders to exercise risk rejection; it is a wiring fixture, not a strategy recommendation or performance result. Same-seed runs produce identical ledger hashes/PnL, and the full gate passed: clean-first Release build (81 Ninja targets, no warnings), CTest 144/144 (4.81 seconds), and the demo completed with 8 ticks, 6 signals, 4 accepted orders, 4 fills and 2 quantity-limit rejections.
 
 ## Phase 2 — REST v1 and WebSocket
 

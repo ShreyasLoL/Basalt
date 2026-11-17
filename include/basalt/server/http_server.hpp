@@ -2,6 +2,7 @@
 
 #include "basalt/bench/benchmark_runner.hpp"
 #include "basalt/common/config.hpp"
+#include "basalt/platform/platform_runner.hpp"
 #include "basalt/server/simulation_facade.hpp"
 
 #include <httplib.h>
@@ -16,7 +17,9 @@ namespace basalt::server {
 class HttpServer {
 public:
     explicit HttpServer(int port = 8080);
-    explicit HttpServer(const common::AppConfig& config);
+    // The optional platform read model is non-owning and must outlive the server.
+    explicit HttpServer(const common::AppConfig& config,
+                        platform::PlatformRunner* platform_runner = nullptr);
     HttpServer(const HttpServer&) = delete;
     HttpServer& operator=(const HttpServer&) = delete;
 
@@ -35,6 +38,7 @@ private:
     std::string bind_address_{"127.0.0.1"};
     httplib::Server server_{};
     SimulationFacade simulation_{};
+    platform::PlatformRunner* platform_runner_{};
     bench::BenchmarkRunner benchmark_runner_{};
     mutable std::mutex simulation_rng_mutex_{};
     std::mt19937_64 simulation_rng_{42};

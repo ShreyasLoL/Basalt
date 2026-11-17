@@ -16,7 +16,8 @@ namespace basalt::market_data {
 class DeterministicSyntheticProvider final : public IMarketDataProvider {
 public:
     explicit DeterministicSyntheticProvider(const InstrumentMaster& instruments,
-                                             std::int64_t base_event_time_ns = 0);
+                                             std::int64_t base_event_time_ns = 0,
+                                             std::uint64_t random_seed = 0);
 
     [[nodiscard]] common::Result<void, ProviderError> connect(const ProviderConfig& config) override;
     [[nodiscard]] common::Result<void, ProviderError> subscribe(
@@ -30,6 +31,7 @@ public:
 private:
     const InstrumentMaster& instruments_;
     std::int64_t base_event_time_ns_;
+    std::uint64_t seed_phase_{};
     EventSink event_sink_{};
     std::vector<common::InstrumentId> subscriptions_{};
     std::unordered_map<common::InstrumentId, std::uint64_t> sequence_by_instrument_{};

@@ -119,8 +119,9 @@ HttpServer::HttpServer(const int port) : port_(port) {
     register_routes();
 }
 
-HttpServer::HttpServer(const common::AppConfig& config)
-    : port_(static_cast<int>(config.port)), bind_address_(config.bind_address) {
+HttpServer::HttpServer(const common::AppConfig& config, platform::PlatformRunner* platform_runner)
+    : port_(static_cast<int>(config.port)), bind_address_(config.bind_address),
+      platform_runner_(platform_runner) {
     const auto validated = common::ConfigLoader::validate(config);
     if (!validated) throw std::invalid_argument(validated.error().message);
     register_routes();
@@ -193,6 +194,52 @@ void HttpServer::register_routes() {
     server_.Options(R"(/api/.*)", [](const httplib::Request& request, httplib::Response& response) {
         response.status = 204;
         if (request.has_header("Origin")) set_preflight_headers(response);
+    });
+
+    server_.Get(R"(/api/v1/portfolio/([^/]+))",
+                [this](const httplib::Request& request, httplib::Response& response) {
+        constexpr int schema_version = 1;
+        const auto send_v1_error = [&](const int status, const std::string& code,
+                                       const std::string& message) {
+            send_json(response, json{{"schema_version", schema_version}, {"code", code},
+                                     {"message", message},
+                                     {"request_id", request.has_param("request_id")
+                                         ? request.get_param_value("request_id") : ""},
+                                     {"details", json::object()}}, status);
+        };
+        if (platform_runner_ == nullptr) {
+            send_v1_error(503, "PLATFORM_UNAVAILABLE", "Portfolio read model is not connected");
+            return;
+        }
+        common::AccountId account_id = 0;
+        if (!parse_unsigned_path(request.matches[1], account_id) || account_id == 0) {
+            send_v1_error(400, "INVALID_ACCOUNT_ID", "Account ID must be a positive unsigned integer");
+            return;
+        }
+        const auto portfolio = platform_runner_->portfolio(account_id);
+        if (!portfolio) {
+            const int status = portfolio.error().code == "ACCOUNT_NOT_FOUND" ? 404 : 500;
+            send_v1_error(status, portfolio.error().code, portfolio.error().message);
+            return;
+        }
+        json positions = json::array();
+        for (const auto& [instrument_id, position] : portfolio.value().positions) {
+            positions.push_back({{"instrument_id", instrument_id},
+                                 {"quantity", position.quantity},
+                                 {"average_cost_micro", position.average_cost_micro},
+                                 {"mark_micro", position.mark_micro ? json(*position.mark_micro) : json(nullptr)},
+                                 {"mark_source", position.mark_source},
+                                 {"realized_pnl_micro", position.realized_pnl_micro},
+                                 {"unrealized_pnl_micro", position.unrealized_pnl_micro}});
+        }
+        send_json(response, json{{"schema_version", schema_version},
+                                 {"account_id", portfolio.value().account_id},
+                                 {"cash_balance_micro", portfolio.value().cash_balance_micro},
+                                 {"positions", std::move(positions)},
+                                 {"fees_micro", portfolio.value().total_fees_micro},
+                                 {"realized_pnl_micro", portfolio.value().realized_pnl_micro},
+                                 {"unrealized_pnl_micro", portfolio.value().unrealized_pnl_micro},
+                                 {"data_age_ns", nullptr}});
     });
 
     server_.Get("/api/state", [this](const httplib::Request& request, httplib::Response& response) {

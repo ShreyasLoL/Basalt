@@ -1,5 +1,6 @@
 #include "basalt/server/http_server.hpp"
 #include "basalt/server/mcp_server.hpp"
+#include "basalt/platform/platform_runner.hpp"
 
 #include "basalt/common/config.hpp"
 
@@ -62,8 +63,19 @@ int main(int argc, char** argv) {
     }
 
     config.port = static_cast<std::uint32_t>(port);
-    basalt::server::HttpServer server(config);
+    basalt::platform::PlatformRunner platform;
+    const auto session = platform.run(12);
+    if (!session) {
+        std::cerr << "Failed to initialize the synthetic paper session: "
+                  << session.error().code << ": " << session.error().message << '\n';
+        return 1;
+    }
+    basalt::server::HttpServer server(config, &platform);
     std::cout << "BASALT serving http://" << config.bind_address << ':' << port << "\n";
+    std::cout << "Synthetic paper session: " << session.value().ticks_processed
+              << " ticks, " << session.value().orders << " orders, "
+              << session.value().fills << " fills, " << session.value().risk_rejections
+              << " risk rejections; portfolio at /api/v1/portfolio/1\n";
     if (!server.run()) {
         std::cerr << "Failed to start HTTP server on port " << port << '\n';
         return 1;

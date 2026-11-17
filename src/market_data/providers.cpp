@@ -247,8 +247,10 @@ bool config_matches(const ProviderConfig& config, const std::string_view provide
 } // namespace
 
 DeterministicSyntheticProvider::DeterministicSyntheticProvider(
-    const InstrumentMaster& instruments, const std::int64_t base_event_time_ns)
-    : instruments_(instruments), base_event_time_ns_(base_event_time_ns) {}
+    const InstrumentMaster& instruments, const std::int64_t base_event_time_ns,
+    const std::uint64_t random_seed)
+    : instruments_(instruments), base_event_time_ns_(base_event_time_ns),
+      seed_phase_(random_seed % 11U) {}
 
 common::Result<void, ProviderError> DeterministicSyntheticProvider::connect(const ProviderConfig& config) {
     if (!config_matches(config, name())) return common::Result<void, ProviderError>::failure(
@@ -333,7 +335,7 @@ common::Result<std::size_t, ProviderError> DeterministicSyntheticProvider::step(
             }
             const std::uint64_t sequence = ++instrument_sequence;
             const std::int64_t tick = instrument->tick_size_micro;
-            const std::int64_t offset = static_cast<std::int64_t>(sequence % 11) - 5;
+            const std::int64_t offset = static_cast<std::int64_t>((sequence % 11U + seed_phase_) % 11U) - 5;
             const std::int64_t price = 1'000'000 + static_cast<std::int64_t>(id % 101) * tick + offset * tick;
             RawMarketEvent event;
             event.provider = std::string(name());
