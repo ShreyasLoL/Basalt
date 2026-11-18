@@ -1,6 +1,6 @@
 # BASALT implementation progress
 
-This is the authoritative Phase 0–10 checklist. `[x]` means the requirement was implemented and verified; `[~]` means work is underway or verification is externally blocked; `[ ]` means pending. Never mark a gate complete based on a plan, documentation, or compile-only result.
+This records the completed Phase 0–10 implementation history and its follow-up fixes. `[x]` means the requirement was implemented and verified; `[~]` means work is underway or verification is externally blocked; `[ ]` means pending. Never mark a gate complete based on a plan, documentation, or compile-only result. The current hardening plan and its new verification runs are tracked in `HARDENING.md`.
 
 ## Specification suite (18 files)
 
@@ -146,6 +146,8 @@ Each item is one local commit; verification lines record only commands actually 
 - [x] 6. Replace looped `ratio_bps` — extracted shared O(1) helpers `common::ratio_bps` and `common::clamped_ratio_bps` in `include/basalt/common/fixed_math.hpp` using `unsigned __int128` under `__SIZEOF_INT128__` and a portable 64x64->128 fallback, replacing the 10,000-iteration loops in `src/strategy/indicators.cpp` and `src/strategy/builtins.cpp` with identical floor, saturation and zero/nullopt edge-case semantics. Added `FixedMathTest.RatioBpsMatchesLegacyLoopAcrossEdgeCasesAndSeededRandomRange`. Verified: Release build clean, CTest 142/142, Vitest 7/7, typecheck and Vite build passed.
 - [x] 7. Frontend vs server mismatch — throttled `/api/v1/health` re-probing in `legacy` mode to at most every 30s (or manual Retry/Refresh) with zero WebSocket or optional v1 endpoint requests between intervals; updated `ChartPanel` to skip `/bars` in legacy mode (and cache 404s) while displaying a clear `"no history in legacy mode"` message; refactored `App.tsx` to use per-field Zustand selectors and memoized workspace components (`React.memo`); updated `refresh()` in `store.ts` to merge `marketWatch`, `trades`, `activity` and `lastEventSeq` by sequence when `mode === "v1"` and `streamConnected` without a gap; added an explicit legacy compatibility banner. Added 3 Vitest tests (10/10 total). Verified: Release build clean, CTest 142/142, Vitest 10/10, typecheck and Vite build passed.
 - [x] 8. Minor fixes — added `phase*-test-temp/` to `.gitignore`; updated `HistoryStore::import_csv`, `read_bars` and `parse_csv` to parse in-place from a single `std::string_view` buffer without an `std::istringstream` copy, and refactored `HistoryStore::sha256` to stream in 64-byte blocks without allocating a padded copy of the input (`HistoryTest.Sha256StreamsMultiBlockInputsAgainstKnownDigests`); updated `calculate_metrics` in `src/backtest/analytics.cpp` so `"Average Win/Loss"` returns `std::nullopt` with status `"NO_WINS"` when `win_count == 0` (and `"NO_AVERAGE_LOSS"` when losses are absent) while preserving the 18-metric invariant. Verified: Release build clean, CTest 143/143, Vitest 10/10, typecheck and Vite build passed.
+- [x] 9. Phase 2 REST/CORS hardening — added schema-versioned health, market watch, instrument metadata/snapshot, trades, portfolio, risk and runtime telemetry read routes; corrected the portfolio camelCase contract consumed by the frontend; unsupported v1 routes return schema-versioned 501 errors; added exact-origin `BASALT_CORS_ALLOWED_ORIGINS`, strict empty default and preflight tests. Verified: clean-first Release build 81/81 targets with no warnings, CTest 149/149, Vitest 10/10, frontend typecheck and Vite build passed.
+- [deferred] WebSocket upgrade and streamed-frame delivery — the bundled cpp-httplib has no upgrade hook. Health reports `websocket_available: false`, `/api/v1/stream` returns `STREAM_UNAVAILABLE`, and the frontend skips reconnects. A WebSocket-capable gateway transport is needed before handshake/frame tests can pass.
 
 ## Commit log
 
@@ -163,3 +165,75 @@ Each item is one local commit; verification lines record only commands actually 
 - [x] feat(phase-10): add local MCP stdio inspection and simulation interface — c635e9a
 
 All commits are local. Never push.
+
+## Hardening follow-up — Phase 0 baseline (2026-11-17)
+
+- [x] Reviewed the actual `docs/` specifications and CMake targets; architecture summary and the full hardening checklist are recorded in `HARDENING.md`.
+- [x] `cmake --build build-release --clean-first --parallel`: Phase 0 Release baseline succeeded across 75 Ninja targets with no warnings (about 15 seconds wall time).
+- [x] `ctest --test-dir build-release --output-on-failure`: Phase 0 baseline passed 143/143 in 5.04 seconds with loopback access. The initial sandboxed run passed 137/143; the six HTTP tests could not connect to their local server fixtures inside the sandbox and all passed on the authorized rerun.
+- [x] `npm run typecheck`: passed.
+- [x] `npm test -- --reporter=dot`: 10/10 across 3 files, 6.12 seconds.
+- [x] `npm run build`: passed; Vite transformed 42 modules and built in 1.45 seconds.
+- [x] README verification table refreshed to this measured baseline. No source code changed in Phase 0.
+
+## Hardening follow-up — Phase 1 end-to-end path (2026-11-17)
+
+- [x] Confirmed the missing glue: provider/pipeline, strategy/risk, paper execution and ledger existed as separate interfaces without a session orchestrator; the HTTP adapter exposed only the legacy matching facade.
+- [x] Added `PlatformRunner` to connect the seeded synthetic provider, `MarketDataPipeline`, bounded event bus, `StrategyRuntime`, `RiskEngine`, conservative quote execution and `PortfolioLedger`. Seed controls synthetic quote phase and virtual event time is fixed for repeatability.
+- [x] Added a deterministic example quote strategy and `basalt_demo`; the strategy intentionally emits oversized orders for rejection coverage and is not a trading recommendation.
+- [x] Added `GET /api/v1/portfolio/{account_id}` with schema-versioned portfolio fields and spec-shaped errors. The HTTP server initializes a 12-tick synthetic paper session and serves its ledger through this route.
+- [x] Added `PlatformRunnerIntegrationTest.DeterministicSyntheticPathReachesPortfolioApiAndHonorsRiskAndKillSwitch`: same-seed hash/PnL parity, different-seed divergence, oversized rejection codes, kill-switch halt, ledger reconciliation and actual HTTP response shape/status.
+- [x] `cmake --build build-release --clean-first --parallel`: 81 Ninja targets rebuilt successfully with no warnings; final server composition rebuilt incrementally without warnings.
+- [x] `ctest --test-dir build-release --output-on-failure`: 144/144 passed in 4.81 seconds (loopback access enabled).
+- [x] `basalt_demo --ticks 8`: 8 ticks, 6 signals, 4 orders, 4 fills, 2 `ORDER_QUANTITY_LIMIT` rejections; total PnL -5,500 micro-INR and ledger reconciliation passed.
+- [x] Frontend was unchanged; Phase 0 typecheck and Vitest baseline remain applicable (10/10).
+
+## Hardening follow-up — Phase 3 (2026-11-17)
+
+- [x] MCP and trading persistence now share one schema-versioned kill-switch serializer. Durable free-text reasons are always redacted; actor IDs retain only 1–64 safe ASCII identifier characters. Restore redacts legacy reasons without rewriting append-only frames. ADR-008 records this policy.
+- [x] The existing portable O(1) ratio helper and seeded/extreme parity tests remain the source of truth; added a benchmark against the former 10,000-step loop. Checksums matched for 1,000 inputs (4,000 ns helper, 3,566,400 ns legacy loop).
+- [x] Moved automatic order-ID allocation into `MatchingEngine`, including seeded orders and facade batch operations. Regression coverage includes monotonic IDs after cancel, explicit high IDs, max-ID exhaustion and facade batches.
+- [x] STP results now report each incoming/resting cancellation and event sequence. Tests verify policy outcomes, stale IDs, and book/index invariants after erasure.
+- [x] EventLog holds one append handle, flushes the stream and OS buffers per append, and exposes `close()` plus `recover()` for operator-controlled rotation. Torn-tail recovery and rotation/reopen tests pass. A 1,000-append durable run measured 9,738,620,200 ns on this Windows host.
+- [x] Catalog batch upserts validate all rows, read once, merge through a hash index and atomically write one sorted document. A 2,000-record import/replacement test passes.
+- [x] Added arena pressure mode: 10,000 non-crossing orders attempted against 2,500 nodes produced 2,500 allocations and 7,500 reported exhaustions. Full measurements and caveats are in `docs/PERFORMANCE.md`.
+- [x] Clean-first Release build passed all 81 Ninja targets without warnings; final CTest passed 156/156 in 5.69 seconds with loopback access; frontend typecheck, Vitest 10/10 and Vite build (42 modules, 1.22 seconds) passed.
+
+## Hardening follow-up — Phase 4 testing infrastructure (2026-11-18)
+
+- [x] Added `BASALT_ENABLE_TSAN` for supported non-Windows Clang/GCC builds and `BASALT_ENABLE_FUZZERS` for Clang/libFuzzer. ASan+UBSan and TSan are mutually exclusive; unsupported Windows configurations fail early. Fuzz builds instrument project targets for coverage, ASan and UBSan, and link the libFuzzer runtime only into each harness.
+- [x] Added bounded harnesses and seed corpora for EventLog `.blog` recovery, the production CSV parser, nlohmann JSON, and MCP request frames. `fuzz/FINDINGS.md` records coverage and limitations. No local fuzz campaign is claimed: Windows Clang's prebuilt libFuzzer runtime failed to link against ASan-instrumented objects with an `annotate_string` mismatch. Linux CI runs each harness for 30 seconds; this branch has not been pushed, so those campaigns are pending.
+- [x] Added deterministic randomized order-book parity coverage: four profiles, seeds 17 and 2026, 750 operations per profile/seed, and map/list, vector and arena implementations. Fills, snapshots, invariants, priority and quantity conservation are checked after each operation.
+- [x] Added GitHub Actions CI for Linux Clang/GCC and Windows MSVC, frontend gates, Linux ASan/UBSan and TSan, and four bounded Linux fuzz jobs; added the README status badge. The workflow has not run remotely from this local branch.
+- [deferred] Local TSan execution: the host is Windows Clang 22.1.8 (`x86_64-pc-windows-msvc`) and the option correctly fails with the unsupported-platform diagnostic. `wsl.exe --status` returned `Wsl/E_ACCESSDENIED`; the Linux TSan job is configured but awaits a CI run.
+- [x] Verification: the final `cmake --build build-release --clean-first --parallel` passed 81/81 Ninja targets without warnings; CTest passed 157/157 in 7.77 seconds with loopback access. The ASan+UBSan clean build passed 81/81 targets and CTest passed 157/157 in 24.90 seconds without sanitizer reports. `npm run typecheck` passed; `npm test -- --reporter=dot` passed 10/10 across 3 files; `npm run build` passed (42 modules).
+- Phase 4 is committed locally and not pushed. TSan and actual fuzz campaigns remain platform/CI deferred.
+
+## Hardening follow-up — Phase 5 documentation drift (2026-11-18)
+
+- [x] Verified the current frontend test inventory: 10 Vitest tests across `api.test.ts`, `App.test.tsx` and `store.test.ts` in three files. `npm test -- --reporter=dot` passed 10/10; updated `docs/FRONTEND.md` with the current count and browser-E2E limitation. Older 7/7 entries in the phase history are historical snapshots from before the final three tests were added.
+- [x] Confirmed the README verification row still reported 144/144 (`README.md:399` before correction); refreshed the table with the current 157/157 CTest result, ASan+UBSan result and local TSan/fuzzer deferrals.
+- [x] Confirmed `web/index.html:36` used a standalone `A` in the BASALT mark; replaced it with `B`. Searches found no remaining ATLAS-era strings in the fallback page.
+- [x] Audited MCP launch documentation. `docs/MCP.md` already contained no `mcp/` or `.mcp.json` references; this part of the review was a false positive. Verified `src/server/main_server.cpp:29–42` starts `McpServer::run_stdio` only for the sole `--mcp-stdio` argument, bypasses HTTP configuration, and resolves persistent files through `BASALT_DATA_DIR`/executable/temp. Added explicit client launch examples and data-directory guidance.
+- [x] Reconciled persistence claims: `docs/DECISIONS.md` previously called SQLite WAL “Must have” and claimed it provided the catalog, while `docs/PERSISTENCE.md:5` said the configured toolchain reported SQLite not found. Reworded ADR-005/scorecard to the active JSON/CSV/`.blog` backend and added ADR-009 with conditions for revisiting SQLite.
+- [x] Added `docs/THREAT_MODEL.md` for MCP/HTTP assets, boundaries, attacker model, STRIDE categories, controls and residual risks, with links to CORS and fuzz evidence.
+- [x] Verification: Release clean build passed 81/81 Ninja targets with no warnings; CTest passed 157/157 in 7.42 seconds with loopback access. `npm run typecheck` passed, Vitest passed 10/10 across 3 files, and Vite built 42 modules. `cmake --find-package -DNAME=SQLite3 -DCOMPILER_ID=Clang -DLANGUAGE=CXX -DMODE=EXIST` reported `SQLite3 not found`.
+- Phase 5 is committed locally and not pushed.
+
+## Hardening follow-up — Phase 6 architecture improvements (2026-11-18)
+
+- [x] Added `docs/PHASE-6-DESIGN.md` with a concise decision note before each of the five implementation items. Chose to trim the unsupported SQLite schema instead of adding a database dependency; ADR-010, `DATA_MODEL.md`, persistence/operations docs and the roadmap now describe active JSON, CSV, `.blog`, checkpoint and audit files plus in-memory boundaries.
+- [x] Added strict bounded fee schedule JSON parsing/file loading and `config/fees.example.json`. The zero-fee default remains unchanged, backtest warnings include `fees: none (cost-free)`, and tests reject unknown schema values and 32-bit narrowing overflow.
+- [x] Added shared-capital `PortfolioBacktestEngine`: event-time instrument legs, one account, shared cash/risk reservations, aggregate and instrument exposure checks, combined cash/fill ledger, deterministic ledger hash and per-instrument counts. Two-instrument integration tests cover shared-cash and gross-exposure rejections. `basalt_portfolio_backtest_demo` prints one fill, an `INSUFFICIENT_CASH` rejection and the combined hash.
+- [x] Added a bounded SPSC ring with release/acquire publication and cache-line-separated counters; the durable event bus enforces one producer and one consumer thread while retaining backpressure, close and quote coalescing. Added wrap/full/empty checks, 200,000-message ring stress and 20,000-event bus stress. Added a comparison executable and three local runs: ring 17.44–18.64M msg/s, mutex deque 8.24–8.62M msg/s; ring p50/p95 were lower in these samples but p99 varied widely and p99.9 was worse in every run. Full ranges are in `docs/PERFORMANCE.md`.
+- [x] Added shared checked subtraction and replaced local ledger/backtest overflow predicates, including magnitude handling. Boundary tests cover `INT64_MIN`, `INT64_MAX` and both overflow directions.
+- [x] Clean Release build passed 85/85 Ninja targets; Release CTest passed 164/164 in 6.20 s. Clean ASan+UBSan build passed 85/85; CTest passed 164/164 in 13.34 s with no sanitizer reports. Frontend typecheck passed; Vitest passed 10/10 over 3 files; Vite built 42 modules. Both the platform and portfolio demos passed.
+- [deferred] Local TSan and libFuzzer campaigns: this Windows CMake configuration rejects the unsupported platform. Linux CI jobs exist but are pending because this branch remains local and unpushed.
+- Phase 6 changes are committed locally on `codex/hardening-phase-6`; no push.
+
+## Hardening follow-up — Phase 7 final audit (2026-11-18)
+
+- [x] Completed clean Release and ASan+UBSan builds, full CTest runs, frontend gates, and both demos. Loopback access was enabled for HTTP/platform integration tests; the first restricted Release CTest run could not connect to local sockets, and the complete loopback-enabled run passed.
+- [x] Confirmed the false-positive MCP legacy-file finding from Phase 5; confirmed the SQLite mismatch and resolved it by trimming the target; confirmed and fixed the missing shared-capital and queue/arithmetic gaps described in Phase 6.
+- [deferred] TSan and libFuzzer smoke remain for a supported Linux runner; no remote CI result is claimed.
+- [x] Recorded remaining limits and three recommended next steps in `HARDENING.md`.

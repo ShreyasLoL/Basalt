@@ -268,6 +268,7 @@ TEST(RiskEngineTest, PersistsDecisionsAndRestoresClientOrderIdempotency) {
         rejected_snapshot.market_open = false;
         EXPECT_EQ(engine.evaluate(rejected_order, rejected_snapshot).code, "MARKET_CLOSED");
     }
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened_log(path);
     ASSERT_TRUE(reopened_log.recover());
     const auto frames = reopened_log.read_all();
@@ -322,13 +323,35 @@ TEST(KillSwitchTest, PersistsLatchAndRequiresHealthyAuthorizedDurableReset) {
     EXPECT_TRUE(reset.value().persisted);
     EXPECT_FALSE(kill.active(1));
 
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened_log(path);
     ASSERT_TRUE(reopened_log.recover());
+    const auto durable_frames = reopened_log.read_all();
+    ASSERT_TRUE(durable_frames);
+    ASSERT_EQ(durable_frames.value().size(), 2U);
+    const auto& durable_event = durable_frames.value().front().payload;
+    EXPECT_NE(durable_event.find("\"schema_version\":1"), std::string::npos);
+    EXPECT_NE(durable_event.find("\"kind\":\"kill_switch\""), std::string::npos);
+    EXPECT_NE(durable_event.find("\"actor\":\"operator\""), std::string::npos);
+    EXPECT_NE(durable_event.find("\"reason\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_EQ(durable_event.find("manual stop"), std::string::npos);
     KillSwitch restarted(KillSwitch::event_log_sink(reopened_log));
-    ASSERT_TRUE(restarted.restore(reopened_log.read_all().value()));
+    ASSERT_TRUE(restarted.restore(durable_frames.value()));
     EXPECT_FALSE(restarted.active(1));
     EXPECT_EQ(restarted.events().size(), 2U);
     EXPECT_TRUE(restarted.events()[0].working_orders_cancelled);
+    EXPECT_EQ(restarted.events()[0].reason, "[REDACTED]");
+}
+
+TEST(KillSwitchTest, CanonicalSerializerRedactsFreeTextAndUnsafeActorIdentifiers) {
+    KillSwitchEvent event{7, KillScope::Strategy, 42, true, "desk secret", "token=private-value",
+                          1'000, false, false};
+    const auto payload = serialize_kill_switch_event(event);
+    EXPECT_NE(payload.find("\"schema_version\":1"), std::string::npos);
+    EXPECT_NE(payload.find("\"scope\":\"STRATEGY\""), std::string::npos);
+    EXPECT_NE(payload.find("\"actor\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_NE(payload.find("\"reason\":\"[REDACTED]\""), std::string::npos);
+    EXPECT_EQ(payload.find("private-value"), std::string::npos);
 }
 
 TEST(KillSwitchTest, LatchesEvenWhenJournalIsUnavailableAndCannotBeReset) {
@@ -441,6 +464,32 @@ TEST(FeeCalculatorTest, AppliesVersionedComponentsCapsAndGSTWithIntegerRounding)
     EXPECT_EQ(FeeCalculator::calculate(Side::Buy, 1'000'000, FeeSchedule{}).value().total_micro, 0);
     schedule.gst_basis_points = 10'001;
     EXPECT_EQ(FeeCalculator::calculate(Side::Buy, 1'000'000, schedule).error().code, "FEE_SCHEDULE_INVALID");
+}
+
+TEST(FeeScheduleTest, LoadsTheIllustrativeEditableFileWithoutChangingTheZeroFeeDefault) {
+    const auto loaded = load_fee_schedule_file(std::filesystem::path(BASALT_SOURCE_DIR) /
+                                               "config" / "fees.example.json");
+    ASSERT_TRUE(loaded) << loaded.error().code << ": " << loaded.error().message;
+    EXPECT_EQ(loaded.value().schedule_id, "EDIT_ME_EXAMPLE_ONLY");
+    EXPECT_EQ(loaded.value().source, "user_edited_example_not_a_venue_quote");
+    EXPECT_EQ(loaded.value().components.size(), 3U);
+    const auto example_cost = FeeCalculator::calculate(Side::Buy, 10'000'000, loaded.value());
+    ASSERT_TRUE(example_cost);
+    EXPECT_GT(example_cost.value().total_micro, 0);
+    EXPECT_EQ(FeeCalculator::calculate(Side::Buy, 10'000'000, FeeSchedule{}).value().total_micro, 0);
+}
+
+TEST(FeeScheduleTest, RejectsUnknownFieldsKindsAndOutOfRangeRates) {
+    constexpr std::string_view unknown_field = R"({"format_version":1,"schedule":{},"extra":true})";
+    EXPECT_EQ(parse_fee_schedule_json(unknown_field).error().code, "FEE_SCHEDULE_SCHEMA");
+    constexpr std::string_view unknown_kind = R"({"format_version":1,"schedule":{"id":"x","version":1,"source":"test","venue":"test","segment":"test","product":"paper","valid_from_ns":0,"valid_to_ns":0,"gst_bps":0,"components":[{"kind":"UNKNOWN","buy_bps":0,"sell_bps":0,"fixed_micro":0,"cap_micro":0,"gst_eligible":false}]}})";
+    EXPECT_EQ(parse_fee_schedule_json(unknown_kind).error().code, "FEE_COMPONENT_KIND");
+    constexpr std::string_view oversized_rate = R"({"format_version":1,"schedule":{"id":"x","version":1,"source":"test","venue":"test","segment":"test","product":"paper","valid_from_ns":0,"valid_to_ns":0,"gst_bps":0,"components":[{"kind":"BROKERAGE","buy_bps":10001,"sell_bps":0,"fixed_micro":0,"cap_micro":0,"gst_eligible":false}]}})";
+    EXPECT_EQ(parse_fee_schedule_json(oversized_rate).error().code, "FEE_COMPONENT_INVALID");
+    constexpr std::string_view truncated_version = R"({"format_version":1,"schedule":{"id":"x","version":4294967297,"source":"test","venue":"test","segment":"test","product":"paper","valid_from_ns":0,"valid_to_ns":0,"gst_bps":0,"components":[]}})";
+    EXPECT_EQ(parse_fee_schedule_json(truncated_version).error().code, "FEE_SCHEDULE_INVALID");
+    constexpr std::string_view truncated_rate = R"({"format_version":1,"schedule":{"id":"x","version":1,"source":"test","venue":"test","segment":"test","product":"paper","valid_from_ns":0,"valid_to_ns":0,"gst_bps":0,"components":[{"kind":"BROKERAGE","buy_bps":4294967296,"sell_bps":0,"fixed_micro":0,"cap_micro":0,"gst_eligible":false}]}})";
+    EXPECT_EQ(parse_fee_schedule_json(truncated_rate).error().code, "FEE_COMPONENT_INVALID");
 }
 
 TEST(PaperExecutionTest, ConservativeQuoteUsesAskBidAndVisibleSizeWithAdverseSlippage) {
@@ -662,6 +711,7 @@ TEST(PortfolioLedgerTest, EventLogJournalRestoresAccountsPositionsAndCashAfterRe
         ASSERT_TRUE(ledger.apply_fill(fill(1, 50, Side::Buy, 4, 10'000, 200)));
         ASSERT_TRUE(ledger.verify_reconciliation());
     }
+    ASSERT_TRUE(log.close());
     persistence::EventLog reopened(path);
     ASSERT_TRUE(reopened.recover());
     const auto frames = reopened.read_all();

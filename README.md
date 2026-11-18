@@ -1,5 +1,7 @@
 # BASALT
 
+[![CI](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml/badge.svg)](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml)
+
 ### A local-first market simulation and quantitative trading research platform.
 
 BASALT is a C++20 systems project for exploring how electronic markets work — from order matching and market-data processing to strategy execution, risk management, paper trading, deterministic replay and performance analysis.
@@ -21,9 +23,9 @@ BASALT is built around several connected areas of market infrastructure:
 | **Paper execution** | Quote-based, bar-based, order-book replay and internal CLOB execution models |
 | **Risk management** | Pre-trade risk checks, exposure reservations, audit records and scoped kill switches |
 | **Strategy runtime** | Deterministic strategy lifecycle, incremental indicators and six built-in strategies |
-| **Backtesting** | Chronological execution, train/validation/test separation, reproducibility manifests and performance analytics |
+| **Backtesting** | Causal single-instrument and shared-capital multi-instrument runs, train/validation/test separation, manifests and performance analytics |
 | **Persistence and replay** | Append-only event logs, checkpoints, dataset hashing and deterministic recovery |
-| **Performance engineering** | Latency telemetry, twelve benchmark workloads and comparisons between map/list, vector and pooled-arena order books |
+| **Performance engineering** | Latency telemetry, twelve benchmark workloads, order-book implementations and SPSC/mutex queue comparison |
 | **MCP interface** | Local JSON-RPC tools for inspecting state and running bounded simulations |
 
 The components are implemented as C++ libraries with explicit domain boundaries. The browser workstation and MCP interface provide ways to inspect and interact with the system.
@@ -193,7 +195,7 @@ Backtests include:
 
 Replay supports play, pause, single-step, seek and bounded speed multipliers. Checkpoints are validated before restoration.
 
-Each backtest currently simulates one instrument per run. Missing survivorship-safe history, corporate-action information or licensing metadata must be disclosed rather than silently assumed.
+Single-instrument runs use `BacktestEngine`. `PortfolioBacktestEngine` schedules multiple instrument legs against one account, shared cash, portfolio/instrument risk limits and one combined ledger. Missing survivorship-safe history, corporate-action information or licensing metadata must be disclosed rather than silently assumed.
 
 ### 6. Persistence
 
@@ -207,7 +209,7 @@ The persistence layer uses:
 - Deterministic checkpoint-plus-log replay.
 - Historical CSV import/export with dataset hashes and provenance.
 
-The configured Windows/Clang environment did not provide SQLite. The implementation therefore uses the roadmap's deterministic transactional file-store fallback. The SQLite schema in `docs/DATA_MODEL.md` remains a logical target, not a claim that SQLite is the active persistence backend.
+The configured Windows/Clang environment does not provide SQLite. The active durable formats are the deterministic JSON dataset catalog, canonical CSV history, selected CRC-framed `.blog` journals, checkpoints and bounded MCP audit JSONL. `docs/DATA_MODEL.md` inventories those files and marks other domain records as in-memory unless a caller wires a journal sink; it no longer describes a hypothetical twenty-table database.
 
 ### 7. Performance engineering
 
@@ -232,6 +234,8 @@ The benchmark compares three order-book implementations:
 Measurements include throughput, latency percentiles, queue high-water marks, accepted and dropped events, and pool utilization.
 
 Benchmark parity checks compare logical outcomes, including trades, cancellations and final book snapshots.
+
+`basalt_bench --arena-pressure --orders 10000` runs a separate capacity-pressure case with a deliberately undersized arena pool and reports successful pool allocations and exhaustion count. `basalt_bench --microbench fixed-math` compares the O(1) fixed-point ratio helper with the previous 10,000-step implementation; `--microbench event-log` measures durable appends through the persistent EventLog handle. Recorded methodology and one run are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 Performance numbers are workload- and machine-dependent. The recorded measurements are single-host results, not production latency guarantees. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for methodology and raw output.
 
@@ -347,6 +351,24 @@ Open:
 http://127.0.0.1:8080
 ```
 
+The HTTP server also runs a deterministic, offline 12-tick paper session at startup. Its ledger is available at `GET /api/v1/portfolio/1`; the startup output reports the session counts.
+
+### Run the deterministic end-to-end demo
+
+```powershell
+.\build\basalt_demo.exe --ticks 12
+```
+
+The demo runs the synthetic provider through the market-data pipeline, a quote-driven example strategy, risk, conservative paper execution and the portfolio ledger. It prints the processed ticks, signals, accepted orders, fills, risk rejections, ledger hash and PnL. The strategy deliberately emits oversized example orders to demonstrate rejection; this is a wiring demonstration, not a trading strategy result. For Visual Studio builds, the executable is under `build/Release/`.
+
+### Run the shared-capital portfolio backtest demo
+
+```powershell
+.\build\basalt_portfolio_backtest_demo.exe
+```
+
+This deterministic two-instrument example shares one cash balance, shows a risk rejection when a second buy would exceed available cash, and prints the reconciled combined-ledger hash. It also prints `fees: none (cost-free)` because the default fee schedule is intentionally empty. The binary is under `build/Release/` for Visual Studio builds.
+
 The server defaults to loopback operation. Keep it local; do not expose the server to a public network without a separately reviewed authentication and deployment model.
 
 ### 6. Run the benchmark suite
@@ -377,22 +399,22 @@ Launch this mode through an MCP client that manages stdio servers. See [docs/MCP
 
 ## Verification
 
-The repository's current `PROGRESS.md` records the following Phase 10 verification:
+Latest local verification on 2026-11-18:
 
 | Check | Recorded result |
 |---|---:|
-| C++ Release build | Passed |
-| CTest suite | 123 / 123 |
+| C++ Release clean-first build | Passed (85 Ninja targets, no warnings) |
+| CTest suite | 164 / 164 (6.20 s) |
+| ASan + UBSan clean build and CTest | 85 targets; 164 / 164 (13.34 s, no reports) |
 | Frontend typecheck | Passed |
-| Frontend Vitest suite | 7 / 7 |
-| Frontend production build | Passed |
-| MCP stdio lifecycle smoke test | Passed |
-| Loopback HTTP smoke test | Passed |
-| Compiler warnings under strict project flags | None reported |
+| Frontend Vitest suite | 10 / 10 (3 files) |
+| Frontend production build | Passed (42 modules) |
+| TSan / libFuzzer campaigns | Deferred locally; Windows platform guard; Linux CI jobs configured, not yet run |
+| Platform and portfolio demos | Both passed; shared-capital demo reports one fill and one `INSUFFICIENT_CASH` rejection |
 
-The Phase 10 test count is cumulative across the matching engine, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry and MCP modules.
+The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP, HTTP and platform integration modules. Loopback access was enabled for the complete CTest run. The ASan+UBSan run included Clang's runtime DLL directory on `PATH`. TSan and fuzzing platform limits are recorded in [fuzz/FINDINGS.md](fuzz/FINDINGS.md).
 
-These are the repository's recorded results. Re-run the build and tests in your own environment before relying on them.
+See [HARDENING.md](HARDENING.md) for the phase checklist and detailed baseline evidence.
 
 ---
 

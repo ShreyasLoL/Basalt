@@ -34,12 +34,14 @@ Legacy /api/state, /api/orders, /api/reset, /api/sim/step and /api/benchmark sta
 These apply to the implemented legacy routes, the UI and static assets (see docs/SECURITY.md for the full table):
 
 - `Host` must be the loopback authority for the listening port (`127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`); otherwise 403 `{"error":"FORBIDDEN_HOST","code":"FORBIDDEN_HOST","message":...}`.
-- If `Origin` is sent it must be `http://127.0.0.1:<port>`, `http://localhost:<port>` or `http://[::1]:<port>`; otherwise 403 `FORBIDDEN_ORIGIN`. Allowed origins are echoed in `Access-Control-Allow-Origin` (never `*`).
+- If `Origin` is sent it must be a loopback origin for the listening port or an exact origin in `BASALT_CORS_ALLOWED_ORIGINS`; otherwise 403 `FORBIDDEN_ORIGIN`. The setting accepts comma-separated `http(s)://host[:port]` origins without paths or wildcards. The default is an empty explicit allowlist. Allowed origins are echoed in `Access-Control-Allow-Origin` (never `*`).
 - POST and DELETE (and PUT/PATCH if added) require `Content-Type: application/json`; otherwise 415 `UNSUPPORTED_MEDIA_TYPE`. This includes bodiless calls such as `DELETE /api/orders/{id}`.
-- `OPTIONS /api/*` answers 204 with method/header allowances only for an allowlisted origin.
+- `OPTIONS /api/*` answers 204 with method/header allowances only for an accepted origin. Allowed methods are GET, POST, PUT, PATCH, DELETE and OPTIONS; allowed headers are Content-Type, X-Request-ID and Idempotency-Key.
 - `POST /api/benchmark` `order_count` must be an integer 1–10,000 (default 10,000); anything else is 400.
 
 ## WebSocket v1
+
+The protocol contract below is not currently served by the bundled `cpp-httplib` version: it has no WebSocket upgrade handler. `GET /api/v1/health` reports `websocket_available: false`; `/api/v1/stream` returns a schema-versioned 501 `STREAM_UNAVAILABLE` error. The frontend therefore skips reconnect attempts. A real upgrade and streamed frame remain deferred until the gateway uses a WebSocket-capable transport.
 
 Upgrade path /api/v1/stream. Client sends a bounded subscribe frame with request_id, instrument IDs, channel names and optional last_event_seq. Server validates authorization/origin policy, caps subscriptions, returns subscribed or error, then streams frames:
 
@@ -51,4 +53,4 @@ Supported frame types: tick, quote, ohlc, depth, execution, order, position, sig
 
 ## Error codes and bounds
 
-Stable codes include INVALID_ARGUMENT, UNKNOWN_INSTRUMENT, STALE_MARKET_DATA, RISK_REJECTED, KILL_SWITCH_ACTIVE, ORDER_NOT_FOUND, DUPLICATE_REQUEST, RATE_LIMITED, DATA_UNAVAILABLE, REPLAY_GAP and INTERNAL_ERROR. The response includes a safe human message and structured nonsecret details. JSON size, WS frame, subscriptions, history span, benchmark count and replay speed have configured finite maxima. Mutation rate limiting is per local client/session.
+Stable codes include INVALID_ARGUMENT, UNKNOWN_INSTRUMENT, STALE_MARKET_DATA, RISK_REJECTED, KILL_SWITCH_ACTIVE, ORDER_NOT_FOUND, DUPLICATE_REQUEST, RATE_LIMITED, DATA_UNAVAILABLE, REPLAY_GAP, NOT_IMPLEMENTED, PLATFORM_UNAVAILABLE, STREAM_UNAVAILABLE and INTERNAL_ERROR. The response includes a safe human message and structured nonsecret details. JSON size, WS frame, subscriptions, history span, benchmark count and replay speed have configured finite maxima. Mutation rate limiting is per local client/session.

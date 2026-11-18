@@ -1,0 +1,40 @@
+{
+  "format_version": 1,
+  "schedule": {
+    "id": "EDIT_ME_EXAMPLE_ONLY",
+    "version": 1,
+    "source": "user_edited_example_not_a_venue_quote",
+    "venue": "EXAMPLE_ONLY",
+    "segment": "EXAMPLE_ONLY",
+    "product": "PAPER",
+    "valid_from_ns": 0,
+    "valid_to_ns": 0,
+    "gst_bps": 1800,
+    "components": [
+      {
+        "kind": "BROKERAGE",
+        "buy_bps": 5,
+        "sell_bps": 5,
+        "fixed_micro": 0,
+        "cap_micro": 2500000,
+        "gst_eligible": true
+      },
+      {
+        "kind": "EXCHANGE_TRANSACTION",
+        "buy_bps": 2,
+        "sell_bps": 2,
+        "fixed_micro": 0,
+        "cap_micro": 0,
+        "gst_eligible": true
+      },
+      {
+        "kind": "STAMP_DUTY",
+        "buy_bps": 1,
+        "sell_bps": 0,
+        "fixed_micro": 0,
+        "cap_micro": 0,
+        "gst_eligible": false
+      }
+    ]
+  }
+}

@@ -50,6 +50,12 @@ One machine, one run, timer granularity and current compiler build only. Use fre
 
 ObjectPool<Order> has explicit capacity, freelist, generation/debug checks and deterministic exhaustion error. Pool ownership is per book/shard; nodes are returned on fill/cancel/reset. No iterator or handle may outlive its node. Benchmark latency and allocation count versus existing map/list and vector books, but retain standard-container implementation as correctness fallback. Do not call an arena faster unless measured parity runs support that claim.
 
+The ordinary three-book workloads size each arena to the workload's total command count so they remain correctness-parity runs. Capacity pressure is separate: `basalt_bench --arena-pressure --orders 10000` attempts 10,000 non-crossing buy orders against a 2,500-node pool and reports 2,500 successful allocations plus 7,500 deterministic `POOL_EXHAUSTED` outcomes. It intentionally does not compare final state with unbounded standard books.
+
+Two focused microbenchmarks are available from `basalt_bench`: `--microbench fixed-math` compares seeded `ratio_bps` inputs against the former 10,000-step loop and checks matching checksums, while `--microbench event-log` measures append throughput with the stream kept open and the durable OS flush performed after every append. Both default to 1,000 operations; pass `--orders N` to change the count. EventLog runs are capped at 10,000 durable appends. These are local observations, not performance guarantees.
+
+Phase 3 measurements on the same Windows 10.0.26300.0 / 12th Gen Intel Core i5-12450HX / Clang 22.1.8 Release host used 1,000 operations for each microbenchmark. Fixed math completed in 4,000 ns for the O(1) helper (checksum 15,081,119) and 3,566,400 ns for the legacy loop (same checksum). EventLog append completed in 9,738,620,200 ns total, or about 9.74 ms per durable append; payloads were prepared before timing and each append included stream flush plus OS durable flush. The 10,000-attempt arena pressure run used capacity 2,500, reported 2,500 allocations and 7,500 exhaustions, and measured 6,788,866 operations/second in this run. Timer granularity and storage flush latency dominate these host-specific values; rerun before drawing comparisons.
+
 ## Phase 9 measured Release run
 
 Command: `basalt_bench --orders 10000` (fixed seed 42; 10,000 operations per order-book profile, 10,000 canonical market-data events per bus profile). Warm-up uses a separate 10,000-command sequence per order-book workload and is excluded from timed samples. The three order-book implementations were compared on full trade records, cancel count and final per-instrument snapshots; all parity checks passed. The pooled arena reports successful node acquisitions, peak simultaneously active nodes, capacity and exhaustion count. Standard-container allocation counts are not instrumented.
@@ -93,3 +99,14 @@ Workload                       Implementation                        Ops/s    Av
 11. Market Data Burst          BoundedMarketEventBus                440492      2212      1600      2100      2300      7000     117300      10000         0   10000           0          0          0           0
 12. Slow Consumer Backpressure BoundedMarketEventBus                478126      1988      1600      2200      2300      4900     103900         64      9936      64           0          0          0           0
 ```
+
+## Phase 6 SPSC queue comparison
+
+`basalt_spsc_ring_benchmark` compares the bounded ring with a capacity-matched mutex/condition-variable deque using one producer and one consumer, 250,000 messages and capacity 1,024. It timestamps each message before enqueue attempts and measures through consumer dequeue; producer backpressure and consumer scheduling are included. The ring endpoints yield while full/empty; the mutex queue blocks on condition variables. Three consecutive runs on this Windows x64 Clang 22.1.8 Release workspace measured:
+
+| Queue | Throughput range | p50 latency | p95 latency | p99 latency | p99.9 latency |
+|---|---:|---:|---:|---:|---:|
+| SPSC ring | 17.44–18.64 million msg/s | 45.5–52.5 µs | 57.2–63.2 µs | 61.3–467.8 µs | 777.4–1,404.9 µs |
+| Mutex deque | 8.24–8.62 million msg/s | 57.3–78.2 µs | 146.1–155.0 µs | 179.8–235.6 µs | 230.6–324.4 µs |
+
+The ring had roughly twice the throughput and lower p50/p95 in these samples. Its p99 varied widely, and its p99.9 was worse in all three runs than the mutex samples. These are single-host microbenchmark observations, not production guarantees. The benchmark includes thread startup in throughput timing and does not model the bus's condition-variable wake path or event payload allocation; use the production event-bus benchmark and target-host measurements before making a latency claim.

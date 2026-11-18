@@ -4,6 +4,8 @@
 
 Target is React + TypeScript + Vite + Tailwind, Zustand for normalized UI state, and Lightweight Charts for licensed local chart presentation. Static assets are served by the local C++ gateway with the legacy web/index.html as fallback. The frontend calls only schema-versioned REST v1 and WebSocket v1. It contains no matching, risk, portfolio accounting or synthetic quote logic. Empty, stale, disconnected and unavailable values are shown as such; there are no fake charts, trades, benchmark outputs or success states.
 
+The current bundled HTTP gateway reports `websocket_available: false` because cpp-httplib has no upgrade hook. The client skips stream connection and reconnect attempts when that flag is false; REST v1 remains available.
+
 ## Workspaces
 
 1. **Overview:** feed/system health, watchlist summary, portfolio headline and recent paper events.
@@ -35,3 +37,7 @@ Tokens are source-controlled and versioned. Figma MCP can inspect layouts/tokens
 ## Build and serving acceptance
 
 Frontend package lock is committed; scripts provide dev, typecheck, build and tests. Production build emits a static bundle into a known CMake/server asset directory; generated output is ignored unless release policy explicitly checks it in. Offline fallback remains visible if assets are absent. Validate routes with actual API fixtures and a browser smoke run; verify keyboard, responsive layout, stale badges, reconnect/gap, form validation and no secret leakage.
+
+## Current verification
+
+On 2026-11-18, `npm test -- --reporter=dot` passed 10/10 Vitest tests across 3 files (`api.test.ts`, `App.test.tsx`, and `store.test.ts`). This is the current unit/UI test count; it does not claim a browser end-to-end run. Typecheck and production build also passed in the same verification cycle.

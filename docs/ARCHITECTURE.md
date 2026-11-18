@@ -223,7 +223,7 @@ Each event carries a durable monotonically increasing event sequence, provider e
 
 ## 6. Event bus policy
 
-The durable channel never silently drops orders, executions, ledger events, or replay input. At capacity it applies bounded producer backpressure; after a configured deadline it marks the feed DEGRADED, stops new strategy submissions, and raises a visible health error. The browser quote channel is lossy by design: coalesce by instrument and publish the newest state at a bounded rate. SPSC is used only where one producer and one consumer are enforced in code. Other fanout uses bounded MPSC queues or a mutex-protected channel; no queue is described as lock-free unless its implementation and tests prove that property.
+The durable channel never silently drops orders, executions, ledger events, or replay input. At capacity it applies bounded producer backpressure; after a configured deadline it marks the feed DEGRADED, stops new strategy submissions, and raises a visible health error. The browser quote channel is lossy by design: coalesce by instrument and publish the newest state at a bounded rate. `BoundedMarketEventBus` uses a bounded SPSC ring for durable events: the first publisher and consumer thread are recorded, and another thread for either role raises a contract error. The ring publishes slots with release/acquire counters on separate 64-byte cache lines; the bus mutex and condition variables coordinate waiting, close and quote coalescing. Other fanout uses bounded MPSC queues or a mutex-protected channel; no queue is described as lock-free unless its implementation and tests prove that property.
 
 ## 7. Module contracts
 

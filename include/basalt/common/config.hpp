@@ -9,6 +9,7 @@
 #include <string_view>
 #include <system_error>
 #include <unordered_map>
+#include <vector>
 
 namespace basalt::common {
 
@@ -22,6 +23,7 @@ struct AppConfig {
     std::uint32_t event_queue_capacity{65'536};
     std::uint32_t ui_queue_capacity{1'024};
     std::uint64_t stale_timeout_ms{5'000};
+    std::vector<std::string> cors_allowed_origins{};
 };
 
 class ConfigLoader {
@@ -32,7 +34,7 @@ public:
         Environment values;
         constexpr std::string_view names[]{"BASALT_BIND_ADDRESS", "BASALT_PORT",
             "BASALT_ALLOW_REMOTE_BIND", "BASALT_LOG_FORMAT",
-            "BASALT_EVENT_QUEUE_CAPACITY", "BASALT_UI_QUEUE_CAPACITY",
+            "BASALT_EVENT_QUEUE_CAPACITY", "BASALT_UI_QUEUE_CAPACITY", "BASALT_CORS_ALLOWED_ORIGINS",
             "BASALT_STALE_TIMEOUT_MS"};
         for (const std::string_view name : names) {
             const std::string terminated_name(name);
@@ -83,6 +85,22 @@ public:
             !parse_integer(found->second, config.ui_queue_capacity)) {
             return failure("INVALID_QUEUE_CAPACITY", "BASALT_UI_QUEUE_CAPACITY must be an unsigned integer");
         }
+        if (const auto found = values.find("BASALT_CORS_ALLOWED_ORIGINS"); found != values.end()) {
+            std::string_view remaining = found->second;
+            while (!remaining.empty()) {
+                const auto comma = remaining.find(',');
+                auto origin = trim(remaining.substr(0, comma));
+                if (origin.empty() || !valid_explicit_origin(origin)) {
+                    return failure("INVALID_CORS_ORIGIN",
+                        "BASALT_CORS_ALLOWED_ORIGINS must be a comma-separated list of exact http(s) origins; wildcards and paths are not allowed");
+                }
+                config.cors_allowed_origins.emplace_back(origin);
+                if (comma == std::string_view::npos) break;
+                remaining.remove_prefix(comma + 1);
+                if (remaining.empty()) return failure("INVALID_CORS_ORIGIN",
+                    "BASALT_CORS_ALLOWED_ORIGINS cannot contain an empty origin");
+            }
+        }
         if (const auto found = values.find("BASALT_STALE_TIMEOUT_MS"); found != values.end() &&
             !parse_integer(found->second, config.stale_timeout_ms)) {
             return failure("INVALID_STALE_TIMEOUT", "BASALT_STALE_TIMEOUT_MS must be an unsigned integer");
@@ -113,10 +131,64 @@ public:
         if (config.stale_timeout_ms == 0 || config.stale_timeout_ms > 86'400'000) {
             return failure("INVALID_STALE_TIMEOUT", "Stale timeout must be between 1 ms and 24 hours");
         }
+        for (const auto& origin : config.cors_allowed_origins) {
+            if (!valid_explicit_origin(origin)) return failure("INVALID_CORS_ORIGIN",
+                "CORS allowed origins must be exact http(s) origins without paths or wildcards");
+        }
         return Result<AppConfig>::success(std::move(config));
     }
 
 private:
+    [[nodiscard]] static std::string_view trim(std::string_view text) noexcept {
+        while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
+        while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) text.remove_suffix(1);
+        return text;
+    }
+
+    [[nodiscard]] static bool valid_explicit_origin(const std::string_view origin) noexcept {
+        constexpr std::string_view http{"http://"};
+        constexpr std::string_view https{"https://"};
+        const auto scheme_size = origin.starts_with(http) ? http.size()
+            : (origin.starts_with(https) ? https.size() : 0U);
+        if (scheme_size == 0 || scheme_size == origin.size() || origin == "*") return false;
+        const std::string_view authority = origin.substr(scheme_size);
+        if (authority.find_first_of("/*?#@\\ \t\r\n") != std::string_view::npos) return false;
+        const auto valid_port = [](const std::string_view port) noexcept {
+            if (port.empty()) return false;
+            std::uint32_t value = 0;
+            const auto [end, error] = std::from_chars(port.data(), port.data() + port.size(), value);
+            return error == std::errc{} && end == port.data() + port.size() && value > 0 && value <= 65'535;
+        };
+        if (authority.front() == '[') {
+            const auto close = authority.find(']');
+            if (close == std::string_view::npos || close == 1) return false;
+            bool has_colon = false;
+            for (const char character : authority.substr(1, close - 1)) {
+                const bool hex = (character >= '0' && character <= '9') ||
+                    (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F');
+                if (!hex && character != ':' && character != '.') return false;
+                has_colon = has_colon || character == ':';
+            }
+            if (!has_colon) return false;
+            const auto suffix = authority.substr(close + 1);
+            return suffix.empty() || (suffix.front() == ':' && valid_port(suffix.substr(1)));
+        }
+        const auto colon = authority.find(':');
+        if (colon != std::string_view::npos && authority.find(':', colon + 1) != std::string_view::npos) return false;
+        const auto host = colon == std::string_view::npos ? authority : authority.substr(0, colon);
+        if (host.empty() || host.front() == '.' || host.back() == '.' ||
+            host.front() == '-' || host.back() == '-') return false;
+        bool previous_dot = false;
+        for (const char character : host) {
+            const bool alphanumeric = (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            if (!alphanumeric && character != '.' && character != '-') return false;
+            if (character == '.' && previous_dot) return false;
+            previous_dot = character == '.';
+        }
+        return colon == std::string_view::npos || valid_port(authority.substr(colon + 1));
+    }
+
     template <typename Integer>
     [[nodiscard]] static bool parse_integer(const std::string_view text, Integer& value) noexcept {
         if (text.empty()) return false;

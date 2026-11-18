@@ -90,6 +90,7 @@ export interface SystemHealth {
   version: string | null;
   storage: string | null;
   message: string;
+  websocketAvailable?: boolean | null;
 }
 
 export interface StrategySummary {

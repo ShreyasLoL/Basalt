@@ -14,8 +14,8 @@ All runbooks preserve source events and ledger history. Operators use the local 
 | 8 | Tick size/decimal mismatch | Reject value before mutation | Correct mapping/parser; replay fixture and check exact tick alignment |
 | 9 | Durable queue saturation | Mark DEGRADED; stop new strategies | Reduce input or drain persistence; verify gap-free durable sequence |
 | 10 | UI queue/slow WS consumer | Coalesce old quotes; count replacements | Reconnect and refresh snapshot; verify non-coalesced executions recovered |
-| 11 | SQLite busy/locked | Pause writes and mutations; expose storage warning | Retry bounded transaction; inspect WAL and resume after checkpoint |
-| 12 | Database corruption | Enter read-only/fail-stop; preserve file | Restore backup and replay validated .blog prefix; compare state hash |
+| 11 | Catalog or journal write failure | Pause mutations; preserve the last valid files and expose a storage warning | Check data-directory permissions and disk space; reopen only after JSON/CSV hashes and the valid `.blog` prefix have been verified |
+| 12 | Catalog, history or checkpoint corruption | Mark affected datasets/state unavailable; preserve source files | Restore a verified backup or quarantine the damaged file; compare catalog/history hashes and replay the validated `.blog` prefix where applicable |
 | 13 | .blog CRC/truncated tail | Stop at last valid frame; mark recovery state | Quarantine tail, keep original copy, resume only from verified checkpoint |
 | 14 | Disk full | Stop authoritative mutation and event intake | Free/expand storage, flush, verify hashes and restart at last commit |
 | 15 | Strategy exception | Isolate and mark FAILED | Inspect redacted reason, validate config, restart as a new run |
@@ -27,8 +27,8 @@ All runbooks preserve source events and ledger history. Operators use the local 
 
 ## Startup and shutdown
 
-Startup validates config, schema migrations, file permissions, database/log consistency, instrument catalog and kill-switch latches before opening listeners. If storage or risk state cannot be trusted, start read-only or fail closed. Shutdown stops accepting mutation requests, pauses providers/strategies, finishes or rejects in-flight work deterministically, flushes log/database, writes a checkpoint, closes listeners and records final sequence/hash. A forced shutdown is detected on next startup and recovers from the last valid durable point.
+Startup validates configuration and the configured data-directory paths. Before allowing state-changing operations, verify active catalog JSON, canonical CSV history, `.blog` log consistency, checkpoints and kill-switch state with the corresponding application tools. If storage or risk state cannot be trusted, start read-only or fail closed. Shutdown stops accepting mutation requests, pauses providers/strategies, finishes or rejects in-flight work deterministically, flushes active files, writes a checkpoint when configured, closes listeners and records the final sequence/hash.
 
 ## Backups and retention
 
-Back up SQLite with a transactionally consistent snapshot plus event-log range and checksums. Retain immutable source data only under its licensing rules. Verify restoration periodically in an isolated directory. Never overwrite the only copy during repair. Retention/export reports include dataset license tag and hash.
+Back up the active JSON catalog, canonical CSV history, `.blog` journals, `BCP1` checkpoints and MCP audit JSONL as applicable; retain source data only under its licensing rules and store expected hashes with each backup. Verify restoration periodically in an isolated directory. Never overwrite the only copy during repair. SQLite is not an active store; see ADR-009 and ADR-010 before changing the persistence model.

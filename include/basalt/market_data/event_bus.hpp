@@ -1,5 +1,6 @@
 #pragma once
 
+#include "basalt/common/spsc_ring_buffer.hpp"
 #include "basalt/market_data/types.hpp"
 
 #include <chrono>
@@ -8,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -25,6 +27,8 @@ struct EventBusStats {
 
 class BoundedMarketEventBus {
 public:
+    // Durable publication is a single-producer/single-consumer lane. The quote lane
+    // remains mutex protected and coalesces by instrument.
     BoundedMarketEventBus(std::size_t durable_capacity, std::size_t quote_capacity);
     BoundedMarketEventBus(const BoundedMarketEventBus&) = delete;
     BoundedMarketEventBus& operator=(const BoundedMarketEventBus&) = delete;
@@ -44,10 +48,13 @@ private:
     mutable std::mutex mutex_{};
     std::condition_variable not_empty_{};
     std::condition_variable not_full_{};
-    std::deque<CanonicalMarketEvent> durable_{};
+    common::SpscRingBuffer<CanonicalMarketEvent> durable_;
     std::deque<common::InstrumentId> quote_order_{};
     std::unordered_map<common::InstrumentId, CanonicalMarketEvent> latest_quotes_{};
     bool closed_{};
+    std::size_t publishers_in_flight_{};
+    std::thread::id durable_producer_thread_{};
+    std::thread::id durable_consumer_thread_{};
     std::uint64_t quote_replacements_{};
     std::uint64_t quote_overflows_{};
     std::uint64_t durable_timeouts_{};

@@ -1,5 +1,6 @@
 #include "basalt/server/http_server.hpp"
 #include "basalt/server/request_guard.hpp"
+#include "basalt/server/simulation_facade.hpp"
 
 #include <gtest/gtest.h>
 #include <httplib.h>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -37,6 +39,20 @@ TEST(RequestGuardTest, AcceptsOnlyLoopbackHostAuthoritiesForTheServerPort) {
     EXPECT_TRUE(is_allowed_host("localhost:80", 80));
 }
 
+TEST(SimulationFacadeTest, SeedAndBatchUseMatchingEnginesSingleAutomaticIdSequence) {
+    basalt::server::SimulationFacade facade(true);
+    const auto first = facade.submit_order({0, basalt::Side::Buy, basalt::OrderType::Limit, 9000, 1});
+    ASSERT_EQ(first.status, basalt::OrderStatus::New);
+    EXPECT_EQ(first.order_id, 11U);
+    const auto batch = facade.submit_batch({
+        {0, basalt::Side::Buy, basalt::OrderType::Limit, 8999, 1},
+        {0, basalt::Side::Buy, basalt::OrderType::Limit, 8998, 1}});
+    ASSERT_EQ(batch.size(), 2U);
+    EXPECT_EQ(batch[0].order_id, 12U);
+    EXPECT_EQ(batch[1].order_id, 13U);
+    EXPECT_TRUE(facade.verify_invariants());
+}
+
 TEST(RequestGuardTest, ExplicitRemoteBindAddressIsAddedButWildcardIsNot) {
     using basalt::server::is_allowed_host;
     EXPECT_TRUE(is_allowed_host("192.168.1.5:8080", kPort, "192.168.1.5"));
@@ -56,6 +72,15 @@ TEST(RequestGuardTest, OriginMustBeAnAllowlistedHttpLoopbackOrigin) {
     EXPECT_FALSE(is_allowed_origin("null", kPort));
     EXPECT_FALSE(is_allowed_origin("", kPort));
     EXPECT_FALSE(is_allowed_origin("*", kPort));
+}
+
+TEST(RequestGuardTest, ExplicitOriginAllowlistIsExactAndDoesNotChangeHostPolicy) {
+    using basalt::server::is_allowed_origin;
+    const std::vector<std::string> allowlist{"http://localhost:5173", "https://research.example.com"};
+    EXPECT_TRUE(is_allowed_origin("http://localhost:5173", kPort, "127.0.0.1", allowlist));
+    EXPECT_TRUE(is_allowed_origin("https://research.example.com", kPort, "127.0.0.1", allowlist));
+    EXPECT_FALSE(is_allowed_origin("https://research.example.com/", kPort, "127.0.0.1", allowlist));
+    EXPECT_FALSE(is_allowed_origin("http://localhost:5174", kPort, "127.0.0.1", allowlist));
 }
 
 TEST(RequestGuardTest, JsonMediaTypeIgnoresParametersAndCase) {
@@ -125,11 +150,18 @@ TEST(RequestGuardTest, BenchmarkOrderCountIsCappedAtTenThousand) {
 class HttpServerTest : public testing::Test {
 protected:
     std::unique_ptr<basalt::server::HttpServer> server;
+    std::unique_ptr<basalt::platform::PlatformRunner> platform;
     std::thread worker;
     int port{};
 
+    [[nodiscard]] virtual std::vector<std::string> configured_origins() const { return {}; }
+
     void SetUp() override {
-        server = std::make_unique<basalt::server::HttpServer>(basalt::common::AppConfig{});
+        platform = std::make_unique<basalt::platform::PlatformRunner>();
+        ASSERT_TRUE(platform->run(12));
+        basalt::common::AppConfig config;
+        config.cors_allowed_origins = configured_origins();
+        server = std::make_unique<basalt::server::HttpServer>(config, platform.get());
         ASSERT_TRUE(server->bind_to_any_port());
         port = server->port();
         worker = std::thread([this] { static_cast<void>(server->run_bound()); });
@@ -149,6 +181,13 @@ protected:
     }
 
     [[nodiscard]] std::string origin() const { return "http://127.0.0.1:" + std::to_string(port); }
+};
+
+class ConfiguredCorsHttpServerTest : public HttpServerTest {
+protected:
+    [[nodiscard]] std::vector<std::string> configured_origins() const override {
+        return {"http://localhost:5173"};
+    }
 };
 
 TEST_F(HttpServerTest, SameOriginGetSucceedsWithoutWildcardCors) {
@@ -229,7 +268,8 @@ TEST_F(HttpServerTest, PreflightAllowsOnlyAllowlistedOrigins) {
     EXPECT_EQ(allowed->status, 204);
     EXPECT_EQ(allowed->get_header_value("Access-Control-Allow-Origin"), origin());
     EXPECT_NE(allowed->get_header_value("Access-Control-Allow-Methods").find("POST"), std::string::npos);
-    EXPECT_EQ(allowed->get_header_value("Access-Control-Allow-Headers"), "Content-Type");
+    EXPECT_EQ(allowed->get_header_value("Access-Control-Allow-Headers"),
+              "Content-Type, X-Request-ID, Idempotency-Key");
 
     const auto localhost = cli.Options("/api/orders", httplib::Headers{
         {"Origin", "http://localhost:" + std::to_string(port)}, {"Access-Control-Request-Method", "POST"}});
@@ -241,6 +281,109 @@ TEST_F(HttpServerTest, PreflightAllowsOnlyAllowlistedOrigins) {
     ASSERT_TRUE(denied);
     EXPECT_EQ(denied->status, 403);
     EXPECT_FALSE(denied->has_header("Access-Control-Allow-Origin"));
+}
+
+TEST_F(ConfiguredCorsHttpServerTest, AllowsOnlyConfiguredOriginForReadsAndPreflight) {
+    auto cli = client();
+    const auto allowed = cli.Get("/api/v1/health", httplib::Headers{{"Origin", "http://localhost:5173"}});
+    ASSERT_TRUE(allowed);
+    EXPECT_EQ(allowed->status, 200);
+    EXPECT_EQ(allowed->get_header_value("Access-Control-Allow-Origin"), "http://localhost:5173");
+
+    const auto preflight = cli.Options("/api/v1/orders", httplib::Headers{
+        {"Origin", "http://localhost:5173"}, {"Access-Control-Request-Method", "PATCH"},
+        {"Access-Control-Request-Headers", "content-type,x-request-id"}});
+    ASSERT_TRUE(preflight);
+    EXPECT_EQ(preflight->status, 204);
+    EXPECT_NE(preflight->get_header_value("Access-Control-Allow-Methods").find("PATCH"), std::string::npos);
+    EXPECT_NE(preflight->get_header_value("Access-Control-Allow-Headers").find("X-Request-ID"), std::string::npos);
+
+    const auto denied = cli.Get("/api/v1/health", httplib::Headers{{"Origin", "http://localhost:5174"}});
+    ASSERT_TRUE(denied);
+    EXPECT_EQ(denied->status, 403);
+    EXPECT_FALSE(denied->has_header("Access-Control-Allow-Origin"));
+}
+
+TEST_F(HttpServerTest, V1ReadRoutesReturnSchemaVersionedFrontendShapes) {
+    auto cli = client();
+    const auto health = cli.Get("/api/v1/health");
+    ASSERT_TRUE(health);
+    ASSERT_EQ(health->status, 200);
+    const auto health_json = Json::parse(health->body);
+    EXPECT_EQ(health_json.at("schema_version"), 1);
+    EXPECT_EQ(health_json.at("state"), "OK");
+    EXPECT_FALSE(health_json.at("websocket_available").get<bool>());
+
+    const auto watch = cli.Get("/api/v1/market/watch");
+    ASSERT_TRUE(watch);
+    ASSERT_EQ(watch->status, 200);
+    const auto instruments = Json::parse(watch->body).at("instruments");
+    ASSERT_FALSE(instruments.empty());
+    EXPECT_TRUE(instruments.at(0).contains("instrumentId"));
+    EXPECT_TRUE(instruments.at(0).contains("lastPrice"));
+    EXPECT_TRUE(instruments.at(0).contains("priceUnit"));
+    EXPECT_FALSE(instruments.at(0).contains("instrument_id"));
+
+    const auto snapshot = cli.Get("/api/v1/instruments/9001/snapshot?depth=20");
+    ASSERT_TRUE(snapshot);
+    ASSERT_EQ(snapshot->status, 200);
+    const auto snapshot_json = Json::parse(snapshot->body);
+    EXPECT_EQ(snapshot_json.at("schema_version"), 1);
+    EXPECT_TRUE(snapshot_json.at("book").contains("restingOrders"));
+    EXPECT_TRUE(snapshot_json.at("book").contains("bestBid"));
+    EXPECT_TRUE(snapshot_json.at("trades").is_array());
+    EXPECT_TRUE(snapshot_json.at("activity").is_array());
+
+    const auto metadata = cli.Get("/api/v1/instruments/9001");
+    ASSERT_TRUE(metadata);
+    ASSERT_EQ(metadata->status, 200);
+    EXPECT_TRUE(Json::parse(metadata->body).contains("tickSizeMicro"));
+
+    const auto portfolio = cli.Get("/api/v1/portfolio/1");
+    ASSERT_TRUE(portfolio);
+    ASSERT_EQ(portfolio->status, 200);
+    const auto portfolio_json = Json::parse(portfolio->body);
+    EXPECT_TRUE(portfolio_json.contains("cashMicro"));
+    EXPECT_TRUE(portfolio_json.contains("realizedPnlMicro"));
+    EXPECT_FALSE(portfolio_json.contains("cash_balance_micro"));
+
+    for (const auto& path : {"/api/v1/risk/1", "/api/v1/system/metrics", "/api/v1/trades?limit=10"}) {
+        const auto response = cli.Get(path);
+        ASSERT_TRUE(response) << path;
+        ASSERT_EQ(response->status, 200) << path;
+        EXPECT_EQ(Json::parse(response->body).at("schema_version"), 1) << path;
+    }
+}
+
+TEST_F(HttpServerTest, V1ValidationUnsupportedRoutesAndPayloadLimitAreStructured) {
+    auto cli = client();
+    for (const auto& path : {"/api/v1/instruments/9001/snapshot?depth=0",
+                             "/api/v1/instruments/9001/snapshot?depth=201",
+                             "/api/v1/instruments/not-an-id"}) {
+        const auto response = cli.Get(path);
+        ASSERT_TRUE(response) << path;
+        EXPECT_EQ(response->status, 400) << path;
+        EXPECT_EQ(Json::parse(response->body).at("schema_version"), 1) << path;
+    }
+
+    const auto unsupported = cli.Get("/api/v1/backtests/abc");
+    ASSERT_TRUE(unsupported);
+    EXPECT_EQ(unsupported->status, 501);
+    EXPECT_EQ(Json::parse(unsupported->body).at("code"), "NOT_IMPLEMENTED");
+
+    const auto stream = cli.Get("/api/v1/stream");
+    ASSERT_TRUE(stream);
+    EXPECT_EQ(stream->status, 501);
+    EXPECT_EQ(Json::parse(stream->body).at("code"), "STREAM_UNAVAILABLE");
+
+    const auto malformed = cli.Post("/api/orders", "{", "application/json");
+    ASSERT_TRUE(malformed);
+    EXPECT_EQ(malformed->status, 400);
+
+    const std::string oversized(70U * 1024U, 'x');
+    const auto too_large = cli.Post("/api/orders", oversized, "application/json");
+    ASSERT_TRUE(too_large);
+    EXPECT_EQ(too_large->status, 413);
 }
 
 TEST_F(HttpServerTest, BenchmarkRejectsOrderCountsAboveTheMcpCap) {

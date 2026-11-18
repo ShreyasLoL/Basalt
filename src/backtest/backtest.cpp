@@ -49,16 +49,11 @@ struct PendingOrder {
 };
 
 common::Result<std::int64_t> absolute_quantity(const common::PositionQuantity quantity) {
-    if (quantity == std::numeric_limits<common::PositionQuantity>::min())
+    if (quantity >= 0) return common::Result<std::int64_t>::success(quantity);
+    const auto magnitude = common::checked_subtract(0, quantity);
+    if (!magnitude)
         return common::Result<std::int64_t>::failure({"ARITHMETIC_OVERFLOW", "Position magnitude overflows"});
-    return common::Result<std::int64_t>::success(quantity < 0 ? -quantity : quantity);
-}
-
-common::Result<std::int64_t> subtract(const std::int64_t left, const std::int64_t right) {
-    if ((right > 0 && left < std::numeric_limits<std::int64_t>::min() + right) ||
-        (right < 0 && left > std::numeric_limits<std::int64_t>::max() + right))
-        return common::Result<std::int64_t>::failure({"ARITHMETIC_OVERFLOW", "Signed subtraction overflow"});
-    return common::Result<std::int64_t>::success(left - right);
+    return magnitude;
 }
 
 common::Quantity participation(const common::Quantity quantity, const std::uint32_t bps) {
@@ -379,6 +374,9 @@ common::Result<BacktestResult> BacktestEngine::run(
 
     BacktestResult result{};
     result.input_event_sha256 = persistence::HistoryStore::sha256(input_bytes(events));
+    if (config.execution.fee_schedule.components.empty() &&
+        config.execution.fee_schedule.gst_basis_points == 0)
+        result.warnings.push_back("fees: none (cost-free)");
     if (!config.survivorship_safe_history)
         result.warnings.push_back("SURVIVORSHIP_SAFE_HISTORY_NOT_VERIFIED");
     if (config.corporate_action_policy.empty() || config.corporate_action_policy == "unspecified")
@@ -528,7 +526,7 @@ common::Result<BacktestResult> BacktestEngine::run(
         if (!after) return common::Result<void>::failure(after.error());
         const auto prior_realized = prior_state ? prior_state->realized_pnl_micro : 0;
         const auto next_realized = after.value() ? after.value()->realized_pnl_micro : 0;
-        auto realized_delta = subtract(next_realized, prior_realized);
+        auto realized_delta = common::checked_subtract(next_realized, prior_realized);
         if (!realized_delta) return common::Result<void>::failure(realized_delta.error());
         const auto prior_quantity = prior_state ? prior_state->quantity : 0;
         const auto after_quantity = after.value() ? after.value()->quantity : 0;
@@ -863,6 +861,442 @@ common::Result<BacktestResult> BacktestEngine::run(
                                          BASALT_GIT_WORKTREE_DIRTY).dump();
     result.manifest_sha256 = persistence::HistoryStore::sha256(result.manifest_json);
     return common::Result<BacktestResult>::success(std::move(result));
+}
+
+common::Result<PortfolioBacktestResult> PortfolioBacktestEngine::run(
+    std::vector<PortfolioBacktestLeg> legs, const PortfolioBacktestConfig& config) const {
+    if (legs.empty() || config.account_id == 0 || config.initial_cash_micro <= 0 ||
+        config.risk_limits.max_gross_exposure_micro <= 0 ||
+        config.risk_limits.max_net_exposure_micro <= 0 ||
+        config.risk_limits.max_position_quantity <= 0)
+        return common::Result<PortfolioBacktestResult>::failure(
+            {"PORTFOLIO_BACKTEST_CONFIG", "Portfolio backtest requires legs, positive cash and valid portfolio risk limits"});
+
+    struct PreparedLeg {
+        PortfolioBacktestLeg input{};
+        std::vector<BacktestEvent> selected{};
+        std::unique_ptr<strategy::StrategyRuntime> runtime{};
+        strategy::StrategyContext context{};
+    };
+    struct TimelineItem { std::size_t leg_index{}; std::size_t event_index{}; };
+    std::vector<PreparedLeg> prepared;
+    prepared.reserve(legs.size());
+    struct PortfolioStopGuard {
+        std::vector<PreparedLeg>& legs;
+        ~PortfolioStopGuard() {
+            for (auto& leg : legs) if (leg.runtime) (void)leg.runtime->stop();
+        }
+    } stop_guard{prepared};
+    std::set<common::InstrumentId> instrument_ids;
+    std::map<common::InstrumentId, common::StrategyId> strategy_by_instrument;
+    std::vector<TimelineItem> timeline;
+    trading::KillSwitch kill_switch;
+    trading::RiskEngine risk_engine(kill_switch);
+    PortfolioBacktestResult result{};
+    auto add_warning = [&](std::string warning) {
+        if (std::find(result.warnings.begin(), result.warnings.end(), warning) == result.warnings.end())
+            result.warnings.push_back(std::move(warning));
+    };
+    bool cost_free = true;
+    std::vector<common::InstrumentId> fee_free_instruments;
+    for (auto& leg : legs) {
+        const auto& value = leg.config;
+        if (!leg.strategy || value.schema_version == 0 || value.dataset_id.empty() ||
+            !valid_hash(value.dataset_sha256) || value.data_source.empty() || value.license_tag.empty() ||
+            value.timezone.empty() || value.exchange_calendar.empty() || value.periods_per_year == 0 ||
+            value.instrument_master_version == 0 || value.instrument.id == 0 || !value.instrument.active ||
+            value.instrument.tick_size_micro <= 0 || value.instrument.lot_size == 0 ||
+            value.strategy_id == 0 || value.account_id != config.account_id ||
+            value.initial_cash_micro != config.initial_cash_micro || value.allow_short != config.allow_short ||
+            value.max_working_bars == 0 || value.execution.model != trading::PaperExecutionModel::BarApproximation ||
+            value.execution.model_version == 0 || value.execution.participation_bps > 10'000 ||
+            value.execution.tick_size_micro != value.instrument.tick_size_micro || value.half_spread_micro < 0 ||
+            value.half_spread_micro % value.instrument.tick_size_micro != 0 ||
+            value.risk_limits.max_order_notional_micro <= 0 || value.risk_limits.max_order_quantity == 0 ||
+            value.risk_limits.max_position_quantity <= 0 || value.risk_limits.max_gross_exposure_micro <= 0 ||
+            value.risk_limits.max_net_exposure_micro <= 0 || value.risk_limits.max_concentration_bps > 10'000 ||
+            value.risk_limits.max_instrument_position_quantity <= 0 ||
+            value.risk_limits.max_instrument_notional_micro <= 0 ||
+            !instrument_ids.insert(value.instrument.id).second)
+            return common::Result<PortfolioBacktestResult>::failure(
+                {"PORTFOLIO_BACKTEST_LEG", "Each leg needs unique instrument metadata and shared account settings"});
+        auto split_check = validate_splits(value.splits);
+        if (!split_check) return common::Result<PortfolioBacktestResult>::failure(split_check.error());
+        auto event_check = validate_events(leg.events, value);
+        if (!event_check) return common::Result<PortfolioBacktestResult>::failure(event_check.error());
+        const auto range = value.selected_split == DataSplit::Train ? value.splits.train :
+            (value.selected_split == DataSplit::Validation ? value.splits.validation : value.splits.test);
+        PreparedLeg item{};
+        item.input = std::move(leg);
+        const auto& prepared_config = item.input.config;
+        for (std::size_t event_index = 0; event_index < item.input.events.size(); ++event_index) {
+            const auto& event = item.input.events[event_index];
+            if (event.close_time_ns >= range.start_ns && event.close_time_ns < range.end_ns) {
+                item.selected.push_back(event);
+            }
+        }
+        if (item.selected.empty()) return common::Result<PortfolioBacktestResult>::failure(
+            {"BACKTEST_SPLIT_EMPTY", "A portfolio leg has no completed bars in the selected data split"});
+        for (const auto& initial : item.input.config.initial_positions) {
+            if (initial.instrument_id != prepared_config.instrument.id || initial.quantity == 0 ||
+                initial.average_cost_micro <= 0 || initial.average_cost_micro % prepared_config.instrument.tick_size_micro != 0 ||
+                (initial.quantity < 0 && !config.allow_short))
+                return common::Result<PortfolioBacktestResult>::failure(
+                    {"BACKTEST_INITIAL_POSITION", "A portfolio leg has an invalid initial position"});
+        }
+        item.input.strategy_config.random_seed = prepared_config.seed;
+        const auto descriptor = item.input.strategy->descriptor();
+        if (descriptor.strategy_id.empty() || descriptor.stable_hash.empty() || descriptor.version.empty())
+            return common::Result<PortfolioBacktestResult>::failure(
+                {"BACKTEST_STRATEGY_INVALID", "Portfolio leg strategy descriptor is incomplete"});
+        if (descriptor.strategy_id == "VWAP_REVERSION" &&
+            std::any_of(item.selected.begin(), item.selected.end(), [](const auto& event) { return event.session_key.empty(); }))
+            return common::Result<PortfolioBacktestResult>::failure(
+                {"BACKTEST_SESSION_REQUIRED", "VWAP backtests require exchange-calendar session keys for each bar"});
+        item.context.instrument = prepared_config.instrument;
+        item.context.account_id = config.account_id;
+        item.context.strategy_id = prepared_config.strategy_id;
+        item.context.now_ns = item.selected.front().open_time_ns;
+        item.context.max_data_age_ns = prepared_config.execution.stale_after_ns;
+        item.context.allow_short = config.allow_short;
+        item.context.risk_limits = prepared_config.risk_limits;
+        item.context.risk_limits.max_gross_exposure_micro = std::min(
+            item.context.risk_limits.max_gross_exposure_micro, config.risk_limits.max_gross_exposure_micro);
+        item.context.risk_limits.max_net_exposure_micro = std::min(
+            item.context.risk_limits.max_net_exposure_micro, config.risk_limits.max_net_exposure_micro);
+        item.context.risk_limits.max_position_quantity = std::min(
+            item.context.risk_limits.max_position_quantity, config.risk_limits.max_position_quantity);
+        item.runtime = std::make_unique<strategy::StrategyRuntime>(std::move(item.input.strategy), risk_engine);
+        auto strategy_configured = item.runtime->configure(item.input.strategy_config);
+        if (!strategy_configured) return common::Result<PortfolioBacktestResult>::failure(
+            {strategy_configured.error().code, strategy_configured.error().message});
+        auto started = item.runtime->start(item.context);
+        if (!started) return common::Result<PortfolioBacktestResult>::failure(
+            {started.error().code, started.error().message});
+        strategy_by_instrument[prepared_config.instrument.id] = prepared_config.strategy_id;
+        const bool leg_cost_free = prepared_config.execution.fee_schedule.components.empty() &&
+            prepared_config.execution.fee_schedule.gst_basis_points == 0;
+        cost_free = cost_free && leg_cost_free;
+        if (leg_cost_free) fee_free_instruments.push_back(prepared_config.instrument.id);
+        if (!prepared_config.survivorship_safe_history) add_warning("SURVIVORSHIP_SAFE_HISTORY_NOT_VERIFIED");
+        if (prepared_config.corporate_action_policy.empty() || prepared_config.corporate_action_policy == "unspecified")
+            add_warning("CORPORATE_ACTION_POLICY_UNSPECIFIED");
+        if (prepared_config.license_tag == "unspecified") add_warning("DATA_LICENSE_UNSPECIFIED");
+        prepared.push_back(std::move(item));
+        for (std::size_t selected_index = 0; selected_index < prepared.back().selected.size(); ++selected_index) {
+            timeline.push_back({prepared.size() - 1U, selected_index});
+        }
+    }
+
+    // Build the timeline from the already filtered leg copies. It is globally ordered by
+    // close time, with instrument ID as a stable tie-breaker for simultaneous bars.
+    timeline.clear();
+    for (std::size_t leg_index = 0; leg_index < prepared.size(); ++leg_index)
+        for (std::size_t event_index = 0; event_index < prepared[leg_index].selected.size(); ++event_index)
+            timeline.push_back({leg_index, event_index});
+    std::sort(timeline.begin(), timeline.end(), [&](const auto& left, const auto& right) {
+        const auto& a = prepared[left.leg_index].selected[left.event_index];
+        const auto& b = prepared[right.leg_index].selected[right.event_index];
+        if (a.close_time_ns != b.close_time_ns) return a.close_time_ns < b.close_time_ns;
+        if (a.event.instrument_id != b.event.instrument_id) return a.event.instrument_id < b.event.instrument_id;
+        return a.sequence < b.sequence;
+    });
+
+    struct PortfolioPendingOrder {
+        trading::OrderIntent intent{};
+        std::int64_t signal_close_ns{};
+        common::EventSequence signal_sequence{};
+        std::size_t leg_index{};
+        std::uint64_t bars_seen{};
+    };
+    trading::PortfolioLedger ledger;
+    auto created = ledger.create_account({config.account_id, "BASALT_PORTFOLIO_BACKTEST",
+        config.initial_cash_micro, config.initial_cash_micro, config.allow_short});
+    if (!created) return common::Result<PortfolioBacktestResult>::failure(created.error());
+    auto run_start_ns = prepared.front().selected.front().open_time_ns;
+    for (const auto& leg : prepared)
+        run_start_ns = std::min(run_start_ns, leg.selected.front().open_time_ns);
+    std::uint64_t next_execution_id = 1;
+    std::uint64_t next_ledger_sequence = 1;
+    for (auto& leg : prepared) {
+        for (const auto& initial : leg.input.config.initial_positions) {
+            const auto magnitude = absolute_quantity(initial.quantity);
+            if (!magnitude) return common::Result<PortfolioBacktestResult>::failure(magnitude.error());
+            trading::ExecutionFill seed{};
+            seed.execution_id = next_execution_id++;
+            seed.order_id = seed.execution_id;
+            seed.event_sequence = next_ledger_sequence++;
+            seed.account_id = config.account_id;
+            seed.instrument_id = initial.instrument_id;
+            seed.strategy_id = leg.input.config.strategy_id;
+            seed.side = initial.quantity > 0 ? trading::Side::Buy : trading::Side::Sell;
+            seed.price_micro = initial.average_cost_micro;
+            seed.quantity = static_cast<common::Quantity>(magnitude.value());
+            seed.model = trading::PaperExecutionModel::BarApproximation;
+            seed.source = common::DataSourceType::Historical;
+            seed.quality = common::FeedQualityState::Ok;
+            seed.fee_schedule_id = "INITIAL_POSITION";
+            seed.fee_schedule_source = "portfolio_backtest_manifest";
+            seed.time_ns = run_start_ns - 1;
+            auto applied = ledger.apply_fill(seed);
+            if (!applied) return common::Result<PortfolioBacktestResult>::failure(applied.error());
+        }
+    }
+
+    if (cost_free) add_warning("fees: none (cost-free)");
+    else if (!fee_free_instruments.empty()) {
+        std::ostringstream warning;
+        warning << "fees: none (cost-free) for portfolio instrument(s)";
+        for (const auto id : fee_free_instruments) warning << ' ' << id;
+        add_warning(warning.str());
+    }
+    std::map<common::InstrumentId, std::int64_t> marks;
+    std::map<common::InstrumentId, PortfolioInstrumentStats> instrument_stats;
+    for (const auto& leg : prepared)
+        instrument_stats.emplace(leg.input.config.instrument.id,
+            PortfolioInstrumentStats{leg.input.config.instrument.id, 0, 0});
+    std::vector<PortfolioPendingOrder> pending;
+    std::map<std::string, std::uint64_t, std::less<>> rejection_counts;
+    std::uint64_t next_order_id = next_execution_id;
+    std::int64_t high_water = config.initial_cash_micro;
+
+    auto risk_snapshot = [&](const common::InstrumentId instrument_id, const BacktestEvent& current)
+        -> common::Result<trading::RiskSnapshot> {
+        auto account = ledger.account(config.account_id);
+        auto portfolio = ledger.summary(config.account_id);
+        auto position = ledger.position(config.account_id, instrument_id);
+        if (!account) return common::Result<trading::RiskSnapshot>::failure(account.error());
+        if (!portfolio) return common::Result<trading::RiskSnapshot>::failure(portfolio.error());
+        if (!position) return common::Result<trading::RiskSnapshot>::failure(position.error());
+        std::int64_t gross = 0;
+        std::int64_t net = 0;
+        std::int64_t instrument_gross = 0;
+        std::map<common::StrategyId, std::int64_t> strategy_gross;
+        for (const auto& [id, state] : portfolio.value().positions) {
+            const auto mark = marks.contains(id) ? marks.at(id) : state.average_cost_micro;
+            auto signed_value = common::checked_multiply(state.quantity, mark);
+            auto quantity_abs = absolute_quantity(state.quantity);
+            if (!signed_value || !quantity_abs)
+                return common::Result<trading::RiskSnapshot>::failure(
+                    {"BACKTEST_EQUITY_OVERFLOW", "Portfolio exposure calculation overflowed"});
+            auto gross_value = common::checked_multiply(quantity_abs.value(), mark);
+            if (!gross_value) return common::Result<trading::RiskSnapshot>::failure(gross_value.error());
+            auto next_gross = common::checked_add(gross, gross_value.value());
+            auto next_net = common::checked_add(net, signed_value.value());
+            if (!next_gross || !next_net) return common::Result<trading::RiskSnapshot>::failure(
+                {"BACKTEST_EQUITY_OVERFLOW", "Portfolio exposure accumulation overflowed"});
+            gross = next_gross.value();
+            net = next_net.value();
+            if (id == instrument_id) instrument_gross = gross_value.value();
+            const auto owner = strategy_by_instrument.find(id);
+            if (owner != strategy_by_instrument.end()) {
+                auto strategy_total = common::checked_add(strategy_gross[owner->second], gross_value.value());
+                if (!strategy_total) return common::Result<trading::RiskSnapshot>::failure(strategy_total.error());
+                strategy_gross[owner->second] = strategy_total.value();
+            }
+        }
+        auto equity = common::checked_add(account.value().cash_balance_micro, net);
+        if (!equity || equity.value() <= 0) return common::Result<trading::RiskSnapshot>::failure(
+            {"BACKTEST_EQUITY_INVALID", "Portfolio marked equity is non-positive or overflowed"});
+        high_water = std::max(high_water, equity.value());
+        const auto leg_strategy = strategy_by_instrument.at(instrument_id);
+        auto daily_pnl = common::checked_subtract(equity.value(), config.initial_cash_micro);
+        if (!daily_pnl) return common::Result<trading::RiskSnapshot>::failure(daily_pnl.error());
+        trading::RiskSnapshot snapshot{};
+        snapshot.position_quantity = position.value() ? position.value()->quantity : 0;
+        snapshot.gross_exposure_micro = gross;
+        snapshot.net_exposure_micro = net;
+        snapshot.instrument_exposure_micro = instrument_gross;
+        snapshot.strategy_exposure_micro = strategy_gross[leg_strategy];
+        snapshot.daily_pnl_micro = daily_pnl.value();
+        snapshot.strategy_daily_pnl_micro = daily_pnl.value();
+        snapshot.equity_micro = equity.value();
+        snapshot.high_water_mark_micro = high_water;
+        snapshot.cash_available_micro = std::max<std::int64_t>(0, account.value().cash_balance_micro);
+        snapshot.data_age_ns = 0;
+        snapshot.now_ns = current.close_time_ns;
+        snapshot.bid_micro = current.event.bar->close_micro;
+        snapshot.ask_micro = current.event.bar->close_micro;
+        snapshot.data_quality_ok = current.event.quality == common::FeedQualityState::Ok;
+        snapshot.allow_short = config.allow_short;
+        return common::Result<trading::RiskSnapshot>::success(std::move(snapshot));
+    };
+
+    trading::PaperExecutionSimulator simulator;
+    for (const auto& scheduled : timeline) {
+        auto& leg = prepared[scheduled.leg_index];
+        const auto& current = leg.selected[scheduled.event_index];
+        const auto instrument_id = leg.input.config.instrument.id;
+        const auto& leg_config = leg.input.config;
+
+        // Fill only against a later bar for this same instrument.
+        for (auto it = pending.begin(); it != pending.end();) {
+            if (it->leg_index != scheduled.leg_index) { ++it; continue; }
+            ++it->bars_seen;
+            if (current.open_time_ns <= it->signal_close_ns || current.sequence <= it->signal_sequence) {
+                ++it;
+                continue;
+            }
+            auto& exec_config = leg.input.config.execution;
+            const auto& fees = exec_config.fee_schedule;
+            if ((fees.valid_from_ns > 0 && current.open_time_ns < fees.valid_from_ns) ||
+                (fees.valid_to_ns > 0 && current.open_time_ns >= fees.valid_to_ns))
+                return common::Result<PortfolioBacktestResult>::failure(
+                    {"FEE_SCHEDULE_OUT_OF_RANGE", "Selected fee schedule is not effective at this simulated fill time"});
+            trading::ExecutionMarket market{};
+            market.event_sequence = current.sequence;
+            market.source = current.event.source;
+            market.quality = current.event.quality;
+            market.event_time_ns = current.close_time_ns;
+            market.receive_time_ns = current.close_time_ns;
+            market.now_ns = current.close_time_ns;
+            market.sequence_gap = current.event.sequence_gap;
+            market.next_bar = current.event.bar;
+            market.signal_bar_close_ns = it->signal_close_ns;
+            market.next_bar_open_ns = current.open_time_ns;
+            market.half_spread_micro = leg_config.half_spread_micro;
+            exec_config.leave_unfilled_working = true;
+            auto execution = simulator.execute(it->intent, market, exec_config);
+            if (!execution) return common::Result<PortfolioBacktestResult>::failure(execution.error());
+            const auto& report = execution.value();
+            auto staged_ledger = ledger;
+            auto staged_execution_id = next_execution_id;
+            auto staged_ledger_sequence = next_ledger_sequence;
+            std::vector<trading::ExecutionFill> staged_fills;
+            std::string rejection_code;
+            for (const auto& paper_fill : report.fills) {
+                trading::ExecutionFill fill{};
+                fill.execution_id = staged_execution_id++;
+                fill.event_sequence = staged_ledger_sequence++;
+                fill.order_id = it->intent.order_id;
+                fill.account_id = config.account_id;
+                fill.instrument_id = it->intent.instrument_id;
+                fill.strategy_id = it->intent.strategy_id;
+                fill.side = it->intent.side;
+                fill.price_micro = paper_fill.price_micro;
+                fill.quantity = paper_fill.quantity;
+                fill.fee_micro = paper_fill.fee_micro;
+                fill.model = report.model;
+                fill.model_version = report.model_version;
+                fill.source = report.source;
+                fill.quality = report.quality;
+                fill.fee_schedule_id = report.fee_schedule_id;
+                fill.fee_schedule_version = report.fee_schedule_version;
+                fill.fee_schedule_source = report.fee_schedule_source;
+                fill.time_ns = current.open_time_ns;
+                auto applied = staged_ledger.apply_fill(fill);
+                if (!applied) {
+                    if (applied.error().code == "INSUFFICIENT_CASH") rejection_code = "FILL_TIME_INSUFFICIENT_CASH";
+                    else if (applied.error().code == "INSUFFICIENT_POSITION") rejection_code = "FILL_TIME_INSUFFICIENT_POSITION";
+                    else return common::Result<PortfolioBacktestResult>::failure(applied.error());
+                    break;
+                }
+                staged_fills.push_back(std::move(fill));
+            }
+            if (!rejection_code.empty()) {
+                ++rejection_counts[rejection_code];
+                ++instrument_stats[instrument_id].risk_rejections;
+                risk_engine.complete(it->intent.client_order_id);
+                it = pending.erase(it);
+                continue;
+            }
+            ledger = std::move(staged_ledger);
+            next_execution_id = staged_execution_id;
+            next_ledger_sequence = staged_ledger_sequence;
+            for (auto& fill : staged_fills) {
+                ++instrument_stats[instrument_id].executions;
+                (void)fill;
+            }
+            auto callback_context = leg.context;
+            auto updated_snapshot = risk_snapshot(instrument_id, current);
+            if (!updated_snapshot) return common::Result<PortfolioBacktestResult>::failure(updated_snapshot.error());
+            callback_context.risk_snapshot = updated_snapshot.value();
+            const auto callback = leg.runtime->on_execution(report, callback_context);
+            if (!callback) return common::Result<PortfolioBacktestResult>::failure(
+                {callback.error().code, callback.error().message});
+            if (report.status == "FILLED" || report.remaining_quantity == 0 ||
+                (report.filled_quantity == 0 && report.status != "WORKING") ||
+                it->bars_seen >= leg_config.max_working_bars) {
+                risk_engine.complete(it->intent.client_order_id);
+                it = pending.erase(it);
+            } else {
+                it->intent.quantity = report.remaining_quantity;
+                ++it;
+            }
+        }
+
+        marks[instrument_id] = current.event.bar->close_micro;
+        auto existing = ledger.position(config.account_id, instrument_id);
+        if (!existing) return common::Result<PortfolioBacktestResult>::failure(existing.error());
+        if (existing.value()) {
+            auto marked = ledger.mark(config.account_id, instrument_id,
+                current.event.bar->close_micro, current.event.bar->close_micro);
+            if (!marked) return common::Result<PortfolioBacktestResult>::failure(marked.error());
+        }
+        auto snapshot = risk_snapshot(instrument_id, current);
+        if (!snapshot) return common::Result<PortfolioBacktestResult>::failure(snapshot.error());
+        leg.context.position_quantity = snapshot.value().position_quantity;
+        leg.context.risk_snapshot = snapshot.value();
+        leg.context.now_ns = current.close_time_ns;
+        leg.context.session_key = current.session_key;
+        auto equity_point = snapshot.value().equity_micro;
+        result.equity_curve.push_back({current.close_time_ns, equity_point});
+
+        auto dispatched = leg.runtime->on_market_event(current.event, leg.context);
+        if (!dispatched) return common::Result<PortfolioBacktestResult>::failure(
+            {dispatched.error().code, dispatched.error().message});
+        for (const auto& rejected : dispatched.value().rejected_signals) {
+            ++rejection_counts[rejected.decision.code];
+            ++instrument_stats[instrument_id].risk_rejections;
+        }
+        for (auto& signal : dispatched.value().approved_signals) {
+            signal.intent.order_id = next_order_id++;
+            pending.push_back({std::move(signal.intent), current.close_time_ns, current.sequence,
+                               scheduled.leg_index, 0});
+        }
+    }
+
+    for (const auto& order : pending) risk_engine.complete(order.intent.client_order_id);
+    for (auto& leg : prepared) (void)leg.runtime->stop();
+    const auto reconciled = ledger.verify_reconciliation();
+    if (!reconciled) return common::Result<PortfolioBacktestResult>::failure(reconciled.error());
+    auto summary = ledger.summary(config.account_id);
+    if (!summary) return common::Result<PortfolioBacktestResult>::failure(summary.error());
+    result.final_portfolio = summary.value();
+    result.cash_journal = ledger.journal();
+    result.fills = ledger.fills();
+    result.instruments.reserve(instrument_stats.size());
+    for (const auto& [unused, stats] : instrument_stats) {
+        (void)unused;
+        result.instruments.push_back(stats);
+    }
+    for (const auto& [code, count] : rejection_counts) result.risk_rejections.emplace_back(code, count);
+
+    Json ledger_json{{"account_id", config.account_id}, {"cash_balance_micro", result.final_portfolio.cash_balance_micro},
+                     {"total_fees_micro", result.final_portfolio.total_fees_micro},
+                     {"realized_pnl_micro", result.final_portfolio.realized_pnl_micro},
+                     {"unrealized_pnl_micro", result.final_portfolio.unrealized_pnl_micro}};
+    ledger_json["positions"] = Json::array();
+    for (const auto& [instrument_id, position] : result.final_portfolio.positions)
+        ledger_json["positions"].push_back({{"instrument_id", instrument_id}, {"quantity", position.quantity},
+            {"average_cost_micro", position.average_cost_micro}, {"realized_pnl_micro", position.realized_pnl_micro},
+            {"unrealized_pnl_micro", position.unrealized_pnl_micro},
+            {"mark_micro", position.mark_micro ? Json(*position.mark_micro) : Json(nullptr)}});
+    ledger_json["fills"] = Json::array();
+    for (const auto& fill : result.fills)
+        ledger_json["fills"].push_back({{"execution_id", fill.execution_id}, {"event_sequence", fill.event_sequence},
+            {"order_id", fill.order_id}, {"instrument_id", fill.instrument_id}, {"strategy_id", fill.strategy_id},
+            {"side", static_cast<unsigned>(fill.side)}, {"price_micro", fill.price_micro},
+            {"quantity", fill.quantity}, {"fee_micro", fill.fee_micro}, {"time_ns", fill.time_ns}});
+    ledger_json["cash_journal"] = Json::array();
+    for (const auto& entry : result.cash_journal)
+        ledger_json["cash_journal"].push_back({{"execution_id", entry.execution_id},
+            {"event_sequence", entry.event_sequence}, {"debit_micro", entry.debit_micro},
+            {"credit_micro", entry.credit_micro}, {"fee_micro", entry.fee_micro},
+            {"balance_micro", entry.balance_micro}, {"memo", entry.memo}});
+    result.ledger_sha256 = persistence::HistoryStore::sha256(ledger_json.dump());
+    result.valid = true;
+    return common::Result<PortfolioBacktestResult>::success(std::move(result));
 }
 
 } // namespace basalt::backtest

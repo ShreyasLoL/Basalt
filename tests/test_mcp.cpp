@@ -1,4 +1,5 @@
 #include "basalt/server/mcp_server.hpp"
+#include "basalt/persistence/event_log.hpp"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -223,6 +224,18 @@ TEST_F(McpTest, GlobalKillSwitchLatchSurvivesProcessRestart) {
     EXPECT_TRUE(activated["result"]["structuredContent"]["active"].get<bool>());
 
     server.reset();
+    basalt::persistence::EventLog kill_log(kill_path);
+    const auto recovery = kill_log.recover();
+    ASSERT_TRUE(recovery);
+    const auto persisted_frames = kill_log.read_all();
+    ASSERT_TRUE(persisted_frames);
+    ASSERT_EQ(persisted_frames.value().size(), 1U);
+    const auto persisted_event = Json::parse(persisted_frames.value().front().payload);
+    EXPECT_EQ(persisted_event.at("schema_version"), 1);
+    EXPECT_EQ(persisted_event.at("actor"), "local-stdio");
+    EXPECT_EQ(persisted_event.at("reason"), "[REDACTED]");
+    EXPECT_EQ(persisted_frames.value().front().payload.find("operator emergency stop"), std::string::npos);
+    ASSERT_TRUE(kill_log.close());
     server = std::make_unique<McpServer>(audit_path, kill_path, [this] { return now_ns++; });
     initialize();
     auto health = call("after-restart", "get_system_health");

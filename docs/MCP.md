@@ -30,7 +30,21 @@ Tool schemas are closed objects with required types, enum/range constraints and 
 
 Initialize negotiates one of the supported protocol versions and advertises tools capability. `tools/list` returns the fourteen tools with closed JSON schemas and read-only/simulation annotations. `tools/call` validates arguments, enforces frame, rate and work limits, calls the application facade, and returns `structuredContent` plus safe text. Errors contain stable codes without stack traces or secret values. Shutdown is bounded by the per-tool caps; cancellation notifications are consumed, while the current stdio implementation processes each bounded tool call synchronously. Automated protocol tests cover discovery, reads, backtests, replay, allowlisted checks/benchmarks, malformed schemas, request-ID idempotency, rate limits, audit rotation/redaction, kill-switch restart persistence and denial of shell/file/live execution.
 
-Run the local stdio service with `basalt_server --mcp-stdio`. This mode starts without loading HTTP configuration or provider credentials. Each MCP process has its own local simulation facade; its matching book is not a remote control channel to another BASALT process.
+## Launch and data directory
+
+Configure the MCP client to launch the BASALT C++ server as a stdio process, with `--mcp-stdio` as its sole argument. For example, from the repository root:
+
+```powershell
+.\build-release\basalt_server.exe --mcp-stdio
+```
+
+```sh
+./build/basalt_server --mcp-stdio
+```
+
+The process reads JSON-RPC frames from stdin and writes protocol frames to stdout; diagnostics go to stderr. This mode bypasses HTTP configuration and does not require provider credentials. Each MCP process has its own local simulation facade; its matching book is not a remote control channel to another BASALT process.
+
+Set `BASALT_DATA_DIR` in the MCP client's child-process environment to choose the directory for `mcp_audit.jsonl` and `mcp_killswitch.blog`. If unset, the server uses the executable directory; if that cannot be resolved, it uses `<os_temp_dir>/basalt-mcp` and warns on stderr. The directory is created with owner-only permissions where supported. The stdio protocol does not accept file paths, and the data directory does not depend on the MCP client's working directory.
 
 ## Figma MCP
 

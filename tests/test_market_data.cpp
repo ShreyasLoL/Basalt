@@ -6,9 +6,11 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace basalt::market_data {
@@ -218,6 +220,77 @@ TEST(MarketDataPipeline, ReportsDurableBackpressureAndCoalescedQuoteOverflow) {
     EXPECT_EQ(quotes.front().price_micro, 1'000'500);
     EXPECT_EQ(bus.stats().quote_replacements, 1U);
     EXPECT_EQ(bus.stats().quote_overflows, 1U);
+}
+
+TEST(SpscRingBufferTest, CoversEmptyFullAndRepeatedWraparound) {
+    common::SpscRingBuffer<std::uint64_t> ring(2);
+    EXPECT_TRUE(ring.empty());
+    EXPECT_FALSE(ring.try_pop());
+    EXPECT_TRUE(ring.try_push(std::uint64_t{1}));
+    EXPECT_TRUE(ring.try_push(std::uint64_t{2}));
+    EXPECT_TRUE(ring.full());
+    EXPECT_FALSE(ring.try_push(std::uint64_t{3}));
+    ASSERT_EQ(ring.try_pop(), 1U);
+    EXPECT_TRUE(ring.try_push(std::uint64_t{3}));
+    ASSERT_EQ(ring.try_pop(), 2U);
+    ASSERT_EQ(ring.try_pop(), 3U);
+    EXPECT_TRUE(ring.empty());
+}
+
+TEST(SpscRingBufferTest, TransfersEverySequenceAcrossConcurrentWraparound) {
+    struct Message { std::uint64_t sequence{}; std::uint64_t inverse{}; };
+    constexpr std::uint64_t count = 200'000;
+    common::SpscRingBuffer<Message> ring(64);
+    std::atomic<bool> valid{true};
+    std::thread consumer([&] {
+        for (std::uint64_t expected = 0; expected < count;) {
+            auto message = ring.try_pop();
+            if (!message) {
+                std::this_thread::yield();
+                continue;
+            }
+            if (message->sequence != expected || message->inverse != ~expected)
+                valid.store(false, std::memory_order_relaxed);
+            ++expected;
+        }
+    });
+    for (std::uint64_t sequence = 0; sequence < count; ++sequence) {
+        Message message{sequence, ~sequence};
+        while (!ring.try_push(std::move(message))) std::this_thread::yield();
+    }
+    consumer.join();
+    EXPECT_TRUE(valid.load(std::memory_order_relaxed));
+    EXPECT_TRUE(ring.empty());
+}
+
+TEST(BoundedMarketEventBusTest, TransfersDurableEventsBetweenOnePublisherAndConsumer) {
+    constexpr std::uint64_t count = 20'000;
+    BoundedMarketEventBus bus(32, 1);
+    std::atomic<bool> publish_failed{false};
+    std::thread producer([&] {
+        for (std::uint64_t sequence = 0; sequence < count; ++sequence) {
+            CanonicalMarketEvent event{};
+            event.event_id = "durable-" + std::to_string(sequence);
+            event.instrument_id = 7;
+            event.kind = MarketEventKind::Trade;
+            event.price_micro = static_cast<std::int64_t>(sequence + 1U);
+            if (!bus.publish_durable(std::move(event), std::chrono::milliseconds(100))) {
+                publish_failed.store(true, std::memory_order_relaxed);
+                return;
+            }
+        }
+    });
+    for (std::uint64_t expected = 0; expected < count;) {
+        const auto event = bus.pop_durable(std::chrono::milliseconds(100));
+        if (!event) continue;
+        EXPECT_EQ(event->event_id, "durable-" + std::to_string(expected));
+        EXPECT_EQ(event->price_micro, static_cast<std::int64_t>(expected + 1U));
+        ++expected;
+    }
+    producer.join();
+    bus.close();
+    EXPECT_FALSE(publish_failed.load(std::memory_order_relaxed));
+    EXPECT_FALSE(bus.pop_durable(std::chrono::milliseconds(0)).has_value());
 }
 
 TEST(MarketDataProviders, SyntheticProviderProducesRepeatableSimOnlyEvents) {

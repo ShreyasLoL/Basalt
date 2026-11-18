@@ -54,12 +54,25 @@ bool is_allowed_host(const std::string_view host, const int port, const std::str
     return false;
 }
 
-bool is_allowed_origin(const std::string_view origin, const int port, const std::string_view bind_address) {
+bool is_allowed_origin(const std::string_view origin, const int port,
+                       const std::string_view bind_address,
+                       const std::span<const std::string> allowlist) {
     const std::string normalized = lowercase(trim(origin));
-    constexpr std::string_view scheme = "http://";
-    if (normalized.size() <= scheme.size() || normalized.compare(0, scheme.size(), scheme) != 0) return false;
-    const std::string_view authority = std::string_view(normalized).substr(scheme.size());
-    if (authority.find('/') != std::string_view::npos) return false;
+    constexpr std::string_view http = "http://";
+    constexpr std::string_view https = "https://";
+    const auto scheme_size = normalized.starts_with(http) ? http.size()
+        : (normalized.starts_with(https) ? https.size() : 0U);
+    if (scheme_size == 0 || scheme_size == normalized.size()) return false;
+    const std::string_view parsed_authority = std::string_view(normalized).substr(scheme_size);
+    if (parsed_authority.find_first_of("/*?#@\\ \t\r\n") != std::string_view::npos) return false;
+
+    for (const auto& allowed_origin : allowlist) {
+        if (normalized == lowercase(trim(allowed_origin))) return true;
+    }
+    // The built-in same-origin set stays loopback-only and HTTP-only. Explicit
+    // origins (for example a local Vite dev server) must be configured separately.
+    if (!normalized.starts_with(http)) return false;
+    const std::string_view authority = parsed_authority;
     for (const auto& allowed : allowed_authorities(port, bind_address)) {
         if (authority == allowed) return true;
         if (port == 80 && std::string(authority) + ":80" == allowed) return true;
@@ -82,12 +95,13 @@ RequestDecision validate_request_origin(const std::optional<std::string_view> ho
                                         const std::optional<std::string_view> content_type,
                                         const std::string_view method,
                                         const int port,
-                                        const std::string_view bind_address) {
+                                        const std::string_view bind_address,
+                                        const std::span<const std::string> allowlist) {
     if (!host || !is_allowed_host(*host, port, bind_address)) {
         return deny(403, "FORBIDDEN_HOST",
                     "Host header must name the local BASALT gateway (loopback host:port)");
     }
-    if (origin && !is_allowed_origin(*origin, port, bind_address)) {
+    if (origin && !is_allowed_origin(*origin, port, bind_address, allowlist)) {
         return deny(403, "FORBIDDEN_ORIGIN", "Cross-origin requests are not permitted");
     }
     if (method_requires_json(method) && (!content_type || !is_json_content_type(*content_type))) {

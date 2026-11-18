@@ -28,3 +28,16 @@ Keep tests/test_matching_engine.cpp and its eighteen named tests intact. Phase 0
 ## Test data and verification output
 
 Fixtures are synthetic, labeled SYNTHETIC, fixed-seed and not represented as real market data. Tests contain no credentials. Record build type, compiler, dependency versions, target names, CTest output, benchmark parity and browser limitations in PROGRESS.md. Do not equate compilation with runtime verification.
+
+## Sanitizers and fuzzers
+
+Use separate build directories for `-DBASALT_ENABLE_SANITIZERS=ON` (ASan+UBSan) and `-DBASALT_ENABLE_TSAN=ON` (TSan on Linux Clang/GCC). The options are mutually exclusive. `-DBASALT_ENABLE_FUZZERS=ON` requires non-Windows Clang with libFuzzer and enables ASan+UBSan on project and GoogleTest targets. The fuzz targets cover EventLog recovery, the production CSV parser, nlohmann JSON parsing, and the MCP request-frame parser. Seed corpora live under `fuzz/corpus/{event_log,csv,json,mcp}`. Example bounded runs:
+
+```sh
+./build-fuzz/basalt_fuzz_event_log -max_total_time=30 -max_len=65536 fuzz/corpus/event_log
+./build-fuzz/basalt_fuzz_csv -max_total_time=30 -max_len=262144 fuzz/corpus/csv
+./build-fuzz/basalt_fuzz_json -max_total_time=30 -max_len=262144 fuzz/corpus/json
+./build-fuzz/basalt_fuzz_mcp -max_total_time=30 -max_len=307200 fuzz/corpus/mcp
+```
+
+The GitHub workflow is configured to run ASan/UBSan, TSan and 30-second fuzz budgets for all four fuzzers on Linux Clang. Project targets receive libFuzzer coverage instrumentation without linking a second fuzzing entry point; each harness links the runtime. The local Windows Clang runtime does not link its prebuilt libFuzzer archive with ASan-instrumented objects (`annotate_string` mismatch), and WSL is unavailable in this host profile; see `fuzz/FINDINGS.md` for the local platform limits and exact runs.

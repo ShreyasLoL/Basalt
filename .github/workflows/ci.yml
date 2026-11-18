@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Clang
+            os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+          - name: Linux GCC
+            os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+          - name: Windows MSVC
+            os: windows-latest
+            compiler: msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-${{ matrix.compiler }}-deps-${{ hashFiles('CMakeLists.txt') }}
+      - name: Install Clang
+        if: matrix.compiler == 'clang'
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Configure (Clang/GCC)
+        if: matrix.compiler != 'msvc'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Configure (MSVC)
+        if: matrix.compiler == 'msvc'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: CTest
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=dot
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+  asan-ubsan:
+    name: ASan and UBSan (Linux Clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Configure
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBASALT_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build-asan --parallel
+      - name: CTest
+        run: ctest --test-dir build-asan --output-on-failure
+
+  tsan:
+    name: ThreadSanitizer (Linux Clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Configure
+        run: cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBASALT_ENABLE_TSAN=ON
+      - name: Build
+        run: cmake --build build-tsan --parallel
+      - name: CTest
+        run: ctest --test-dir build-tsan --output-on-failure
+
+  fuzz-smoke:
+    name: libFuzzer smoke (Linux Clang)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Configure
+        run: cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DBASALT_ENABLE_FUZZERS=ON
+      - name: Build
+        run: cmake --build build-fuzz --parallel
+      - name: Fuzz EventLog recovery
+        run: ./build-fuzz/basalt_fuzz_event_log -max_total_time=30 -max_len=65536 fuzz/corpus/event_log
+      - name: Fuzz CSV parser
+        run: ./build-fuzz/basalt_fuzz_csv -max_total_time=30 -max_len=262144 fuzz/corpus/csv
+      - name: Fuzz JSON parser
+        run: ./build-fuzz/basalt_fuzz_json -max_total_time=30 -max_len=262144 fuzz/corpus/json
+      - name: Fuzz MCP frames
+        run: ./build-fuzz/basalt_fuzz_mcp -max_total_time=30 -max_len=307200 fuzz/corpus/mcp

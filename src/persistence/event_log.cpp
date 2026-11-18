@@ -90,14 +90,26 @@ std::uint32_t EventLog::crc32(const std::byte* data, const std::size_t size) noe
 
 common::Result<RecoveryReport> EventLog::recover() {
     std::lock_guard lock(mutex_);
+    if (append_stream_.is_open()) {
+        append_stream_.flush();
+        if (!append_stream_) {
+            append_stream_.close();
+            recovered_ = false;
+            return common::Result<RecoveryReport>::failure({"LOG_FLUSH", "Could not flush event log before recovery"});
+        }
+        append_stream_.close();
+    }
+    recovered_ = false;
     RecoveryReport report;
     std::error_code error;
     if (!std::filesystem::exists(path_, error)) {
         if (error) return common::Result<RecoveryReport>::failure({"LOG_STAT", error.message()});
         const auto created = detail::durable_write(path_, {});
         if (!created) return common::Result<RecoveryReport>::failure(created.error());
-        recovered_ = true;
         last_sequence_.store(0);
+        const auto opened = open_append_locked();
+        if (!opened) return common::Result<RecoveryReport>::failure(opened.error());
+        recovered_ = true;
         return common::Result<RecoveryReport>::success(report);
     }
     const auto file_size = std::filesystem::file_size(path_, error);
@@ -139,8 +151,40 @@ common::Result<RecoveryReport> EventLog::recover() {
         if (!truncated) return common::Result<RecoveryReport>::failure(truncated.error());
     }
     last_sequence_.store(previous);
+    const auto opened = open_append_locked();
+    if (!opened) return common::Result<RecoveryReport>::failure(opened.error());
     recovered_ = true;
     return common::Result<RecoveryReport>::success(report);
+}
+
+common::Result<void> EventLog::open_append_locked() {
+    std::error_code error;
+    if (!path_.parent_path().empty()) std::filesystem::create_directories(path_.parent_path(), error);
+    if (error) return common::Result<void>::failure({"LOG_DIRECTORY", error.message()});
+    append_stream_.clear();
+    append_stream_.open(path_, std::ios::binary | std::ios::app);
+    if (!append_stream_) return common::Result<void>::failure({"LOG_OPEN", "Could not open event log for append"});
+    return common::Result<void>::success();
+}
+
+common::Result<void> EventLog::close() {
+    std::lock_guard lock(mutex_);
+    if (!append_stream_.is_open()) {
+        recovered_ = false;
+        return common::Result<void>::success();
+    }
+    append_stream_.flush();
+    if (!append_stream_) {
+        append_stream_.close();
+        recovered_ = false;
+        return common::Result<void>::failure({"LOG_FLUSH", "Could not flush event log before close"});
+    }
+    const auto flushed = detail::flush_existing(path_);
+    append_stream_.close();
+    recovered_ = false;
+    if (!flushed) return flushed;
+    if (append_stream_.fail()) return common::Result<void>::failure({"LOG_CLOSE", "Could not close event log"});
+    return common::Result<void>::success();
 }
 
 common::Result<void> EventLog::append(const common::EventSequence sequence, const std::string& payload) {
@@ -157,7 +201,7 @@ common::Result<common::EventSequence> EventLog::append_next(const std::string& p
 }
 
 common::Result<void> EventLog::append_locked(const common::EventSequence sequence, const std::string& payload) {
-    if (!recovered_) return common::Result<void>::failure({"LOG_NOT_RECOVERED", "Recover the event log before appending"});
+    if (!recovered_ || !append_stream_.is_open()) return common::Result<void>::failure({"LOG_NOT_RECOVERED", "Recover the event log before appending"});
     if (payload.size() > max_payload_bytes_ || payload.size() > std::numeric_limits<std::uint32_t>::max()) {
         return common::Result<void>::failure({"LOG_FRAME_TOO_LARGE", "Event payload exceeds configured frame limit"});
     }
@@ -173,17 +217,19 @@ common::Result<void> EventLog::append_locked(const common::EventSequence sequenc
     const auto crc = crc32(reinterpret_cast<const std::byte*>(crc_input.data()), crc_input.size());
     write_le(frame, crc);
     frame += payload;
-    std::error_code error;
-    if (!path_.parent_path().empty()) std::filesystem::create_directories(path_.parent_path(), error);
-    if (error) return common::Result<void>::failure({"LOG_DIRECTORY", error.message()});
-    std::ofstream output(path_, std::ios::binary | std::ios::app);
-    if (!output) return common::Result<void>::failure({"LOG_OPEN", "Could not open event log for append"});
-    output.write(frame.data(), static_cast<std::streamsize>(frame.size()));
-    output.flush();
-    if (!output) return common::Result<void>::failure({"LOG_WRITE", "Event-log append failed"});
-    output.close();
+    append_stream_.write(frame.data(), static_cast<std::streamsize>(frame.size()));
+    append_stream_.flush();
+    if (!append_stream_) {
+        append_stream_.close();
+        recovered_ = false;
+        return common::Result<void>::failure({"LOG_WRITE", "Event-log append failed; recover before retrying"});
+    }
     const auto flushed = detail::flush_existing(path_);
-    if (!flushed) return flushed;
+    if (!flushed) {
+        append_stream_.close();
+        recovered_ = false;
+        return flushed;
+    }
     last_sequence_.store(sequence);
     return common::Result<void>::success();
 }

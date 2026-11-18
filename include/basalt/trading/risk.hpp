@@ -29,6 +29,10 @@ struct KillSwitchEvent {
     friend bool operator==(const KillSwitchEvent&, const KillSwitchEvent&) = default;
 };
 
+// Canonical durable representation. Free-text reasons are always redacted;
+// only short stable actor identifiers are retained.
+[[nodiscard]] std::string serialize_kill_switch_event(const KillSwitchEvent& event);
+
 class KillSwitch {
 public:
     using EventSink = std::function<common::Result<void>(const KillSwitchEvent&)>;

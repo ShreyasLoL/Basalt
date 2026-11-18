@@ -54,16 +54,18 @@ common::Result<std::int64_t> signed_quantity(const common::Quantity quantity) {
 }
 
 common::Result<std::int64_t> magnitude(const std::int64_t value) {
-    if (value == std::numeric_limits<std::int64_t>::min())
+    if (value >= 0) return common::Result<std::int64_t>::success(value);
+    const auto magnitude = common::checked_subtract(0, value);
+    if (!magnitude)
         return common::Result<std::int64_t>::failure({"LEDGER_ARITHMETIC", "Position magnitude overflow"});
-    return common::Result<std::int64_t>::success(value < 0 ? -value : value);
+    return magnitude;
 }
 
 common::Result<std::int64_t> subtract(const std::int64_t left, const std::int64_t right) {
-    if ((right < 0 && left > std::numeric_limits<std::int64_t>::max() + right) ||
-        (right > 0 && left < std::numeric_limits<std::int64_t>::min() + right))
+    const auto result = common::checked_subtract(left, right);
+    if (!result)
         return common::Result<std::int64_t>::failure({"LEDGER_ARITHMETIC", "Signed subtraction overflow"});
-    return common::Result<std::int64_t>::success(left - right);
+    return result;
 }
 
 common::Result<std::int64_t> product(const std::int64_t price, const std::int64_t quantity) {

@@ -38,6 +38,13 @@ struct InstrumentTrade {
     std::string seller_participant_id{};
 };
 
+struct STPCancellation {
+    OrderId order_id{};
+    bool incoming{};
+    SequenceNumber event_sequence{};
+    friend bool operator==(const STPCancellation&, const STPCancellation&) = default;
+};
+
 struct AdvancedOrderResult {
     common::InstrumentId instrument_id{};
     OrderId order_id{};
@@ -47,6 +54,7 @@ struct AdvancedOrderResult {
     Quantity remaining_quantity{};
     SequenceNumber sequence{};
     std::vector<InstrumentTrade> trades{};
+    std::vector<STPCancellation> stp_cancellations{};
     std::string message{};
 };
 

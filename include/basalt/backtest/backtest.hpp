@@ -252,4 +252,42 @@ public:
         const BacktestConfig& config) const;
 };
 
+struct PortfolioBacktestLeg {
+    BacktestConfig config{};
+    strategy::StrategyConfig strategy_config{};
+    std::vector<BacktestEvent> events{};
+    std::unique_ptr<strategy::IStrategy> strategy{};
+};
+
+struct PortfolioBacktestConfig {
+    common::AccountId account_id{};
+    std::int64_t initial_cash_micro{};
+    bool allow_short{};
+    trading::RiskLimits risk_limits{};
+};
+
+struct PortfolioInstrumentStats {
+    common::InstrumentId instrument_id{};
+    std::uint64_t executions{};
+    std::uint64_t risk_rejections{};
+};
+
+struct PortfolioBacktestResult {
+    bool valid{};
+    std::vector<trading::ExecutionFill> fills{};
+    std::vector<trading::CashJournalEntry> cash_journal{};
+    std::vector<EquityPoint> equity_curve{};
+    trading::PortfolioSummary final_portfolio{};
+    std::vector<PortfolioInstrumentStats> instruments{};
+    std::vector<std::pair<std::string, std::uint64_t>> risk_rejections{};
+    std::vector<std::string> warnings{};
+    std::string ledger_sha256{};
+};
+
+class PortfolioBacktestEngine {
+public:
+    [[nodiscard]] common::Result<PortfolioBacktestResult> run(
+        std::vector<PortfolioBacktestLeg> legs, const PortfolioBacktestConfig& config) const;
+};
+
 } // namespace basalt::backtest

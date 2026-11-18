@@ -2,12 +2,65 @@
 
 #include "basalt/core/matching_engine.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
+#include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <numeric>
+#include <optional>
+#include <string>
 
 namespace basalt::trading {
 namespace {
+
+using Json = nlohmann::json;
+constexpr std::size_t MAX_FEE_SCHEDULE_BYTES = 64U * 1024U;
+
+bool has_only_keys(const Json& value, const std::initializer_list<std::string_view> allowed) {
+    if (!value.is_object()) return false;
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end()) return false;
+    }
+    return true;
+}
+
+bool has_required_keys(const Json& value, const std::initializer_list<std::string_view> required) {
+    return value.is_object() && std::all_of(required.begin(), required.end(),
+        [&value](const auto key) { return value.contains(key); });
+}
+
+std::optional<std::uint64_t> read_unsigned(const Json& value) {
+    if (!value.is_number_unsigned()) return std::nullopt;
+    try { return value.get<std::uint64_t>(); }
+    catch (const std::exception&) { return std::nullopt; }
+}
+
+std::optional<std::int64_t> read_integer(const Json& value) {
+    try {
+        if (value.is_number_unsigned()) {
+            const auto raw = value.get<std::uint64_t>();
+            if (raw > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) return std::nullopt;
+            return static_cast<std::int64_t>(raw);
+        }
+        if (value.is_number_integer()) return value.get<std::int64_t>();
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::optional<FeeComponentKind> parse_fee_component_kind(const std::string_view text) {
+    if (text == "BROKERAGE") return FeeComponentKind::Brokerage;
+    if (text == "SECURITIES_TRANSACTION_TAX") return FeeComponentKind::SecuritiesTransactionTax;
+    if (text == "EXCHANGE_TRANSACTION") return FeeComponentKind::ExchangeTransaction;
+    if (text == "SEBI_TURNOVER") return FeeComponentKind::SebiTurnover;
+    if (text == "STAMP_DUTY") return FeeComponentKind::StampDuty;
+    if (text == "GST") return FeeComponentKind::Gst;
+    if (text == "OTHER") return FeeComponentKind::Other;
+    return std::nullopt;
+}
 
 common::Result<std::int64_t> rate_fee(const std::int64_t amount,
                                       const std::uint32_t basis_points) {
@@ -98,6 +151,104 @@ common::Result<ExecutionReport> unavailable(ExecutionReport report,
 }
 
 } // namespace
+
+common::Result<FeeSchedule> parse_fee_schedule_json(const std::string_view bytes) {
+    if (bytes.empty() || bytes.size() > MAX_FEE_SCHEDULE_BYTES)
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SIZE", "Fee schedule JSON must be between 1 byte and 64 KiB"});
+    Json root;
+    try {
+        root = Json::parse(bytes);
+    } catch (const std::exception&) {
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_JSON", "Fee schedule JSON is malformed"});
+    }
+    if (!has_only_keys(root, {"format_version", "schedule"}) ||
+        !has_required_keys(root, {"format_version", "schedule"}) ||
+        !root["format_version"].is_number_unsigned() || root["format_version"].get<std::uint64_t>() != 1U)
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SCHEMA", "Fee schedule requires format_version 1 and a schedule object"});
+
+    const auto& source = root["schedule"];
+    const std::initializer_list<std::string_view> allowed_schedule_keys{"id", "version", "source", "venue", "segment", "product",
+        "valid_from_ns", "valid_to_ns", "gst_bps", "components"};
+    const std::initializer_list<std::string_view> required_schedule_keys{"id", "version", "source", "venue", "segment", "product",
+        "valid_from_ns", "valid_to_ns", "gst_bps", "components"};
+    if (!has_only_keys(source, allowed_schedule_keys) || !has_required_keys(source, required_schedule_keys))
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SCHEMA", "Fee schedule has missing or unknown fields"});
+    if (!source["id"].is_string() || !source["version"].is_number_unsigned() ||
+        !source["source"].is_string() || !source["venue"].is_string() ||
+        !source["segment"].is_string() || !source["product"].is_string() ||
+        !source["valid_from_ns"].is_number_integer() || !source["valid_to_ns"].is_number_integer() ||
+        !source["gst_bps"].is_number_unsigned() || !source["components"].is_array())
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SCHEMA", "Fee schedule fields have invalid types"});
+
+    const auto version = read_unsigned(source["version"]);
+    const auto valid_from = read_integer(source["valid_from_ns"]);
+    const auto valid_to = read_integer(source["valid_to_ns"]);
+    const auto gst_basis_points = read_unsigned(source["gst_bps"]);
+    if (!version || *version == 0 || *version > std::numeric_limits<std::uint32_t>::max() ||
+        !valid_from || !valid_to || *valid_from < 0 || *valid_to < 0 ||
+        !gst_basis_points || *gst_basis_points > 10'000U)
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_INVALID", "Fee schedule metadata is outside supported bounds"});
+
+    FeeSchedule schedule;
+    try {
+        schedule.schedule_id = source["id"].get<std::string>();
+        schedule.version = static_cast<std::uint32_t>(*version);
+        schedule.source = source["source"].get<std::string>();
+        schedule.venue = source["venue"].get<std::string>();
+        schedule.segment = source["segment"].get<std::string>();
+        schedule.product = source["product"].get<std::string>();
+        schedule.valid_from_ns = *valid_from;
+        schedule.valid_to_ns = *valid_to;
+        schedule.gst_basis_points = static_cast<std::uint32_t>(*gst_basis_points);
+    } catch (const std::exception&) {
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SCHEMA", "Fee schedule metadata is outside supported bounds"});
+    }
+    if (schedule.schedule_id.empty() || schedule.schedule_id.size() > 128U || schedule.version == 0 ||
+        schedule.source.empty() || schedule.source.size() > 256U || schedule.venue.empty() ||
+        schedule.segment.empty() || schedule.product.empty() || schedule.valid_from_ns < 0 ||
+        schedule.valid_to_ns < 0 || schedule.gst_basis_points > 10'000U ||
+        (schedule.valid_from_ns > 0 && schedule.valid_to_ns > 0 &&
+         schedule.valid_to_ns < schedule.valid_from_ns) || source["components"].size() > 32U)
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_INVALID", "Fee schedule metadata or bounds are invalid"});
+
+    for (const auto& value : source["components"]) {
+        const std::initializer_list<std::string_view> allowed_component_keys{"kind", "buy_bps", "sell_bps", "fixed_micro", "cap_micro", "gst_eligible"};
+        const std::initializer_list<std::string_view> required_component_keys{"kind", "buy_bps", "sell_bps", "fixed_micro", "cap_micro", "gst_eligible"};
+        if (!has_only_keys(value, allowed_component_keys) || !has_required_keys(value, required_component_keys) ||
+            !value["kind"].is_string() || !value["buy_bps"].is_number_unsigned() ||
+            !value["sell_bps"].is_number_unsigned() || !value["fixed_micro"].is_number_integer() ||
+            !value["cap_micro"].is_number_integer() || !value["gst_eligible"].is_boolean())
+            return common::Result<FeeSchedule>::failure({"FEE_COMPONENT_SCHEMA", "Fee component has missing, unknown or mistyped fields"});
+        const auto kind = parse_fee_component_kind(value["kind"].get_ref<const std::string&>());
+        if (!kind) return common::Result<FeeSchedule>::failure({"FEE_COMPONENT_KIND", "Fee component kind is unknown"});
+        const auto buy = read_unsigned(value["buy_bps"]);
+        const auto sell = read_unsigned(value["sell_bps"]);
+        const auto fixed = read_integer(value["fixed_micro"]);
+        const auto cap = read_integer(value["cap_micro"]);
+        if (!buy || !sell || !fixed || !cap || *buy > 10'000U || *sell > 10'000U || *fixed < 0 || *cap < 0)
+            return common::Result<FeeSchedule>::failure({"FEE_COMPONENT_INVALID", "Fee component value is outside supported bounds"});
+        schedule.components.push_back({*kind, static_cast<std::uint32_t>(*buy), static_cast<std::uint32_t>(*sell),
+                                        *fixed, *cap, value["gst_eligible"].get<bool>()});
+    }
+    const auto validated = FeeCalculator::calculate(Side::Buy, 0, schedule);
+    if (!validated) return common::Result<FeeSchedule>::failure(validated.error());
+    return common::Result<FeeSchedule>::success(std::move(schedule));
+}
+
+common::Result<FeeSchedule> load_fee_schedule_file(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error) return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_READ", "Could not inspect fee schedule file"});
+    if (size == 0 || size > MAX_FEE_SCHEDULE_BYTES)
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_SIZE", "Fee schedule file must be between 1 byte and 64 KiB"});
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_READ", "Could not open fee schedule file"});
+    std::string bytes(static_cast<std::size_t>(size), '\0');
+    input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!input || input.peek() != std::char_traits<char>::eof())
+        return common::Result<FeeSchedule>::failure({"FEE_SCHEDULE_READ", "Could not read the bounded fee schedule file"});
+    return parse_fee_schedule_json(bytes);
+}
 
 common::Result<FeeCalculation> FeeCalculator::calculate(const Side side,
                                                          const std::int64_t notional_micro,

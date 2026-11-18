@@ -34,6 +34,25 @@ TEST(CommonTypes, CheckedMultiplicationHandlesSignsAndOverflow) {
     EXPECT_EQ(overflow.error().code, "ARITHMETIC_OVERFLOW");
 }
 
+TEST(CommonTypes, CheckedSubtractionHandlesBoundariesAndBothOverflowDirections) {
+    const auto minimum = checked_subtract(std::numeric_limits<std::int64_t>::min(), 0);
+    ASSERT_TRUE(minimum);
+    EXPECT_EQ(minimum.value(), std::numeric_limits<std::int64_t>::min());
+    const auto maximum = checked_subtract(std::numeric_limits<std::int64_t>::max(), 0);
+    ASSERT_TRUE(maximum);
+    EXPECT_EQ(maximum.value(), std::numeric_limits<std::int64_t>::max());
+
+    const auto underflow = checked_subtract(std::numeric_limits<std::int64_t>::min(), 1);
+    ASSERT_FALSE(underflow);
+    EXPECT_EQ(underflow.error().code, "ARITHMETIC_OVERFLOW");
+    const auto overflow = checked_subtract(std::numeric_limits<std::int64_t>::max(), -1);
+    ASSERT_FALSE(overflow);
+    EXPECT_EQ(overflow.error().code, "ARITHMETIC_OVERFLOW");
+    const auto magnitude_overflow = checked_subtract(0, std::numeric_limits<std::int64_t>::min());
+    ASSERT_FALSE(magnitude_overflow);
+    EXPECT_EQ(magnitude_overflow.error().code, "ARITHMETIC_OVERFLOW");
+}
+
 TEST(CommonTypes, ResultSupportsValueAndVoidErrors) {
     const auto result = Result<int>::success(42);
     ASSERT_TRUE(result);
@@ -84,6 +103,22 @@ TEST(Config, ParsesAllowlistedSettingsAndRejectsUnknownEnum) {
     const auto invalid = ConfigLoader::parse({{"BASALT_LOG_FORMAT", "xml"}});
     ASSERT_FALSE(invalid);
     EXPECT_EQ(invalid.error().code, "INVALID_LOG_FORMAT");
+}
+
+TEST(Config, ParsesExactCorsOriginsAndRejectsWildcardsOrPaths) {
+    const auto config = ConfigLoader::parse({
+        {"BASALT_CORS_ALLOWED_ORIGINS", "http://localhost:5173, https://research.example.com"}});
+    ASSERT_TRUE(config);
+    ASSERT_EQ(config.value().cors_allowed_origins.size(), 2U);
+    EXPECT_EQ(config.value().cors_allowed_origins[0], "http://localhost:5173");
+    EXPECT_EQ(config.value().cors_allowed_origins[1], "https://research.example.com");
+
+    for (const auto& invalid_origin : {"*", "http://localhost:5173/", "file://localhost",
+                                       "http://user@localhost", "https://localhost:0"}) {
+        const auto invalid = ConfigLoader::parse({{"BASALT_CORS_ALLOWED_ORIGINS", invalid_origin}});
+        ASSERT_FALSE(invalid) << invalid_origin;
+        EXPECT_EQ(invalid.error().code, "INVALID_CORS_ORIGIN");
+    }
 }
 
 TEST(Logger, RedactsSensitiveFieldsAndEmbeddedAssignments) {
