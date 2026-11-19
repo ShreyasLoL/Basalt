@@ -1,6 +1,5 @@
 # BASALT
 
-[![CI](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml/badge.svg)](https://github.com/ShreyasLoL/Basalt/actions/workflows/ci.yml)
 
 ### A local-first market simulation and quantitative trading research platform.
 
