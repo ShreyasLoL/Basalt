@@ -204,6 +204,18 @@ TEST_F(HttpServerTest, SameOriginGetSucceedsWithoutWildcardCors) {
     EXPECT_NE(with_origin->get_header_value("Access-Control-Allow-Origin"), "*");
 }
 
+TEST_F(HttpServerTest, CompilesPatchedHttpTransportAndRejectsPercentEncodedOriginAuthority) {
+    EXPECT_STREQ(CPPHTTPLIB_VERSION, "0.58.0");
+
+    auto cli = client();
+    const auto response = cli.Get("/api/v1/health", httplib::Headers{{
+        "Origin", "http://localhost%3a" + std::to_string(port)}});
+    ASSERT_TRUE(response);
+    EXPECT_EQ(response->status, 403);
+    EXPECT_EQ(Json::parse(response->body).at("code"), "FORBIDDEN_ORIGIN");
+    EXPECT_FALSE(response->has_header("Access-Control-Allow-Origin"));
+}
+
 TEST_F(HttpServerTest, RejectsForeignHostHeaderAsDnsRebinding) {
     auto cli = client();
     const auto response = cli.Get("/api/state", httplib::Headers{{"Host", "attacker.example:" + std::to_string(port)}});

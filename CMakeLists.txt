@@ -88,15 +88,18 @@ endif()
 # Dependency declarations are shared with the later test and server phases.
 FetchContent_Declare(googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0
+    # Immutable upstream commit for release v1.14.0.
+    GIT_TAG f8d7d77c06936315286eb55f8de22cd23c188571
     GIT_SHALLOW TRUE)
 FetchContent_Declare(httplib
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG v0.15.3
+    # Immutable upstream commit for security-reviewed release v0.58.0.
+    GIT_TAG 4f3f9ef19be83ae97a5d9a059432dc00e445b7ab
     GIT_SHALLOW TRUE)
 FetchContent_Declare(nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.3
+    # Immutable upstream commit for release v3.11.3.
+    GIT_TAG 9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03
     GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(googletest)

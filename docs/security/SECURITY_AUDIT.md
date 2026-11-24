@@ -12,6 +12,7 @@ This is a source-based assessment, not a security certification. Findings are li
 - `git status --short` at audit start showed a user modification to `.gitignore` adding `docs/private/` and untracked `docs/.mcp.json`. Both were preserved and excluded from this audit's commits. The MCP config's purpose is local server configuration; inspection found no literal secret-like values and one environment-variable reference. Values were not printed.
 - C++ dependencies declared with CMake FetchContent: GoogleTest `v1.14.0`, cpp-httplib `v0.15.3`, and nlohmann/json `v3.11.3`. All are release tags, not immutable commit pins.
 - Frontend direct dependencies are listed in `frontend/package.json`; the checked-in npm lockfile resolves the installed tree. At audit start `npm audit` and `npm audit --omit=dev` reported zero advisories when run with registry access. The sandboxed attempt could not resolve `registry.npmjs.org`; the successful audit was run with network access.
+- Stage B candidate pins (fetched in a fresh build): GoogleTest `v1.14.0` at `f8d7d77c06936315286eb55f8de22cd23c188571`; cpp-httplib `v0.58.0` at `4f3f9ef19be83ae97a5d9a059432dc00e445b7ab`; nlohmann/json `v3.11.3` at `9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03`. All three official tag refs resolved to these commit IDs, and a fresh CMake configure fetched those exact commits. Frontend lockfile updates were not justified by the zero-advisory audit.
 - Baseline checks: `cmake --build build-release --parallel` passed (Ninja reported no work); CTest passed **164/164** after enabling loopback access. In the restricted sandbox, the same suite passed 154/164; all 10 failures were HTTP integration cases unable to connect to their loopback fixtures. Frontend typecheck passed, Vitest passed **10/10 across 3 files**, and the production build passed with 42 modules transformed.
 - The existing repository already has useful security controls: a 64 KiB HTTP body cap, exact Host/Origin policy, no wildcard CORS, JSON content-type checks on mutation methods, bounded benchmark order count, bounded MCP frames/tool inputs/audit files, strict market-data line and event counts, CRC-checked bounded event-log frames, checked financial arithmetic, regression/property tests, ASan/UBSan and fuzz harness configuration. The fuzz campaigns and TSan are configured in Linux CI but have not been executed in this Windows session.
 
@@ -71,8 +72,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Server state confusion, unsafe header interpretation, or process availability loss.
 **Recommended remediation:** Upgrade to a stable upstream release beyond all applicable fixes, pin its immutable commit, and add raw-protocol regression coverage.
 **Regression tests:** HTTP integration tests for malformed framing, chunked bodies, encoded header bytes, duplicate Host handling and connection shutdown.
-**Status:** Open at baseline. Advisory scope was checked against the upstream [security advisories](https://github.com/yhirose/cpp-httplib/security) and [release history](https://github.com/yhirose/cpp-httplib/releases/). Specific conditional advisories: ContentReader decompression affects only streaming handlers not used by BASALT; trusted-proxy `X-Forwarded-For` handling is not configured; TLS/client advisories do not match the current server-only, non-TLS build.
-**Associated commit:** None at baseline.
+**Status:** Fix implemented and verified; commit pending. The candidate v0.58.0 is beyond the applicable patched versions; a fresh Release build passed 85/85 targets and CTest passed 165/165, including the live percent-encoded Origin regression. Advisory scope was checked against the upstream [security advisories](https://github.com/yhirose/cpp-httplib/security) and [release history](https://github.com/yhirose/cpp-httplib/releases/). Specific conditional advisories: ContentReader decompression affects only streaming handlers not used by BASALT; trusted-proxy `X-Forwarded-For` handling is not configured; TLS/client advisories do not match the current server-only, non-TLS build. The upstream v0.58.0 release history was also checked for request smuggling, malformed chunk framing, regex path stack exhaustion, multipart parsing and recent protocol fixes.
+**Associated commit:** Pending.
 
 ### SEC-NET-001 — Environment configuration can enable unauthenticated remote binding
 
@@ -119,6 +120,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Status:** Open at baseline.
 **Associated commit:** None at baseline.
 
+
 ### SEC-CI-001 — Static and secret scanning are not integrated into CI
 
 **Finding ID:** SEC-CI-001
@@ -146,8 +148,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Non-reproducible or compromised builds.
 **Recommended remediation:** Pin exact upstream commit hashes (or immutable archive hashes) and verify the fetched source matches the recorded release.
 **Regression tests:** Clean configure from empty FetchContent cache and compare reported versions/commit IDs.
-**Status:** Open at baseline.
-**Associated commit:** None at baseline.
+**Status:** CMake dependencies now use the immutable commit IDs recorded above; fresh configure verified the resolved commits. Commit pending.
+**Associated commit:** Pending.
 
 ## Existing protections verified
 
@@ -175,3 +177,4 @@ This section is updated after every dedicated security commit. A finding is clos
 | Date | Commit | Feature / findings | Verification |
 |---|---|---|---|
 | 2026-11-25 | Pending baseline documentation commit | Phase 0 inventory and threat model; SEC-DEP-001, SEC-NET-001, SEC-HTTP-001, SEC-FE-001, SEC-CI-001, SEC-SUP-001 open | Release build; CTest 164/164 with loopback; typecheck; Vitest 10/10; frontend build; npm audit 0 |
+| 2026-11-25 | Pending | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
