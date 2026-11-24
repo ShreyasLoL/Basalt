@@ -216,6 +216,16 @@ std::string HttpServer::ui_html() {
 }
 
 bool HttpServer::guard_request(const httplib::Request& request, httplib::Response& response) const {
+    constexpr std::array<const char*, 5> unique_security_headers{
+        "Host", "Origin", "Content-Type", "Content-Length", "Transfer-Encoding"};
+    for (const char* name : unique_security_headers) {
+        if (request.headers.count(name) > 1) {
+            send_json(response, json{{"error", "AMBIGUOUS_HEADERS"},
+                                     {"code", "AMBIGUOUS_HEADERS"},
+                                     {"message", "Security-sensitive headers must not be repeated"}}, 400);
+            return false;
+        }
+    }
     const auto origin = optional_header(request, "Origin");
     const auto decision = validate_request_origin(optional_header(request, "Host"), origin,
                                                   optional_header(request, "Content-Type"),
@@ -233,6 +243,11 @@ bool HttpServer::guard_request(const httplib::Request& request, httplib::Respons
 
 void HttpServer::register_routes() {
     server_.set_payload_max_length(64U * 1024U);
+    server_.set_read_timeout(5, 0);
+    server_.set_write_timeout(5, 0);
+    server_.set_keep_alive_timeout(2);
+    server_.set_keep_alive_max_count(5);
+    server_.new_task_queue = [] { return new httplib::ThreadPool(8, 8, 32); };
 #ifdef BASALT_FRONTEND_DIST_DIR
     static_cast<void>(server_.set_mount_point("/assets", BASALT_FRONTEND_DIST_DIR "/assets"));
 #endif
@@ -706,6 +721,13 @@ void HttpServer::register_routes() {
                 send_json(response, error_json("order_count must be between 1 and 10000"), 400);
                 return;
             }
+            if (!admit_benchmark_request()) {
+                response.set_header("Retry-After", "60");
+                send_json(response, json{{"error", "HTTP benchmark rate limit exceeded"},
+                                         {"code", "RATE_LIMITED"},
+                                         {"message", "Retry after the one-minute benchmark window."}}, 429);
+                return;
+            }
             std::vector<bench::BenchmarkResult> results;
             if (profile_text == "ALL") {
                 results = benchmark_runner_.run_all(static_cast<std::size_t>(order_count), compare_baseline);
@@ -751,6 +773,19 @@ void HttpServer::register_routes() {
     server_.Put(R"(/api/v1(?:/.*)?)", unsupported_v1);
     server_.Patch(R"(/api/v1(?:/.*)?)", unsupported_v1);
     server_.Delete(R"(/api/v1(?:/.*)?)", unsupported_v1);
+}
+
+bool HttpServer::admit_benchmark_request() {
+    using namespace std::chrono_literals;
+    const auto now = std::chrono::steady_clock::now();
+    const auto cutoff = now - 1min;
+    std::lock_guard lock(benchmark_rate_mutex_);
+    while (!benchmark_request_times_.empty() && benchmark_request_times_.front() <= cutoff) {
+        benchmark_request_times_.pop_front();
+    }
+    if (benchmark_request_times_.size() >= MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE) return false;
+    benchmark_request_times_.push_back(now);
+    return true;
 }
 
 bool HttpServer::run() {

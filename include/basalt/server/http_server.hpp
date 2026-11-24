@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <deque>
 #include <mutex>
 #include <random>
 #include <string>
@@ -46,9 +47,12 @@ private:
     bench::BenchmarkRunner benchmark_runner_{};
     mutable std::mutex simulation_rng_mutex_{};
     std::mt19937_64 simulation_rng_{42};
+    std::mutex benchmark_rate_mutex_{};
+    std::deque<std::chrono::steady_clock::time_point> benchmark_request_times_{};
 
     void register_routes();
     bool guard_request(const httplib::Request& request, httplib::Response& response) const;
+    [[nodiscard]] bool admit_benchmark_request();
     [[nodiscard]] static std::string ui_html();
 };
 

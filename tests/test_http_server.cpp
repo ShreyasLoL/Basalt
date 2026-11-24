@@ -6,12 +6,27 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#include <array>
+#include <charconv>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -20,6 +35,57 @@ using Json = nlohmann::json;
 
 constexpr int kPort = 8080;
 constexpr std::optional<std::string_view> kNone = std::nullopt;
+
+int send_raw_http_request(const int port, const std::string& request) {
+#ifdef _WIN32
+    const SOCKET socket_handle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socket_handle == INVALID_SOCKET) return -1;
+    const auto close_socket = [&] { ::closesocket(socket_handle); };
+    const DWORD receive_timeout_ms = 2000;
+    static_cast<void>(::setsockopt(socket_handle, SOL_SOCKET, SO_RCVTIMEO,
+        reinterpret_cast<const char*>(&receive_timeout_ms), sizeof(receive_timeout_ms)));
+#else
+    const int socket_handle = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_handle < 0) return -1;
+    const auto close_socket = [&] { ::close(socket_handle); };
+    const timeval receive_timeout{2, 0};
+    static_cast<void>(::setsockopt(socket_handle, SOL_SOCKET, SO_RCVTIMEO,
+        &receive_timeout, sizeof(receive_timeout)));
+#endif
+    sockaddr_in endpoint{};
+    endpoint.sin_family = AF_INET;
+    endpoint.sin_port = htons(static_cast<std::uint16_t>(port));
+    if (::inet_pton(AF_INET, "127.0.0.1", &endpoint.sin_addr) != 1 ||
+        ::connect(socket_handle, reinterpret_cast<const sockaddr*>(&endpoint), sizeof(endpoint)) != 0) {
+        close_socket();
+        return -1;
+    }
+
+    std::size_t offset = 0;
+    while (offset < request.size()) {
+#ifdef _WIN32
+        const int sent = ::send(socket_handle, request.data() + offset,
+            static_cast<int>(request.size() - offset), 0);
+#else
+        const auto sent = ::send(socket_handle, request.data() + offset, request.size() - offset, 0);
+#endif
+        if (sent <= 0) {
+            close_socket();
+            return -1;
+        }
+        offset += static_cast<std::size_t>(sent);
+    }
+
+    std::array<char, 256> response{};
+    const auto received = ::recv(socket_handle, response.data(), static_cast<int>(response.size()), 0);
+    close_socket();
+    if (received <= 0) return -1;
+    const std::string_view first_line(response.data(), static_cast<std::size_t>(received));
+    if (!first_line.starts_with("HTTP/1.1 ") || first_line.size() < 12) return -1;
+    int status = 0;
+    const auto [end, error] = std::from_chars(first_line.data() + 9, first_line.data() + 12, status);
+    return error == std::errc{} && end == first_line.data() + 12 ? status : -1;
+}
 
 // ---------------------------------------------------------------------------
 // Pure policy tests
@@ -147,6 +213,44 @@ TEST(RequestGuardTest, BenchmarkOrderCountIsCappedAtTenThousand) {
     EXPECT_FALSE(valid_benchmark_order_count(10'001));
     EXPECT_FALSE(valid_benchmark_order_count(1'000'000));
     EXPECT_EQ(basalt::server::MAX_HTTP_BENCHMARK_ORDER_COUNT, 10'000U);
+    EXPECT_EQ(basalt::server::MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE, 5U);
+}
+
+TEST(HttpServerQueueTest, ThreadPoolRejectsRequestsBeyondItsQueueBound) {
+    httplib::ThreadPool pool(1, 1, 1);
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool worker_started = false;
+    bool release_worker = false;
+    ASSERT_TRUE(pool.enqueue([&] {
+        std::unique_lock lock(mutex);
+        worker_started = true;
+        condition.notify_one();
+        condition.wait(lock, [&] { return release_worker; });
+    }));
+    bool started = false;
+    {
+        std::unique_lock lock(mutex);
+        started = condition.wait_for(lock, std::chrono::seconds(2), [&] { return worker_started; });
+    }
+    if (!started) {
+        {
+            std::lock_guard lock(mutex);
+            release_worker = true;
+        }
+        condition.notify_one();
+        pool.shutdown();
+        FAIL() << "HTTP worker did not start in time";
+        return;
+    }
+    EXPECT_TRUE(pool.enqueue([] {}));
+    EXPECT_FALSE(pool.enqueue([] {}));
+    {
+        std::lock_guard lock(mutex);
+        release_worker = true;
+    }
+    condition.notify_one();
+    pool.shutdown();
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +324,42 @@ TEST_F(HttpServerTest, CompilesPatchedHttpTransportAndRejectsPercentEncodedOrigi
     EXPECT_EQ(response->status, 403);
     EXPECT_EQ(Json::parse(response->body).at("code"), "FORBIDDEN_ORIGIN");
     EXPECT_FALSE(response->has_header("Access-Control-Allow-Origin"));
+}
+
+TEST_F(HttpServerTest, RejectsOversizedUriHeadersAndAmbiguousHostOrFraming) {
+    const std::string host = "127.0.0.1:" + std::to_string(port);
+    const std::string valid = "GET /api/v1/health HTTP/1.1\r\nHost: " + host +
+        "\r\nConnection: close\r\n\r\n";
+    EXPECT_EQ(send_raw_http_request(port, valid), 200);
+
+    const std::string long_uri = "GET /api/v1/health?x=" + std::string(5000, 'a') +
+        " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, long_uri), 200);
+
+    const std::string long_header = "GET /api/v1/health HTTP/1.1\r\nHost: " + host +
+        "\r\nX-Bulk: " + std::string(5000, 'a') + "\r\nConnection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, long_header), 200);
+
+    std::string many_headers = "GET /api/v1/health HTTP/1.1\r\nHost: " + host + "\r\n";
+    for (int i = 0; i < CPPHTTPLIB_HEADER_MAX_COUNT; ++i) {
+        many_headers += "X-" + std::to_string(i) + ": x\r\n";
+    }
+    many_headers += "Connection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, many_headers), 200);
+
+    const std::string duplicate_host = "GET /api/v1/health HTTP/1.1\r\nHost: " + host +
+        "\r\nHost: attacker.example\r\nConnection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, duplicate_host), 200);
+
+    const std::string duplicate_origin = "GET /api/v1/health HTTP/1.1\r\nHost: " + host +
+        "\r\nOrigin: http://localhost:" + std::to_string(port) +
+        "\r\nOrigin: http://attacker.example\r\nConnection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, duplicate_origin), 200);
+
+    const std::string conflicting_framing = "POST /api/orders HTTP/1.1\r\nHost: " + host +
+        "\r\nContent-Type: application/json\r\nContent-Length: 0\r\n"
+        "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+    EXPECT_NE(send_raw_http_request(port, conflicting_framing), 200);
 }
 
 TEST_F(HttpServerTest, RejectsForeignHostHeaderAsDnsRebinding) {
@@ -421,6 +561,26 @@ TEST_F(HttpServerTest, BenchmarkRejectsOrderCountsAboveTheMcpCap) {
     const auto results = Json::parse(valid->body).at("results");
     ASSERT_FALSE(results.empty());
     EXPECT_EQ(results.at(0).at("orders_processed"), 100);
+}
+
+TEST_F(HttpServerTest, BenchmarkRequestsAreRateLimitedAfterInputValidation) {
+    EXPECT_EQ(CPPHTTPLIB_REQUEST_URI_MAX_LENGTH, 4096);
+    EXPECT_EQ(CPPHTTPLIB_HEADER_MAX_LENGTH, 4096);
+    EXPECT_EQ(CPPHTTPLIB_HEADER_MAX_COUNT, 64);
+
+    auto cli = client();
+    const std::string body = R"({"order_count":1,"compare_baseline":false})";
+    for (std::size_t i = 0; i < basalt::server::MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE; ++i) {
+        const auto response = cli.Post("/api/benchmark", body, "application/json");
+        ASSERT_TRUE(response) << "benchmark request " << i;
+        EXPECT_EQ(response->status, 200) << response->body;
+    }
+
+    const auto limited = cli.Post("/api/benchmark", body, "application/json");
+    ASSERT_TRUE(limited);
+    EXPECT_EQ(limited->status, 429);
+    EXPECT_EQ(limited->get_header_value("Retry-After"), "60");
+    EXPECT_EQ(Json::parse(limited->body).at("code"), "RATE_LIMITED");
 }
 
 } // namespace

@@ -389,6 +389,10 @@ target_include_directories(basalt_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(basalt_http PRIVATE
     BASALT_FRONTEND_DIST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/web/app")
+target_compile_definitions(basalt_http PUBLIC
+    CPPHTTPLIB_REQUEST_URI_MAX_LENGTH=4096
+    CPPHTTPLIB_HEADER_MAX_LENGTH=4096
+    CPPHTTPLIB_HEADER_MAX_COUNT=64)
 target_link_libraries(basalt_http PUBLIC basalt_app basalt_platform httplib::httplib PRIVATE nlohmann_json::nlohmann_json)
 if(WIN32)
     target_link_libraries(basalt_http PUBLIC ws2_32)

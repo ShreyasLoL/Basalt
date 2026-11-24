@@ -39,8 +39,35 @@ This is a source-based assessment, not a security certification. Findings are li
 | CSV / JSONL replay | User-selected stream contents, rows and fields | 1 MiB line cap, one-million-event cap, typed parsing and market-data validation. |
 | Market-data provider interface | Raw quotes/bars/trades, timestamps, sequence and symbol mapping | Instrument mapping, fixed-point normalization, quality/sequence checks; real broker adapters are not connected. |
 | Persistence recovery | Local `.blog`, checkpoint, JSON and CSV files | Bounded event frame length, sequence and CRC validation, prefix recovery, dataset digest checks. |
-| Environment/configuration | Bind address, port, queue sizes, CORS allowlist, data directory and provider settings | Typed parsing/range checks; current remote-bind opt-in is a finding below. |
+| Environment/configuration | Bind address, port, queue sizes, CORS allowlist, data directory and provider settings | Typed parsing/range checks; non-loopback binds are rejected and remote-bind opt-in fails closed. |
 | Build and package sources | FetchContent tags, npm lockfile and GitHub Actions references | Release pins and lockfile exist; C++ pins/actions are not immutable and automated supply-chain scanning is incomplete. |
+
+## HTTP route inventory
+
+The route list below is from `src/server/http_server.cpp`. All routes pass the Host/Origin guard; POST/PUT/PATCH/DELETE require JSON, and the HTTP body cap is enforced by the transport.
+
+| Route | Method | Access | Input and work | Risk | Protection observed after request-boundary hardening |
+|---|---|---|---|---|---|
+| `/` and `/assets/*` | GET/HEAD (static handler) | Read | Built UI and local bundled files | Browser content and static-file parsing | Loopback Host/Origin policy; maintained transport; CSP is tracked by SEC-FE-001. |
+| `/api/v1/health` | GET | Read | No body | Minimal process status disclosure | Loopback Host/Origin; fixed response schema. |
+| `/api/v1/market/watch` | GET | Read | No body | Returns bounded instrument list | Loopback Host/Origin; in-memory platform list. |
+| `/api/v1/instruments/{id}` | GET | Read | Numeric instrument path | Lookup and response serialization | Loopback Host/Origin; ID parsed as an integer. |
+| `/api/v1/instruments/{id}/snapshot?depth=` | GET | Read | Instrument ID and depth 1–200 | Bounded snapshot work | Loopback Host/Origin; bounded depth and fixed read model. |
+| `/api/v1/portfolio/{account_id}` | GET | Read | Account path | Local paper-account disclosure | Loopback Host/Origin; fixed account read model. |
+| `/api/v1/risk/{account_id}` | GET | Read | Account path | Local risk-state disclosure | Loopback Host/Origin; fixed account read model. |
+| `/api/v1/trades?limit=` | GET | Read | Limit 1–200 | Historical result allocation | Loopback Host/Origin; bounded result count. |
+| `/api/v1/system/metrics` | GET | Read | No body | Operational-state disclosure | Loopback Host/Origin; fixed bounded counters. |
+| `/api/v1/stream` | GET | Read/unavailable | No body | None while unavailable | Returns schema-versioned 501; no WebSocket upgrade is implemented. |
+| `/api/state?depth=` | GET | Read | Depth parsed and capped by legacy handler | Book snapshot disclosure and allocation | Loopback Host/Origin; bounded depth/read models. |
+| `/api/orders` | POST | Write | JSON order ID, side, type, price and quantity | Simulation state and risk engine | Loopback Host/Origin; JSON content type; 64 KiB body; matching/risk validation. Unknown-key strictness is tracked for follow-up validation. |
+| `/api/orders/{id}` | DELETE | Write | Numeric order ID path | Cancel simulation order | Loopback Host/Origin; JSON content type; numeric ID parsing; matching lifecycle checks. |
+| `/api/sim/step` | POST | Write/expensive | JSON step count, currently clamped to 1–500 | CPU and simulated order volume | Loopback Host/Origin; JSON content type; 64 KiB body; fixed maximum of 500 events per request. |
+| `/api/reset` | POST | Write/destructive | Optional JSON `seed_demo` boolean | Clears simulation state | Loopback Host/Origin; JSON content type; explicit boolean conversion. |
+| `/api/benchmark` | POST | Expensive benchmark | JSON profile, order count and baseline comparison | CPU consumption | Loopback Host/Origin; JSON content type; order count 1–10,000; at most 5 requests per server per rolling minute; 8 workers and 32 queued requests. |
+| `/api/v1/*` fallback | GET/POST/PUT/PATCH/DELETE | Unavailable | Route path and bounded body | Method confusion or unintended API surface | Explicit schema-versioned 501 fallback. Other unsupported methods are not registered. |
+| `/api/*` preflight | OPTIONS | Read/policy | Origin and requested method/headers | Browser cross-origin boundary | Host/Origin guard; exact configured allowlist; no wildcard CORS. |
+
+The route inventory describes current code; it does not imply every v1 route is implemented. Mutation JSON schema validation and client-safe parse errors remain part of the HTTP follow-up review.
 
 ## Trust boundaries and threat model
 
@@ -72,8 +99,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Server state confusion, unsafe header interpretation, or process availability loss.
 **Recommended remediation:** Upgrade to a stable upstream release beyond all applicable fixes, pin its immutable commit, and add raw-protocol regression coverage.
 **Regression tests:** HTTP integration tests for malformed framing, chunked bodies, encoded header bytes, duplicate Host handling and connection shutdown.
-**Status:** Fix implemented and verified; commit pending. The candidate v0.58.0 is beyond the applicable patched versions; a fresh Release build passed 85/85 targets and CTest passed 165/165, including the live percent-encoded Origin regression. Advisory scope was checked against the upstream [security advisories](https://github.com/yhirose/cpp-httplib/security) and [release history](https://github.com/yhirose/cpp-httplib/releases/). Specific conditional advisories: ContentReader decompression affects only streaming handlers not used by BASALT; trusted-proxy `X-Forwarded-For` handling is not configured; TLS/client advisories do not match the current server-only, non-TLS build. The upstream v0.58.0 release history was also checked for request smuggling, malformed chunk framing, regex path stack exhaustion, multipart parsing and recent protocol fixes.
-**Associated commit:** Pending.
+**Status:** Fixed and verified in `0a19e47`. The pinned v0.58.0 is beyond the applicable patched versions; a fresh Release build passed and CTest passed 165/165, including the live percent-encoded Origin regression. Additional raw-protocol tests confirm this parser accepts duplicate `Host` fields, so BASALT now rejects repeated Host, Origin, Content-Type, Content-Length and Transfer-Encoding fields before routing. Advisory scope was checked against the upstream [security advisories](https://github.com/yhirose/cpp-httplib/security) and [release history](https://github.com/yhirose/cpp-httplib/releases/). Specific conditional advisories: ContentReader decompression affects only streaming handlers not used by BASALT; trusted-proxy `X-Forwarded-For` handling is not configured; TLS/client advisories do not match the current server-only, non-TLS build. The upstream v0.58.0 release history was also checked for request smuggling, malformed chunk framing, regex path stack exhaustion, multipart parsing and recent protocol fixes.
+**Associated commit:** `0a19e47`.
 
 ### SEC-NET-001 — Environment configuration can enable unauthenticated remote binding
 
@@ -87,8 +114,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Remote mutation of simulated state, unauthenticated inspection, and remote resource exhaustion. No live trading endpoint exists.
 **Recommended remediation:** Remove the remote-binding path and fail clearly on non-loopback bind configuration.
 **Regression tests:** Configuration tests for all environment combinations; startup and live-bind tests prove only IPv4/IPv6 loopback can be bound.
-**Status:** Fix implemented and verified; commit pending. `BASALT_ALLOW_REMOTE_BIND=true` now fails explicitly, all other non-loopback bind addresses are rejected by configuration validation, the request guard no longer accepts caller-supplied remote addresses, and directly constructed `HttpServer` configs are validated before listening. CTest passed 166/166 including configuration and direct-construction regression coverage.
-**Associated commit:** Pending.
+**Status:** Fix implemented and verified. `BASALT_ALLOW_REMOTE_BIND=true` now fails explicitly, all other non-loopback bind addresses are rejected by configuration validation, the request guard no longer accepts caller-supplied remote addresses, and directly constructed `HttpServer` configs are validated before listening. CTest passed 166/166 including configuration and direct-construction regression coverage.
+**Associated commit:** `91c9804`.
 
 ### SEC-HTTP-001 — HTTP work queue and expensive endpoint lack application-level admission control
 
@@ -102,8 +129,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Queue growth, excess memory use and CPU starvation of the local UI/simulation.
 **Recommended remediation:** Bound worker and queued-request counts; add a small explicit cooldown/rate budget to the expensive benchmark route and explicit read/write/keepalive timeouts.
 **Regression tests:** Queue saturation, rate-limit response, timeout and normal benchmark compatibility tests.
-**Status:** Open at baseline; the 10,000-order cap is an existing partial control.
-**Associated commit:** None at baseline.
+**Status:** Fix implemented and verified. The server now uses a fixed 8-worker pool with at most 32 queued jobs, an explicit 64 KiB body cap, 4 KiB URI/header line caps, 64-header cap, 5-second read/write timeouts, a 2-second keep-alive timeout, at most five requests per keep-alive connection, and a five-per-minute benchmark admission limit after input validation. The existing 10,000-order cap remains. BASALT also rejects repeated Host, Origin, Content-Type, Content-Length or Transfer-Encoding headers before routing. Release build passed; full CTest passed 169/169 with loopback, including queue saturation, oversized URI/header, ambiguous-host/framing and benchmark rate-limit regressions.
+**Associated commit:** Pending.
 
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
@@ -178,4 +205,5 @@ This section is updated after every dedicated security commit. A finding is clos
 |---|---|---|---|
 | 2026-11-25 | `fad0c43` | Phase 0 inventory and threat model; SEC-DEP-001, SEC-NET-001, SEC-HTTP-001, SEC-FE-001, SEC-CI-001, SEC-SUP-001 recorded open at baseline | Release build; CTest 164/164 with loopback; typecheck; Vitest 10/10; frontend build; npm audit 0 |
 | 2026-11-25 | `0a19e47` | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
-| 2026-11-25 | Pending | `security(network): disable remote HTTP binding` — SEC-NET-001 fix implemented | Release build; CTest 166/166 with loopback |
+| 2026-11-25 | `91c9804` | `security(network): disable remote HTTP binding` — SEC-NET-001 remediated | Release build; CTest 166/166 with loopback |
+| 2026-11-25 | Pending | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |

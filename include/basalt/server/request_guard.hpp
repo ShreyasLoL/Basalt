@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -11,6 +12,7 @@ namespace basalt::server {
 
 // Shared with the MCP run_benchmark cap so both adapters bound work identically.
 inline constexpr std::uint64_t MAX_HTTP_BENCHMARK_ORDER_COUNT = 10'000;
+inline constexpr std::size_t MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE = 5;
 
 // Outcome of the transport-level request policy. status is 200 when the request
 // may proceed to routing, otherwise 403 (host/origin) or 415 (media type).
