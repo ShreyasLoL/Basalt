@@ -48,7 +48,7 @@ The route list below is from `src/server/http_server.cpp`. All routes pass the H
 
 | Route | Method | Access | Input and work | Risk | Protection observed after request-boundary hardening |
 |---|---|---|---|---|---|
-| `/` and `/assets/*` | GET/HEAD (static handler) | Read | Built UI and local bundled files | Browser content and static-file parsing | Loopback Host/Origin policy; baseline response headers; strict CSP for the built Vite bundle. The legacy inline-script fallback does not receive CSP and remains a tracked limitation. |
+| `/` and `/assets/*` | GET/HEAD (static handler) | Read | Built UI and local bundled files | Browser content and static-file parsing | Loopback Host/Origin policy; baseline response headers and CSP. The legacy fallback uses same-origin JavaScript and generated CSS. |
 | `/api/v1/health` | GET | Read | No body | Minimal process status disclosure | Loopback Host/Origin; fixed response schema. |
 | `/api/v1/market/watch` | GET | Read | No body | Returns bounded instrument list | Loopback Host/Origin; in-memory platform list. |
 | `/api/v1/instruments/{id}` | GET | Read | Numeric instrument path | Lookup and response serialization | Loopback Host/Origin; ID parsed as an integer. |
@@ -83,7 +83,7 @@ Method handling is explicit: unsupported method/path combinations return 404 aft
 
 In-scope actors include a hostile web page attempting DNS rebinding or cross-origin access, a local process sending malformed HTTP/MCP input, a malicious replay file, corrupted local records, and accidental resource exhaustion. The user's OS account is trusted to choose local paths and start processes. The application cannot protect its files or in-memory state from a fully compromised host, an administrator with equivalent privileges, physical access to an unlocked session, or malicious code already running as the same user. Loopback and CORS do not authenticate local clients. BASALT has no live brokerage order placement; provider integrations in this build are synthetic/replay or diagnostic-only.
 
-The existing [threat model](../THREAT_MODEL.md) records additional STRIDE scenarios and controls. Its baseline assumptions remain: no remote deployment, no live execution and no cryptographic tamper-evident audit chain.
+The [threat model](THREAT_MODEL.md) records additional STRIDE scenarios and controls. Its assumptions remain: no remote deployment, no live execution and no cryptographic tamper-evident audit chain.
 
 ## Findings
 
@@ -177,7 +177,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Recommended remediation:** Read lines with a fixed cap before appending, cap aggregate bytes, bound CSV columns and JSON depth, and reject unknown JSON fields while preserving valid input.
 **Regression tests:** Oversized CSV/JSONL lines, excessive CSV columns, unknown JSON fields, unsupported schema versions, excessive JSON nesting and valid versioned replay samples.
 **Status:** Fixed in the market replay parser hardening commit. The reader stops after at most one byte beyond the line/file cap; total input is limited to 256 MiB, CSV headers to 64 columns, JSON nesting to 32 levels, and unknown JSON object fields are rejected. Valid legacy replay samples remain accepted.
-**Associated commit:** Pending.
+**Associated commit:** `a92d8f5`.
 
 ### SEC-MCP-001 — MCP data-directory permission failures are ignored
 
@@ -192,7 +192,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Recommended remediation:** Treat permission-setting failure as candidate failure, verify the temporary fallback the same way, and refuse MCP startup if no protected data directory can be established.
 **Regression tests:** Existing resolver precedence/fallback tests plus the full MCP suite; the permission-failure branch is code-reviewed but cannot be induced reliably on this Windows filesystem without a platform-specific ACL fixture.
 **Status:** Fixed. Permission errors now reject a candidate; the temporary fallback is checked, and stdio startup/default construction fail closed if no protected directory is available.
-**Associated commit:** Pending.
+**Associated commit:** `8dfbb3f`.
 
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
@@ -207,7 +207,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then migrate the inline-script legacy fallback to same-origin assets before enforcing CSP on it. Do not send HSTS for the current HTTP-only loopback server.
 **Regression tests:** HTTP response-header assertions for UI and API plus local legacy asset routes; HTTP integration suite passed 28/28 with both the built Vite index and the legacy fallback selected. Frontend typecheck passed, Vitest 10/10, production build passed, and the legacy CSS generator rejects inline scripts or the Tailwind CDN. Offline npm audit reported 0 vulnerabilities.
 **Status:** Resolved by the legacy fallback hardening commit. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. Both the compiled Vite bundle and legacy fallback receive `default-src 'self'` CSP from the C++ server; the fallback JavaScript is now an embedded same-origin asset and its Tailwind utilities are generated into same-origin CSS. Vite preview sends the production policy; Vite development has a separate policy for its injected bootstrap and WebSocket HMR. HSTS remains omitted because the application is HTTP-only.
-**Associated commit:** Pending.
+**Associated commit:** `e724bd1`.
 
 
 ### SEC-CI-001 — Static and secret scanning are not integrated into CI
@@ -217,13 +217,13 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Severity:** Low
 **Affected component:** Build and supply-chain security
 **Affected file:** `.github/workflows/ci.yml`, dependency declarations
-**Evidence:** The workflow runs C++/frontend regression, sanitizers, TSan and fuzz smoke jobs, but no CodeQL/clang-tidy/OSV/Gitleaks or npm audit step. `clang-tidy` is installed locally but is not configured in the workflow; Gitleaks and OSV Scanner are not installed on this host.
+**Evidence:** At baseline, the workflow ran C++/frontend regression, sanitizers, TSan and fuzz smoke jobs, but no clang-tidy/OSV/Gitleaks or npm audit step. The CI workflow now has read-only jobs for these scans and pins action references and scanner images.
 **Attack scenario:** A vulnerable dependency or accidentally committed credential may enter the repository without an automated warning.
 **Potential impact:** Delayed detection of dependency or source-level problems and credential exposure.
 **Recommended remediation:** Add a minimal read-only CI security job for dependency and secret scans and run a practical C++ static analysis configuration.
-**Regression tests:** Verify workflows parse and the scanner executes on the current repository without requiring write permissions or secrets.
-**Status:** Open at baseline.
-**Associated commit:** None at baseline.
+**Regression tests:** `actionlint` 1.7.12 parsed the workflow successfully. Repo-wide clang-tidy completed across 36 backend translation units with warnings-as-errors and no unsuppressed findings. `npm audit --package-lock-only --audit-level=low` reported zero vulnerabilities. OSV Scanner v2.7.1 scanned the npm lockfile's 236 packages and reported no issues; it did not report CMake FetchContent dependencies, which were reviewed separately against upstream advisories. Gitleaks scanned 51 commits with no leaks. A working-tree scan found eight redacted example/test matches, all inside generated `build-phase2/_deps/httplib-src` documentation/tests; no findings were outside that generated dependency tree. Docker is unavailable locally, so the exact pinned container invocations and hosted workflow jobs have not run here.
+**Status:** Resolved in the workflow configuration; hosted CI execution remains unobserved. The one excluded clang-tidy check, `clang-analyzer-core.StackAddressEscape`, reports a false positive in the pinned cpp-httplib callback wrapper; all remaining enabled checks treat warnings as errors.
+**Associated commit:** Pending.
 
 ### SEC-SUP-001 — CMake dependency tags are mutable references
 
@@ -249,7 +249,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 - MCP input is line-framed and bounded, tool argument schemas reject unknown fields, tools expose no shell or arbitrary path access, and kill-switch/audit writes have explicit caps and error reporting.
 - EventLog validates magic/version/length/sequence/CRC before allocating payloads, retains valid prefixes and reports/quarantines corrupt tails. CRC is not cryptographic tamper protection.
 - Financial core uses checked integer arithmetic, risk reservations/idempotency and ledger reconciliation; existing tests cover order lifecycle, partial fills, kill-switch and deterministic accounting. These tests support the specific invariants but do not prove all concurrency paths race-free.
-- CI already contains ASan/UBSan, TSan and four bounded libFuzzer jobs. Local TSan and fuzz campaigns were not run on this Windows toolchain; no crash-free fuzz result is claimed.
+- CI contains ASan/UBSan, TSan, four bounded libFuzzer jobs, and now read-only npm audit, OSV Scanner, Gitleaks and clang-tidy jobs. Equivalent scanner commands and actionlint were run locally; the hosted workflow itself has not run. OSV's observed scan covered the npm lockfile, not the CMake FetchContent pins. Local TSan and fuzz campaigns were not run on this Windows toolchain; no crash-free fuzz result is claimed.
 
 ## Baseline limitations
 
@@ -276,4 +276,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `7f7ff0a` | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |
 | 2026-11-25 | `a92d8f5` | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
 | 2026-11-25 | `8dfbb3f` | MCP data directory fail-closed permissions — SEC-MCP-001 remediated | C++ build; `basalt_mcp_tests` 13/13 |
-| 2026-11-25 | Pending | Legacy fallback CSP migration — SEC-FE-001 closed | C++ build; HTTP integration suite 28/28 with built and fallback UI; typecheck; Vitest 10/10; frontend build; offline npm audit 0; embedded same-origin asset checks |
+| 2026-11-25 | `e724bd1` | Legacy fallback CSP migration — SEC-FE-001 closed | C++ build; HTTP integration suite 28/28 with built and fallback UI; typecheck; Vitest 10/10; frontend build; offline npm audit 0; embedded same-origin asset checks |
+| 2026-11-25 | Pending | CI security scanners — SEC-CI-001 resolved in configuration | actionlint 1.7.12 passed; clang-tidy 36 translation units, exit 0; npm audit 0; OSV v2.7.1 found no issues in 236 npm packages; Gitleaks history scan: 51 commits, no leaks. Gitleaks working-tree scan flagged eight generated cpp-httplib example/test fixtures under `build-phase2/_deps` only. Docker is unavailable locally, and hosted CI itself was not triggered. |

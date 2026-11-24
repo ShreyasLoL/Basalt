@@ -30,13 +30,13 @@ jobs:
             compiler: msvc
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: actions/cache@v4
+      - uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
         with:
           path: build/_deps
           key: ${{ runner.os }}-${{ matrix.compiler }}-deps-${{ hashFiles('CMakeLists.txt') }}
@@ -70,7 +70,7 @@ jobs:
     name: ASan and UBSan (Linux Clang)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Clang
         run: sudo apt-get update && sudo apt-get install -y clang
       - name: Configure
@@ -84,7 +84,7 @@ jobs:
     name: ThreadSanitizer (Linux Clang)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Clang
         run: sudo apt-get update && sudo apt-get install -y clang
       - name: Configure
@@ -98,7 +98,7 @@ jobs:
     name: libFuzzer smoke (Linux Clang)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Clang
         run: sudo apt-get update && sudo apt-get install -y clang
       - name: Configure
@@ -113,3 +113,48 @@ jobs:
         run: ./build-fuzz/basalt_fuzz_json -max_total_time=30 -max_len=262144 fuzz/corpus/json
       - name: Fuzz MCP frames
         run: ./build-fuzz/basalt_fuzz_mcp -max_total_time=30 -max_len=307200 fuzz/corpus/mcp
+
+  security-scans:
+    name: Dependency and secret scans
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: npm dependency audit
+        working-directory: frontend
+        run: npm audit --package-lock-only --audit-level=low
+      - name: OSV dependency scan
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/src"
+          -w /src
+          ghcr.io/google/osv-scanner:v2.7.1@sha256:a70ffffc2bfd33482953e5d6b64c6fcdb30239717a07b0f0d3ab2859ce3e4cde
+          scan source --recursive /src
+      - name: Gitleaks history scan
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}:/src"
+          -w /src
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git --redact=100 --no-banner --log-opts=--all /src
+
+  clang-tidy:
+    name: C++ static analysis (Clang)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Clang tooling
+        run: sudo apt-get update && sudo apt-get install -y clang clang-tidy
+      - name: Configure compile commands
+        run: cmake -S . -B build-clang-tidy -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Analyze C++ sources
+        run: >-
+          find src -type f -name '*.cpp' -print0 |
+          xargs -0 -r clang-tidy -p build-clang-tidy
+          --checks='-*,clang-analyzer-core.*,clang-analyzer-cplusplus.*,-clang-analyzer-core.StackAddressEscape'
+          --warnings-as-errors='*'
