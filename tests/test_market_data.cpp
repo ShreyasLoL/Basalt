@@ -348,6 +348,63 @@ TEST(MarketDataProviders, ReplayReadsCsvAndJsonLinesWithoutExternalServices) {
     EXPECT_EQ(provider.cursor(), 0U);
 }
 
+TEST(MarketDataProviders, ReplayReadersRejectOversizedLinesBeforeParsing) {
+    InstrumentMaster master = InstrumentMaster::seeded_sim_catalog();
+    CsvJsonReplayProvider provider(master);
+    std::istringstream csv(std::string(1'048'577, 'x'));
+    const auto csv_result = provider.load_csv(csv);
+    ASSERT_FALSE(csv_result);
+    EXPECT_EQ(csv_result.error().code, "FRAME_TOO_LARGE");
+
+    std::istringstream json_lines(std::string(1'048'577, ' '));
+    const auto json_result = provider.load_json_lines(json_lines);
+    ASSERT_FALSE(json_result);
+    EXPECT_EQ(json_result.error().code, "FRAME_TOO_LARGE");
+
+    std::string wide_header;
+    for (std::size_t column = 0; column < 65; ++column) {
+        if (column != 0) wide_header += ',';
+        wide_header += 'x';
+    }
+    std::istringstream wide_csv(wide_header);
+    const auto wide_result = provider.load_csv(wide_csv);
+    ASSERT_FALSE(wide_result);
+    EXPECT_EQ(wide_result.error().code, "CSV_COLUMN_LIMIT");
+}
+
+TEST(MarketDataProviders, JsonReplayRejectsUnknownFieldsAndExcessiveNesting) {
+    InstrumentMaster master = InstrumentMaster::seeded_sim_catalog();
+    CsvJsonReplayProvider provider(master);
+    std::istringstream versioned(
+        R"({"schema_version":1,"provider_instrument_key":"SIM:RELIANCE","kind":"quote","event_time_ns":1800000000000000000})");
+    const auto versioned_result = provider.load_json_lines(versioned);
+    ASSERT_TRUE(versioned_result) << versioned_result.error().message;
+    EXPECT_EQ(versioned_result.value(), 1U);
+
+    std::istringstream unsupported_version(
+        R"({"schema_version":2,"provider_instrument_key":"SIM:RELIANCE","kind":"quote","event_time_ns":1800000000000000000})");
+    const auto unsupported_result = provider.load_json_lines(unsupported_version);
+    ASSERT_FALSE(unsupported_result);
+    EXPECT_EQ(unsupported_result.error().code, "INVALID_SCHEMA_VERSION");
+
+    std::istringstream unknown_field(
+        R"({"provider_instrument_key":"SIM:RELIANCE","kind":"quote","event_time_ns":1800000000000000000,"unexpected":true})");
+    const auto unknown_result = provider.load_json_lines(unknown_field);
+    ASSERT_FALSE(unknown_result);
+    EXPECT_EQ(unknown_result.error().code, "UNKNOWN_JSON_FIELD");
+
+    std::string too_deep =
+        R"({"provider_instrument_key":"SIM:RELIANCE","kind":"quote","event_time_ns":1800000000000000000,"extra":)";
+    too_deep.append(33, '[');
+    too_deep += '0';
+    too_deep.append(33, ']');
+    too_deep += '}';
+    std::istringstream deep_input(too_deep);
+    const auto deep_result = provider.load_json_lines(deep_input);
+    ASSERT_FALSE(deep_result);
+    EXPECT_EQ(deep_result.error().code, "JSON_DEPTH_LIMIT");
+}
+
 TEST(MarketDataProviders, DiagnosticAdaptersStayDisconnectedAndReadNoSecrets) {
     UpstoxProviderStub upstox;
     FyersProviderAdapter fyers;

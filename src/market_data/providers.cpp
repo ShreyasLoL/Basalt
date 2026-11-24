@@ -7,7 +7,9 @@
 #include <chrono>
 #include <limits>
 #include <map>
+#include <set>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -18,8 +20,52 @@ namespace {
 
 using json = nlohmann::json;
 constexpr std::size_t maximum_input_line_bytes = 1'048'576;
+constexpr std::size_t maximum_replay_file_bytes = 256U * 1024U * 1024U;
+constexpr std::size_t maximum_json_depth = 32;
+constexpr std::size_t maximum_csv_columns = 64;
 constexpr std::size_t maximum_replay_events = 1'000'000;
 constexpr std::size_t maximum_provider_subscriptions = 1'000;
+
+enum class BoundedLineStatus { Line, End, LineTooLarge, FileTooLarge, ReadError };
+
+BoundedLineStatus read_bounded_line(std::istream& input, std::string& line, std::size_t& total_bytes) {
+    line.clear();
+    for (;;) {
+        char character = 0;
+        if (!input.get(character)) {
+            if (input.bad()) return BoundedLineStatus::ReadError;
+            return line.empty() ? BoundedLineStatus::End : BoundedLineStatus::Line;
+        }
+        if (total_bytes == maximum_replay_file_bytes) return BoundedLineStatus::FileTooLarge;
+        ++total_bytes;
+        if (character == '\n') return BoundedLineStatus::Line;
+        if (line.size() == maximum_input_line_bytes) return BoundedLineStatus::LineTooLarge;
+        line.push_back(character);
+    }
+}
+
+bool json_depth_within_limit(const std::string_view text) {
+    std::size_t depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    for (const char character : text) {
+        if (in_string) {
+            if (escaped) escaped = false;
+            else if (character == '\\') escaped = true;
+            else if (character == '"') in_string = false;
+            continue;
+        }
+        if (character == '"') {
+            in_string = true;
+        } else if (character == '{' || character == '[') {
+            if (depth == maximum_json_depth) return false;
+            ++depth;
+        } else if ((character == '}' || character == ']') && depth != 0) {
+            --depth;
+        }
+    }
+    return true;
+}
 
 ProviderError make_error(std::string code, std::string message) {
     return ProviderError{std::move(code), std::move(message)};
@@ -75,6 +121,10 @@ common::Result<std::vector<std::string>, ProviderError> split_csv(const std::str
                 quoted = !quoted;
             }
         } else if (character == ',' && !quoted) {
+            if (fields.size() >= maximum_csv_columns - 1) {
+                return common::Result<std::vector<std::string>, ProviderError>::failure(
+                    make_error("CSV_COLUMN_LIMIT", "CSV replay row exceeds 64 columns"));
+            }
             fields.push_back(trim(field));
             field.clear();
         } else {
@@ -163,6 +213,23 @@ common::Result<RawMarketEvent, ProviderError> parse_json_event(const json& objec
                                                                const std::size_t line_number) {
     if (!object.is_object()) return common::Result<RawMarketEvent, ProviderError>::failure(
         make_error("INVALID_JSON_ROW", "JSON replay line " + std::to_string(line_number) + " must be an object"));
+    static const std::set<std::string> allowed_fields{
+        "schema_version", "event_id", "provider_instrument_key", "kind", "event_time_ns", "provider_sequence",
+        "price", "quantity", "bid", "bid_quantity", "ask", "ask_quantity", "open", "high", "low", "close",
+        "volume", "bids", "asks", "provenance_label"};
+    for (auto field = object.begin(); field != object.end(); ++field) {
+        if (!allowed_fields.contains(field.key())) return common::Result<RawMarketEvent, ProviderError>::failure(
+            make_error("UNKNOWN_JSON_FIELD", "JSON replay line " + std::to_string(line_number) + " has an unknown field"));
+    }
+    const auto schema = object.find("schema_version");
+    if (schema != object.end() && (!schema->is_number_unsigned() && !schema->is_number_integer())) {
+        return common::Result<RawMarketEvent, ProviderError>::failure(
+            make_error("INVALID_SCHEMA_VERSION", "JSON replay schema_version must be integer 1"));
+    }
+    if (schema != object.end() && schema->dump() != "1") {
+        return common::Result<RawMarketEvent, ProviderError>::failure(
+            make_error("INVALID_SCHEMA_VERSION", "JSON replay schema_version must be integer 1"));
+    }
     RawMarketEvent raw;
     raw.provider = "CSV_JSON_REPLAY";
     const auto instrument = json_text(object, "provider_instrument_key", true);
@@ -216,6 +283,7 @@ common::Result<RawMarketEvent, ProviderError> parse_json_event(const json& objec
         if (!found->is_array() || found->size() > 200) return false;
         for (const json& level : *found) {
             if (!level.is_object()) return false;
+            if (level.size() != 2 || !level.contains("price") || !level.contains("quantity")) return false;
             const auto price = json_text(level, "price", true);
             const auto quantity = json_text(level, "quantity", true);
             if (!price || !quantity) return false;
@@ -393,17 +461,26 @@ common::Result<std::size_t, ProviderError> CsvJsonReplayProvider::load_csv(std::
     std::vector<RawMarketEvent> parsed_events;
     std::string line;
     std::size_t line_number = 0;
+    std::size_t total_bytes = 0;
     std::vector<std::string> headers;
     std::map<std::string, std::size_t> header_indices;
-    while (std::getline(input, line)) {
-        ++line_number;
-        if (line.size() > maximum_input_line_bytes) return common::Result<std::size_t, ProviderError>::failure(
+    for (;;) {
+        const auto status = read_bounded_line(input, line, total_bytes);
+        if (status == BoundedLineStatus::End) break;
+        if (status == BoundedLineStatus::LineTooLarge) return common::Result<std::size_t, ProviderError>::failure(
             make_error("FRAME_TOO_LARGE", "CSV replay line exceeds the 1 MiB frame limit"));
+        if (status == BoundedLineStatus::FileTooLarge) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("REPLAY_FILE_TOO_LARGE", "CSV replay input exceeds the 256 MiB file limit"));
+        if (status == BoundedLineStatus::ReadError) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("CSV_READ_FAILED", "Failed while reading the CSV replay stream"));
+        ++line_number;
         if (line_number == 1 && line.starts_with("\xEF\xBB\xBF")) line.erase(0, 3);
         if (trim(line).empty()) continue;
         const auto fields = split_csv(line);
         if (!fields) return common::Result<std::size_t, ProviderError>::failure(fields.error());
         if (headers.empty()) {
+            if (fields.value().size() > maximum_csv_columns) return common::Result<std::size_t, ProviderError>::failure(
+                make_error("CSV_COLUMN_LIMIT", "CSV replay header exceeds 64 columns"));
             headers = fields.value();
             for (std::size_t i = 0; i < headers.size(); ++i) {
                 headers[i] = lowercase_ascii(trim(headers[i]));
@@ -417,12 +494,10 @@ common::Result<std::size_t, ProviderError> CsvJsonReplayProvider::load_csv(std::
         }
         const auto event = parse_csv_row(headers, fields.value(), line_number);
         if (!event) return common::Result<std::size_t, ProviderError>::failure(event.error());
-        parsed_events.push_back(event.value());
-        if (parsed_events.size() > maximum_replay_events) return common::Result<std::size_t, ProviderError>::failure(
+        if (parsed_events.size() >= maximum_replay_events) return common::Result<std::size_t, ProviderError>::failure(
             make_error("REPLAY_EVENT_LIMIT", "Replay file exceeds one million events"));
+        parsed_events.push_back(event.value());
     }
-    if (input.bad()) return common::Result<std::size_t, ProviderError>::failure(
-        make_error("CSV_READ_FAILED", "Failed while reading the CSV replay stream"));
     if (headers.empty()) return common::Result<std::size_t, ProviderError>::failure(
         make_error("EMPTY_CSV", "CSV replay stream has no header"));
     events_ = std::move(parsed_events);
@@ -434,11 +509,22 @@ common::Result<std::size_t, ProviderError> CsvJsonReplayProvider::load_json_line
     std::vector<RawMarketEvent> parsed_events;
     std::string line;
     std::size_t line_number = 0;
-    while (std::getline(input, line)) {
-        ++line_number;
-        if (line.size() > maximum_input_line_bytes) return common::Result<std::size_t, ProviderError>::failure(
+    std::size_t total_bytes = 0;
+    for (;;) {
+        const auto status = read_bounded_line(input, line, total_bytes);
+        if (status == BoundedLineStatus::End) break;
+        if (status == BoundedLineStatus::LineTooLarge) return common::Result<std::size_t, ProviderError>::failure(
             make_error("FRAME_TOO_LARGE", "JSON replay line exceeds the 1 MiB frame limit"));
+        if (status == BoundedLineStatus::FileTooLarge) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("REPLAY_FILE_TOO_LARGE", "JSON replay input exceeds the 256 MiB file limit"));
+        if (status == BoundedLineStatus::ReadError) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("JSON_READ_FAILED", "Failed while reading the JSON replay stream"));
+        ++line_number;
         if (trim(line).empty()) continue;
+        if (!json_depth_within_limit(line)) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("JSON_DEPTH_LIMIT", "JSON replay line exceeds the 32-level nesting limit"));
+        if (parsed_events.size() >= maximum_replay_events) return common::Result<std::size_t, ProviderError>::failure(
+            make_error("REPLAY_EVENT_LIMIT", "Replay file exceeds one million events"));
         try {
             const auto event = parse_json_event(json::parse(line), line_number);
             if (!event) return common::Result<std::size_t, ProviderError>::failure(event.error());
@@ -447,8 +533,6 @@ common::Result<std::size_t, ProviderError> CsvJsonReplayProvider::load_json_line
             return common::Result<std::size_t, ProviderError>::failure(make_error(
                 "INVALID_JSON", "JSON replay line " + std::to_string(line_number) + " is invalid: " + error.what()));
         }
-        if (parsed_events.size() > maximum_replay_events) return common::Result<std::size_t, ProviderError>::failure(
-            make_error("REPLAY_EVENT_LIMIT", "Replay file exceeds one million events"));
     }
     if (input.bad()) return common::Result<std::size_t, ProviderError>::failure(
         make_error("JSON_READ_FAILED", "Failed while reading the JSON replay stream"));

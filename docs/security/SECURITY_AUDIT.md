@@ -36,7 +36,7 @@ This is a source-based assessment, not a security certification. Findings are li
 | HTTP gateway | Request line, method, URI, Host/Origin/Content-Type and body | Host/Origin/content-type guard, 64 KiB body cap, route-level JSON checks, request/benchmark limits. |
 | Browser UI | Backend JSON, instrument labels and error text | React text rendering; no `dangerouslySetInnerHTML` or direct `innerHTML` use found. |
 | MCP stdio | JSON-RPC lines and tool arguments from the configured caller | 256 KiB frame cap, JSON-RPC checks, closed tool schemas, bounded per-tool inputs/rates, no shell or arbitrary-file tool. |
-| CSV / JSONL replay | User-selected stream contents, rows and fields | 1 MiB line cap, one-million-event cap, typed parsing and market-data validation. |
+| CSV / JSONL replay | User-selected stream contents, rows and fields | Bounded line reads, 256 MiB total input cap, 64-column CSV header cap, 32-level JSON depth cap, closed JSON fields and one-million-event cap. |
 | Market-data provider interface | Raw quotes/bars/trades, timestamps, sequence and symbol mapping | Instrument mapping, fixed-point normalization, quality/sequence checks; real broker adapters are not connected. |
 | Persistence recovery | Local `.blog`, checkpoint, JSON and CSV files | Bounded event frame length, sequence and CRC validation, prefix recovery, dataset digest checks. |
 | Environment/configuration | Bind address, port, queue sizes, CORS allowlist, data directory and provider settings | Typed parsing/range checks; non-loopback binds are rejected and remote-bind opt-in fails closed. |
@@ -164,6 +164,21 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Status:** Fixed and verified in `b752a7a`. The handler truncates exception text to 512 characters before passing it through the Logger's redaction, then returns HTTP 500 with fixed `INTERNAL_ERROR` JSON. The exception message is never copied into the response. Full CTest passed 174/174 with loopback.
 **Associated commit:** `b752a7a`.
 
+### SEC-MD-001 — Market replay limits are checked after unbounded line allocation
+
+**Finding ID:** SEC-MD-001
+**Title:** CSV/JSONL replay readers can allocate an oversized line before rejecting it
+**Severity:** Medium
+**Affected component:** Market-data import and resource exhaustion
+**Affected file:** `src/market_data/providers.cpp`
+**Evidence:** Both readers use `std::getline` and only check the 1 MiB line limit after the full line has been appended to a `std::string`. There is no total input-byte limit. JSONL parsing also had no explicit nesting limit and ignored unknown top-level and depth-level properties.
+**Attack scenario:** A user imports a malformed or hostile replay file with an extremely long line, excessive aggregate size, deep JSON nesting or unexpected fields. The line may consume memory before the existing cap is applied.
+**Potential impact:** Import-time memory/CPU exhaustion or ambiguous data interpretation.
+**Recommended remediation:** Read lines with a fixed cap before appending, cap aggregate bytes, bound CSV columns and JSON depth, and reject unknown JSON fields while preserving valid input.
+**Regression tests:** Oversized CSV/JSONL lines, excessive CSV columns, unknown JSON fields, unsupported schema versions, excessive JSON nesting and valid versioned replay samples.
+**Status:** Fixed in the market replay parser hardening commit. The reader stops after at most one byte beyond the line/file cap; total input is limited to 256 MiB, CSV headers to 64 columns, JSON nesting to 32 levels, and unknown JSON object fields are rejected. Valid legacy replay samples remain accepted.
+**Associated commit:** Pending.
+
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
 **Finding ID:** SEC-FE-001
@@ -215,7 +230,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 - HTTP policy is applied to UI/assets/API routes; loopback Host checks, exact Origin allowlist, no wildcard CORS and JSON media type requirements are covered by real HTTP tests.
 - HTTP methods are registered explicitly; unsupported method/path combinations return 404 and do not change simulation state. The schema-versioned unavailable-route fallback is an explicit 501.
 - Frontend source has no direct unsafe HTML insertion. The production asset build succeeds.
-- Market-data CSV/JSONL readers enforce a 1 MiB per-line and one-million event cap; parser and normalizer tests cover malformed rows, instrument mapping, sequence gaps, stale timestamps and quality state.
+- Market-data CSV/JSONL readers enforce bounded line reads (1 MiB), total input (256 MiB), CSV header width (64 columns), JSON depth (32 levels) and one-million event limits; unknown JSON properties are rejected. Parser and normalizer tests cover malformed rows, instrument mapping, sequence gaps, stale timestamps and quality state.
 - MCP input is line-framed and bounded, tool argument schemas reject unknown fields, tools expose no shell or arbitrary path access, and kill-switch/audit writes have explicit caps and error reporting.
 - EventLog validates magic/version/length/sequence/CRC before allocating payloads, retains valid prefixes and reports/quarantines corrupt tails. CRC is not cryptographic tamper protection.
 - Financial core uses checked integer arithmetic, risk reservations/idempotency and ledger reconciliation; existing tests cover order lifecycle, partial fills, kill-switch and deterministic accounting. These tests support the specific invariants but do not prove all concurrency paths race-free.
@@ -243,4 +258,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
 | 2026-11-25 | `27f6021` | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 remediated | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
 | 2026-11-25 | `b752a7a` | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 remediated | C++ build; safe error payload test; full CTest 174/174 with loopback |
-| 2026-11-25 | Pending | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |
+| 2026-11-25 | `7f7ff0a` | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |
+| 2026-11-25 | Pending | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
