@@ -16,6 +16,8 @@ The HTTP API is loopback-only. It binds to `127.0.0.1` by default and also permi
 
 There is no `Access-Control-Allow-Origin: *`. An accepted Origin is echoed with `Vary: Origin`; `OPTIONS /api/*` returns 204 with `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: Content-Type, X-Request-ID, Idempotency-Key` and a 600 s max-age. The explicit list is configured with comma-separated `BASALT_CORS_ALLOWED_ORIGINS`; empty is the strict default. `POST /api/benchmark` accepts `order_count` 1–10,000 (default 10,000), matching the MCP `run_benchmark` cap; other values return 400. These rules are covered by `basalt_http_tests` (pure policy cases plus real loopback HTTP requests on an ephemeral port).
 
+The C++ server applies `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a restrictive `Permissions-Policy`. The built Vite UI receives a same-origin Content Security Policy. Vite preview uses the same production policy; Vite development uses a separate policy that permits its injected bootstrap code and WebSocket HMR. The checked-in legacy fallback still has inline scripts and a CDN script, so it does not receive CSP. Build the frontend bundle to get CSP protection. HSTS is omitted because the gateway uses HTTP only.
+
 The bundled `cpp-httplib` transport does not expose a WebSocket upgrade hook. The health route reports `websocket_available: false`, and `/api/v1/stream` returns a schema-versioned 501. The frontend skips reconnect attempts when the server reports the stream as unavailable. No WebSocket handshake or streamed frame is claimed as implemented.
 
 ## Credentials

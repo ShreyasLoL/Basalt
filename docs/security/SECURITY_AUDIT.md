@@ -48,7 +48,7 @@ The route list below is from `src/server/http_server.cpp`. All routes pass the H
 
 | Route | Method | Access | Input and work | Risk | Protection observed after request-boundary hardening |
 |---|---|---|---|---|---|
-| `/` and `/assets/*` | GET/HEAD (static handler) | Read | Built UI and local bundled files | Browser content and static-file parsing | Loopback Host/Origin policy; maintained transport; CSP is tracked by SEC-FE-001. |
+| `/` and `/assets/*` | GET/HEAD (static handler) | Read | Built UI and local bundled files | Browser content and static-file parsing | Loopback Host/Origin policy; baseline response headers; strict CSP for the built Vite bundle. The legacy inline-script fallback does not receive CSP and remains a tracked limitation. |
 | `/api/v1/health` | GET | Read | No body | Minimal process status disclosure | Loopback Host/Origin; fixed response schema. |
 | `/api/v1/market/watch` | GET | Read | No body | Returns bounded instrument list | Loopback Host/Origin; in-memory platform list. |
 | `/api/v1/instruments/{id}` | GET | Read | Numeric instrument path | Lookup and response serialization | Loopback Host/Origin; ID parsed as an integer. |
@@ -139,13 +139,13 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Severity:** Medium
 **Affected component:** Browser security / frontend delivery
 **Affected file:** `src/server/http_server.cpp`, `web/index.html`, `frontend/vite.config.ts`
-**Evidence:** No Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, frame restriction or Permissions-Policy was found in the server response setup or static HTML.
+**Evidence:** At baseline, no Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, frame restriction or Permissions-Policy was configured. The compiled Vite UI has same-origin script/style assets and no external runtime dependency; `web/index.html` remains a separate legacy fallback with inline scripts and a Tailwind CDN dependency.
 **Attack scenario:** If a future rendering bug or compromised asset introduces script injection, the browser has no CSP defense-in-depth; framing and MIME sniffing are also not explicitly restricted.
 **Potential impact:** Increased impact of a separate XSS/content-injection defect. No current raw-HTML sink was found in the React source.
-**Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then verify actual responses and frontend behavior. Do not send HSTS for the current HTTP-only loopback server.
-**Regression tests:** HTTP response-header assertions and a production frontend smoke test under CSP.
-**Status:** Open at baseline.
-**Associated commit:** None at baseline.
+**Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then migrate or remove the inline-script legacy fallback before enforcing CSP on it. Do not send HSTS for the current HTTP-only loopback server.
+**Regression tests:** HTTP response-header assertions for UI and API; frontend production build, typecheck and tests.
+**Status:** Partially remediated. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. The compiled Vite bundle receives `default-src 'self'` CSP from the C++ server, and Vite preview sends the same production policy. The Vite development server has a development-only CSP that permits the inline module/bootstrap code Vite injects and WebSocket HMR. HSTS is omitted because the application is HTTP-only. Residual: the checked-in legacy fallback contains inline application scripts and loads Tailwind from a CDN, so the C++ server intentionally omits CSP for that fallback to preserve its current behavior. It should be migrated or removed before this finding can close.
+**Associated commit:** Pending.
 
 
 ### SEC-CI-001 — Static and secret scanning are not integrated into CI
@@ -206,4 +206,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `fad0c43` | Phase 0 inventory and threat model; SEC-DEP-001, SEC-NET-001, SEC-HTTP-001, SEC-FE-001, SEC-CI-001, SEC-SUP-001 recorded open at baseline | Release build; CTest 164/164 with loopback; typecheck; Vitest 10/10; frontend build; npm audit 0 |
 | 2026-11-25 | `0a19e47` | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
 | 2026-11-25 | `91c9804` | `security(network): disable remote HTTP binding` — SEC-NET-001 remediated | Release build; CTest 166/166 with loopback |
-| 2026-11-25 | Pending | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
+| 2026-11-25 | `5217dee` | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
+| 2026-11-25 | Pending | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production frontend build |

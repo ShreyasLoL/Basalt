@@ -13,7 +13,7 @@
 ## Trust boundaries
 
 1. **MCP client → child process:** the configured client starts `basalt_server --mcp-stdio` and owns its stdin/stdout pipes. The protocol is local stdio, not a network listener. Possession of the pipe grants access to the server's bounded read and simulation tools; there is no additional MCP user authentication.
-2. **Browser or local HTTP client → gateway:** the gateway binds to loopback by default. A single pre-routing policy checks Host, Origin and mutation content type before serving static content or reading request bodies. CORS is a browser policy and is not authentication for arbitrary local HTTP clients.
+2. **Browser or local HTTP client → gateway:** the gateway binds to loopback only. A pre-routing policy checks Host, Origin, duplicate security-sensitive headers and mutation content type before serving static content or reading request bodies. CORS is a browser policy and is not authentication for arbitrary local HTTP clients. The built Vite UI receives a restrictive CSP and baseline browser headers; the legacy inline-script fallback remains without CSP until it is migrated or removed.
 3. **Server process → filesystem:** default MCP files are placed under `BASALT_DATA_DIR`, the executable directory, or the OS temporary `basalt-mcp` directory. The protocol cannot supply arbitrary file paths. File permissions are restricted to the owner where supported.
 4. **Build and dependency boundary:** C++ dependencies and frontend assets are trusted inputs to the local build. This threat model does not assess upstream dependency compromise or artifact signing.
 

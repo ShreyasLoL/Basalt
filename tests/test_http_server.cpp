@@ -326,6 +326,37 @@ TEST_F(HttpServerTest, CompilesPatchedHttpTransportAndRejectsPercentEncodedOrigi
     EXPECT_FALSE(response->has_header("Access-Control-Allow-Origin"));
 }
 
+TEST_F(HttpServerTest, BrowserSecurityHeadersCoverUiAndApiResponses) {
+    auto cli = client();
+    const auto verify_headers = [](const auto& response) {
+        ASSERT_TRUE(response);
+        EXPECT_EQ(response->get_header_value("X-Content-Type-Options"), "nosniff");
+        EXPECT_EQ(response->get_header_value("X-Frame-Options"), "DENY");
+        EXPECT_EQ(response->get_header_value("Referrer-Policy"), "no-referrer");
+        EXPECT_EQ(response->get_header_value("Permissions-Policy"),
+                  "camera=(), microphone=(), geolocation=()");
+    };
+    const auto ui = cli.Get("/");
+    const auto api = cli.Get("/api/state");
+    verify_headers(ui);
+    verify_headers(api);
+    ASSERT_TRUE(ui);
+    ASSERT_TRUE(api);
+    const auto csp = ui->get_header_value("Content-Security-Policy");
+    if (ui->body.find("Research Workstation") != std::string::npos) {
+        EXPECT_NE(csp.find("default-src 'self'"), std::string::npos);
+        EXPECT_NE(csp.find("script-src 'self'"), std::string::npos);
+        EXPECT_NE(csp.find("object-src 'none'"), std::string::npos);
+        EXPECT_NE(csp.find("frame-ancestors 'none'"), std::string::npos);
+        EXPECT_EQ(csp.find("upgrade-insecure-requests"), std::string::npos);
+    } else {
+        // The inline-script legacy fallback remains available when no Vite bundle
+        // exists, so the strict production CSP is applied only to the bundle.
+        EXPECT_TRUE(csp.empty());
+    }
+    EXPECT_TRUE(api->get_header_value("Content-Security-Policy").empty());
+}
+
 TEST_F(HttpServerTest, RejectsOversizedUriHeadersAndAmbiguousHostOrFraming) {
     const std::string host = "127.0.0.1:" + std::to_string(port);
     const std::string valid = "GET /api/v1/health HTTP/1.1\r\nHost: " + host +
