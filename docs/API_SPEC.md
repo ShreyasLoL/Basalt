@@ -35,9 +35,20 @@ These apply to the implemented legacy routes, the UI and static assets (see docs
 
 - `Host` must be the loopback authority for the listening port (`127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`); otherwise 403 `{"error":"FORBIDDEN_HOST","code":"FORBIDDEN_HOST","message":...}`.
 - If `Origin` is sent it must be a loopback origin for the listening port or an exact origin in `BASALT_CORS_ALLOWED_ORIGINS`; otherwise 403 `FORBIDDEN_ORIGIN`. The setting accepts comma-separated `http(s)://host[:port]` origins without paths or wildcards. The default is an empty explicit allowlist. Allowed origins are echoed in `Access-Control-Allow-Origin` (never `*`).
-- POST and DELETE (and PUT/PATCH if added) require `Content-Type: application/json`; otherwise 415 `UNSUPPORTED_MEDIA_TYPE`. This includes bodiless calls such as `DELETE /api/orders/{id}`.
+- POST and DELETE (and PUT/PATCH if added) require `Content-Type: application/json`, optionally with one UTF-8 charset parameter; malformed or unsupported parameters return 415 `UNSUPPORTED_MEDIA_TYPE`. This includes bodiless calls such as `DELETE /api/orders/{id}`. Repeated Host, Origin, Content-Type, Content-Length or Transfer-Encoding headers return 400.
 - `OPTIONS /api/*` answers 204 with method/header allowances only for an accepted origin. Allowed methods are GET, POST, PUT, PATCH, DELETE and OPTIONS; allowed headers are Content-Type, X-Request-ID and Idempotency-Key.
 - `POST /api/benchmark` `order_count` must be an integer 1–10,000 (default 10,000); anything else is 400.
+
+### Legacy mutation request schemas
+
+Legacy mutation bodies must be JSON objects, are limited to 16 nested levels, and reject unknown keys, `null` for typed fields, wrong scalar types and out-of-range numbers with 400. Parse errors return a fixed safe message. `DELETE /api/orders/{id}` accepts no request body.
+
+| Route | Accepted fields | Required and bounds |
+|---|---|---|
+| `POST /api/orders` | `id`, `side`, `type`, `price`, `quantity` | `side` is BUY/SELL; `type` is LIMIT/MARKET; quantity is an integer 1–1,000,000,000. LIMIT requires integer price 1–1,000,000,000,000. Optional `id` is an unsigned integer (0 requests auto-assignment). MARKET accepts omitted price or integer 0. |
+| `POST /api/sim/step` | `count` | Optional integer 1–500, default 1. Out-of-range values are rejected rather than clamped. An empty body remains accepted. |
+| `POST /api/reset` | `seed_demo` | Optional boolean, default false. An empty body remains accepted. |
+| `POST /api/benchmark` | `profile`, `order_count`, `compare_baseline` | Optional supported workload ID or ALL; integer order_count 1–10,000 (default 10,000); optional boolean compare_baseline (default true). Inputs are fully validated before benchmark admission. |
 
 ## WebSocket v1
 

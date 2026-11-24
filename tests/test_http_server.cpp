@@ -149,15 +149,23 @@ TEST(RequestGuardTest, ExplicitOriginAllowlistIsExactAndDoesNotChangeHostPolicy)
     EXPECT_FALSE(is_allowed_origin("http://localhost:5174", kPort, allowlist));
 }
 
-TEST(RequestGuardTest, JsonMediaTypeIgnoresParametersAndCase) {
+TEST(RequestGuardTest, JsonMediaTypeAcceptsOnlyValidUtf8CharsetParameters) {
     using basalt::server::is_json_content_type;
     EXPECT_TRUE(is_json_content_type("application/json"));
     EXPECT_TRUE(is_json_content_type("Application/JSON; charset=utf-8"));
     EXPECT_TRUE(is_json_content_type(" application/json ;charset=utf-8"));
+    EXPECT_TRUE(is_json_content_type("application/json; Charset = \"UTF-8\""));
     EXPECT_FALSE(is_json_content_type("text/plain"));
     EXPECT_FALSE(is_json_content_type("application/x-www-form-urlencoded"));
     EXPECT_FALSE(is_json_content_type("multipart/form-data; boundary=x"));
     EXPECT_FALSE(is_json_content_type("application/jsonp"));
+    EXPECT_FALSE(is_json_content_type("application/json;"));
+    EXPECT_FALSE(is_json_content_type("application/json; charset"));
+    EXPECT_FALSE(is_json_content_type("application/json; charset="));
+    EXPECT_FALSE(is_json_content_type("application/json; charset=latin1"));
+    EXPECT_FALSE(is_json_content_type("application/json; charset=utf-8; charset=utf-8"));
+    EXPECT_FALSE(is_json_content_type("application/json; charset=utf-8; boundary=x"));
+    EXPECT_FALSE(is_json_content_type("application/json; charset=\"utf-8"));
     EXPECT_FALSE(is_json_content_type(""));
 }
 
@@ -433,6 +441,12 @@ TEST_F(HttpServerTest, StateChangingRequestsRequireJsonContentType) {
     ASSERT_TRUE(reset_form);
     EXPECT_EQ(reset_form->status, 415);
 
+    const auto malformed_type = cli.Post("/api/orders",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1})",
+        "application/json; charset=");
+    ASSERT_TRUE(malformed_type);
+    EXPECT_EQ(malformed_type->status, 415);
+
     const auto cancel_untyped = cli.Delete("/api/orders/1");
     ASSERT_TRUE(cancel_untyped);
     EXPECT_EQ(cancel_untyped->status, 415);
@@ -446,6 +460,103 @@ TEST_F(HttpServerTest, StateChangingRequestsRequireJsonContentType) {
     const auto cancel = cli.Delete("/api/orders/" + std::to_string(order_id), httplib::Headers{}, "", "application/json");
     ASSERT_TRUE(cancel);
     EXPECT_EQ(cancel->status, 200);
+}
+
+TEST_F(HttpServerTest, OrderJsonSchemaRejectsInvalidInputBeforeStateChanges) {
+    auto cli = client();
+    const auto initial_state = cli.Get("/api/state");
+    ASSERT_TRUE(initial_state);
+    const auto initial_market = Json::parse(initial_state->body).at("market");
+    std::vector<std::string> invalid_bodies{
+        "{",
+        "[]",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1,"extra":true})",
+        R"({"side":"BUY","type":"LIMIT","price":9000})",
+        R"({"side":1,"type":"LIMIT","price":9000,"quantity":1})",
+        R"({"side":"SHORT","type":"LIMIT","price":9000,"quantity":1})",
+        R"({"side":"BUY","type":null,"price":9000,"quantity":1})",
+        R"({"side":"BUY","type":"STOP","price":9000,"quantity":1})",
+        R"({"side":"BUY","type":"LIMIT","price":9000.5,"quantity":1})",
+        R"({"side":"BUY","type":"LIMIT","price":0,"quantity":1})",
+        R"({"side":"BUY","type":"LIMIT","price":1000000000001,"quantity":1})",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1.5})",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":-1})",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1000000001})",
+        R"({"side":"BUY","type":"LIMIT","quantity":1})",
+        R"({"id":-1,"side":"BUY","type":"LIMIT","price":9000,"quantity":1})",
+        R"({"side":"BUY","type":"MARKET","price":3,"quantity":1})",
+    };
+    std::string too_deep = R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1,"extra":)";
+    too_deep.append(17, '[');
+    too_deep += '0';
+    too_deep.append(17, ']');
+    too_deep += '}';
+    invalid_bodies.push_back(std::move(too_deep));
+
+    for (const auto& body : invalid_bodies) {
+        const auto response = cli.Post("/api/orders", body, "application/json");
+        ASSERT_TRUE(response) << body;
+        EXPECT_EQ(response->status, 400) << body;
+        const auto error = Json::parse(response->body);
+        EXPECT_EQ(error.at("error"), "request_error");
+        EXPECT_TRUE(error.contains("code"));
+        EXPECT_FALSE(error.at("message").get<std::string>().empty());
+        EXPECT_EQ(response->body.find("type_error"), std::string::npos);
+    }
+
+    const auto state = cli.Get("/api/state");
+    ASSERT_TRUE(state);
+    const auto market = Json::parse(state->body).at("market");
+    EXPECT_EQ(market.at("total_orders_submitted"), initial_market.at("total_orders_submitted"));
+    EXPECT_EQ(market.at("active_order_count"), initial_market.at("active_order_count"));
+
+    const auto market_order = cli.Post("/api/orders",
+        R"({"side":"BUY","type":"MARKET","price":0,"quantity":1})", "application/json");
+    ASSERT_TRUE(market_order);
+    EXPECT_EQ(market_order->status, 200);
+}
+
+TEST_F(HttpServerTest, SimulationAndResetSchemasRejectInvalidValuesWithoutMutation) {
+    auto cli = client();
+    const auto resting = cli.Post("/api/orders",
+        R"({"side":"BUY","type":"LIMIT","price":9000,"quantity":1})", "application/json");
+    ASSERT_TRUE(resting);
+    ASSERT_EQ(resting->status, 200);
+    const auto before_invalid_requests = cli.Get("/api/state");
+    ASSERT_TRUE(before_invalid_requests);
+    const auto original_order_count = Json::parse(before_invalid_requests->body)
+                                          .at("book").at("resting_orders").size();
+
+    for (const char* body : {"[]", "null", R"({"extra":true})", R"({"count":0})",
+                             R"({"count":501})", R"({"count":-1})", R"({"count":1.5})",
+                             R"({"count":"5"})", R"({"count":null})"}) {
+        const auto response = cli.Post("/api/sim/step", body, "application/json");
+        ASSERT_TRUE(response) << body;
+        EXPECT_EQ(response->status, 400) << body;
+    }
+    for (const char* body : {"[]", "null", R"({"seed_demo":1})", R"({"seed_demo":null})",
+                             R"({"seed_demo":false,"unexpected":true})"}) {
+        const auto response = cli.Post("/api/reset", body, "application/json");
+        ASSERT_TRUE(response) << body;
+        EXPECT_EQ(response->status, 400) << body;
+    }
+    const auto ignored_delete_body = cli.Delete("/api/orders/1", httplib::Headers{},
+                                                 "{}", "application/json");
+    ASSERT_TRUE(ignored_delete_body);
+    EXPECT_EQ(ignored_delete_body->status, 400);
+
+    const auto state = cli.Get("/api/state");
+    ASSERT_TRUE(state);
+    const auto book = Json::parse(state->body).at("book");
+    EXPECT_EQ(book.at("resting_orders").size(), original_order_count);
+
+    const auto empty_step = cli.Post("/api/sim/step", "", "application/json");
+    ASSERT_TRUE(empty_step);
+    EXPECT_EQ(empty_step->status, 200);
+    EXPECT_EQ(Json::parse(empty_step->body).at("executed"), 1);
+    const auto empty_reset = cli.Post("/api/reset", "", "application/json");
+    ASSERT_TRUE(empty_reset);
+    EXPECT_EQ(empty_reset->status, 200);
 }
 
 TEST_F(HttpServerTest, PreflightAllowsOnlyAllowlistedOrigins) {
@@ -592,6 +703,46 @@ TEST_F(HttpServerTest, BenchmarkRejectsOrderCountsAboveTheMcpCap) {
     const auto results = Json::parse(valid->body).at("results");
     ASSERT_FALSE(results.empty());
     EXPECT_EQ(results.at(0).at("orders_processed"), 100);
+}
+
+TEST_F(HttpServerTest, BenchmarkSchemaRejectsUnknownFieldsAndBadValuesBeforeAdmission) {
+    auto cli = client();
+    std::vector<std::string> invalid_bodies{
+        "[]",
+        R"({"unknown":true})",
+        R"({"profile":4})",
+        R"({"profile":"NOT_A_PROFILE"})",
+        R"({"order_count":-1})",
+        R"({"order_count":1.25})",
+        R"({"order_count":"10"})",
+        R"({"order_count":null})",
+        R"({"compare_baseline":"false"})",
+    };
+    std::string too_deep = R"({"unexpected":)";
+    too_deep.append(17, '{');
+    too_deep += '"';
+    too_deep += "x";
+    too_deep += '\"';
+    too_deep += ':';
+    too_deep += '1';
+    too_deep.append(17, '}');
+    too_deep += '}';
+    invalid_bodies.push_back(std::move(too_deep));
+
+    for (const auto& body : invalid_bodies) {
+        const auto response = cli.Post("/api/benchmark", body, "application/json");
+        ASSERT_TRUE(response) << body;
+        EXPECT_EQ(response->status, 400) << body;
+        const auto error = Json::parse(response->body);
+        EXPECT_TRUE(error.contains("code"));
+        EXPECT_EQ(response->body.find("exception"), std::string::npos);
+    }
+
+    const auto valid = cli.Post("/api/benchmark",
+        R"({"profile":"BALANCED","order_count":1,"compare_baseline":false})",
+        "application/json");
+    ASSERT_TRUE(valid);
+    EXPECT_EQ(valid->status, 200) << valid->body;
 }
 
 TEST_F(HttpServerTest, BenchmarkRequestsAreRateLimitedAfterInputValidation) {

@@ -10,11 +10,13 @@
 #include <charconv>
 #include <cctype>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace basalt::server {
@@ -43,6 +45,115 @@ std::optional<std::string_view> optional_header(const httplib::Request& request,
 
 json error_json(const std::string& message) {
     return json{{"error", "request_error"}, {"message", message}};
+}
+
+void send_request_error(httplib::Response& response, const char* code,
+                        const char* message) {
+    send_json(response, json{{"error", "request_error"}, {"code", code},
+                             {"message", message}}, 400);
+}
+
+constexpr std::size_t MAX_REQUEST_JSON_DEPTH = 16;
+
+bool json_depth_within_limit(const std::string_view text) {
+    std::size_t depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    for (const char ch : text) {
+        if (in_string) {
+            if (escaped) escaped = false;
+            else if (ch == '\\') escaped = true;
+            else if (ch == '"') in_string = false;
+            continue;
+        }
+        if (ch == '"') in_string = true;
+        else if (ch == '{' || ch == '[') {
+            if (++depth > MAX_REQUEST_JSON_DEPTH) return false;
+        } else if ((ch == '}' || ch == ']') && depth > 0) {
+            --depth;
+        }
+    }
+    return true;
+}
+
+bool parse_request_object(const std::string_view text, json& value,
+                          httplib::Response& response, const bool allow_empty) {
+    if (text.empty() && allow_empty) {
+        value = json::object();
+        return true;
+    }
+    if (!json_depth_within_limit(text)) {
+        send_request_error(response, "JSON_TOO_DEEP", "JSON request exceeds the maximum nesting depth");
+        return false;
+    }
+    try {
+        value = json::parse(text);
+    } catch (const json::exception&) {
+        send_request_error(response, "INVALID_JSON", "Request body must be valid JSON");
+        return false;
+    }
+    if (!value.is_object()) {
+        send_request_error(response, "INVALID_SCHEMA", "Request body must be a JSON object");
+        return false;
+    }
+    return true;
+}
+
+bool validate_object_fields(const json& value,
+                            const std::initializer_list<std::string_view> required,
+                            const std::initializer_list<std::string_view> allowed,
+                            httplib::Response& response) {
+    for (const auto field : required) {
+        if (!value.contains(std::string(field))) {
+            send_request_error(response, "INVALID_SCHEMA", "A required request field is missing");
+            return false;
+        }
+    }
+    for (auto field = value.begin(); field != value.end(); ++field) {
+        bool known = false;
+        for (const auto name : allowed) {
+            if (field.key() == name) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            send_request_error(response, "INVALID_SCHEMA", "Request contains an unexpected field");
+            return false;
+        }
+    }
+    return true;
+}
+
+bool json_unsigned_value(const json& value, std::uint64_t& output) {
+    if (value.type() == json::value_t::number_unsigned) {
+        output = value.get<std::uint64_t>();
+        return true;
+    }
+    if (value.type() != json::value_t::number_integer) return false;
+    const auto signed_value = value.get<std::int64_t>();
+    if (signed_value < 0) return false;
+    output = static_cast<std::uint64_t>(signed_value);
+    return true;
+}
+
+bool json_unsigned_range(const json& value, const std::uint64_t minimum,
+                         const std::uint64_t maximum, std::uint64_t& output) {
+    return json_unsigned_value(value, output) && output >= minimum && output <= maximum;
+}
+
+bool json_signed_range(const json& value, const std::int64_t minimum,
+                       const std::int64_t maximum, std::int64_t& output) {
+    if (value.type() == json::value_t::number_integer) {
+        output = value.get<std::int64_t>();
+    } else if (value.type() == json::value_t::number_unsigned) {
+        const auto unsigned_value = value.get<std::uint64_t>();
+        if (unsigned_value > static_cast<std::uint64_t>(maximum)) return false;
+        output = static_cast<std::int64_t>(unsigned_value);
+    } else {
+        return false;
+    }
+    return output >= minimum && output <= maximum;
 }
 
 std::string uppercase(std::string value) {
@@ -600,48 +711,83 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/orders", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        try {
-            const json body = json::parse(request.body);
-            OrderRequest order{};
-            order.id = body.value("id", OrderId{0});
-            const std::string side_text = body.value("side", std::string{});
-            const std::string type_text = body.value("type", std::string{});
-            if (!parse_side(side_text, order.side)) {
-                send_json(response, error_json("side must be BUY or SELL"), 400);
-                return;
-            }
-            if (!parse_order_type(type_text, order.type)) {
-                send_json(response, error_json("type must be LIMIT or MARKET"), 400);
-                return;
-            }
-            order.price = order.type == OrderType::Market ? 0 : body.value("price", Price{0});
-            order.quantity = body.value("quantity", Quantity{0});
-
-            json result_json;
-            int status_code = 200;
-            {
-                const OrderResult result = simulation_.submit_order(order);
-                result_json = {
-                    {"order_id", result.order_id},
-                    {"status", std::string(basalt::to_string(result.status))},
-                    {"initial_quantity", result.initial_quantity},
-                    {"filled_quantity", result.filled_quantity},
-                    {"remaining_quantity", result.remaining_quantity},
-                    {"sequence", result.sequence}, {"message", result.message},
-                    {"trades", to_json_array(result.trades,
-                                               [](const auto& trade) { return to_json(trade); })}
-                };
-                if (result.status == OrderStatus::Rejected) status_code = 400;
-            }
-            send_json(response, result_json, status_code);
-        } catch (const json::exception& error) {
-            send_json(response, error_json(error.what()), 400);
+        json body;
+        if (!parse_request_object(request.body, body, response, false) ||
+            !validate_object_fields(body, {"side", "type", "quantity"},
+                                    {"id", "side", "type", "price", "quantity"}, response)) {
+            return;
         }
+
+        OrderRequest order{};
+        if (body.contains("id") && !json_unsigned_value(body.at("id"), order.id)) {
+            send_request_error(response, "INVALID_FIELD", "id must be an unsigned integer");
+            return;
+        }
+        if (!body.at("side").is_string() || body.at("side").get_ref<const std::string&>().size() > 8) {
+            send_request_error(response, "INVALID_FIELD", "side must be BUY or SELL");
+            return;
+        }
+        if (!parse_side(body.at("side").get<std::string>(), order.side)) {
+            send_request_error(response, "INVALID_FIELD", "side must be BUY or SELL");
+            return;
+        }
+        if (!body.at("type").is_string() || body.at("type").get_ref<const std::string&>().size() > 8) {
+            send_request_error(response, "INVALID_FIELD", "type must be LIMIT or MARKET");
+            return;
+        }
+        if (!parse_order_type(body.at("type").get<std::string>(), order.type)) {
+            send_request_error(response, "INVALID_FIELD", "type must be LIMIT or MARKET");
+            return;
+        }
+        std::uint64_t quantity = 0;
+        if (!json_unsigned_range(body.at("quantity"), 1, MAX_ORDER_QUANTITY, quantity)) {
+            send_request_error(response, "INVALID_FIELD", "quantity must be an integer between 1 and 1000000000");
+            return;
+        }
+        order.quantity = quantity;
+        if (order.type == OrderType::Limit) {
+            if (!body.contains("price")) {
+                send_request_error(response, "INVALID_FIELD", "LIMIT orders require an integer price");
+                return;
+            }
+            if (!json_signed_range(body.at("price"), 1, MAX_ORDER_PRICE, order.price)) {
+                send_request_error(response, "INVALID_FIELD", "price must be an integer between 1 and 1000000000000");
+                return;
+            }
+        } else if (body.contains("price")) {
+            std::int64_t market_price = 0;
+            if (!json_signed_range(body.at("price"), 0, 0, market_price)) {
+                send_request_error(response, "INVALID_FIELD", "MARKET order price, when present, must be zero");
+                return;
+            }
+        }
+
+        json result_json;
+        int status_code = 200;
+        {
+            const OrderResult result = simulation_.submit_order(order);
+            result_json = {
+                {"order_id", result.order_id},
+                {"status", std::string(basalt::to_string(result.status))},
+                {"initial_quantity", result.initial_quantity},
+                {"filled_quantity", result.filled_quantity},
+                {"remaining_quantity", result.remaining_quantity},
+                {"sequence", result.sequence}, {"message", result.message},
+                {"trades", to_json_array(result.trades,
+                                           [](const auto& trade) { return to_json(trade); })}
+            };
+            if (result.status == OrderStatus::Rejected) status_code = 400;
+        }
+        send_json(response, result_json, status_code);
     });
 
     server_.Delete(R"(/api/orders/(\d+))",
         [this](const httplib::Request& request, httplib::Response& response) {
             if (!guard_request(request, response)) return;
+            if (!request.body.empty()) {
+                send_request_error(response, "INVALID_SCHEMA", "DELETE order requests do not accept a body");
+                return;
+            }
             if (request.matches.size() < 2) {
                 send_json(response, error_json("Order ID is required"), 400);
                 return;
@@ -664,16 +810,19 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/sim/step", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        std::size_t count = 1;
-        try {
-            if (!request.body.empty()) {
-                const json body = json::parse(request.body);
-                const std::size_t requested = body.value("count", std::size_t{1});
-                count = std::clamp<std::size_t>(requested, 1, 500);
-            }
-        } catch (const json::exception& error) {
-            send_json(response, error_json(error.what()), 400);
+        json body;
+        if (!parse_request_object(request.body, body, response, true) ||
+            !validate_object_fields(body, {}, {"count"}, response)) {
             return;
+        }
+        std::size_t count = 1;
+        if (body.contains("count")) {
+            std::uint64_t requested = 0;
+            if (!json_unsigned_range(body.at("count"), 1, 500, requested)) {
+                send_request_error(response, "INVALID_FIELD", "count must be an integer between 1 and 500");
+                return;
+            }
+            count = static_cast<std::size_t>(requested);
         }
 
         std::size_t trades_generated = 0;
@@ -705,15 +854,18 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/reset", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        bool seed_demo = false;
-        try {
-            if (!request.body.empty()) {
-                const json body = json::parse(request.body);
-                seed_demo = body.value("seed_demo", false);
-            }
-        } catch (const json::exception& error) {
-            send_json(response, error_json(error.what()), 400);
+        json body;
+        if (!parse_request_object(request.body, body, response, true) ||
+            !validate_object_fields(body, {}, {"seed_demo"}, response)) {
             return;
+        }
+        bool seed_demo = false;
+        if (body.contains("seed_demo")) {
+            if (!body.at("seed_demo").is_boolean()) {
+                send_request_error(response, "INVALID_FIELD", "seed_demo must be a boolean");
+                return;
+            }
+            seed_demo = body.at("seed_demo").get<bool>();
         }
         simulation_.reset(seed_demo);
         send_json(response, {{"reset", true}, {"seed_demo", seed_demo}});
@@ -721,43 +873,54 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/benchmark", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
+        json body;
+        if (!parse_request_object(request.body, body, response, true) ||
+            !validate_object_fields(body, {}, {"profile", "order_count", "compare_baseline"}, response)) {
+            return;
+        }
+
+        std::string profile_text = "ALL";
+        if (body.contains("profile")) {
+            if (!body.at("profile").is_string() ||
+                body.at("profile").get_ref<const std::string&>().size() > 32) {
+                send_request_error(response, "INVALID_FIELD", "profile must name a supported workload");
+                return;
+            }
+            profile_text = uppercase(body.at("profile").get<std::string>());
+        }
+        const bool all_profiles = profile_text == "ALL";
+        bench::WorkloadProfile profile{};
+        if (!all_profiles && !bench::parse_profile(profile_text, profile)) {
+            send_request_error(response, "INVALID_FIELD", "profile must be ALL or a supported workload");
+            return;
+        }
+        std::uint64_t order_count = MAX_HTTP_BENCHMARK_ORDER_COUNT;
+        if (body.contains("order_count") &&
+            !json_unsigned_range(body.at("order_count"), 1, MAX_HTTP_BENCHMARK_ORDER_COUNT, order_count)) {
+            send_request_error(response, "INVALID_FIELD", "order_count must be an integer between 1 and 10000");
+            return;
+        }
+        bool compare_baseline = true;
+        if (body.contains("compare_baseline")) {
+            if (!body.at("compare_baseline").is_boolean()) {
+                send_request_error(response, "INVALID_FIELD", "compare_baseline must be a boolean");
+                return;
+            }
+            compare_baseline = body.at("compare_baseline").get<bool>();
+        }
+
+        if (!admit_benchmark_request()) {
+            response.set_header("Retry-After", "60");
+            send_json(response, json{{"error", "HTTP benchmark rate limit exceeded"},
+                                     {"code", "RATE_LIMITED"},
+                                     {"message", "Retry after the one-minute benchmark window."}}, 429);
+            return;
+        }
         try {
-            const json body = request.body.empty() ? json::object() : json::parse(request.body);
-            const std::string profile_text = uppercase(body.value("profile", std::string("ALL")));
-            const auto requested_count = body.find("order_count");
-            std::uint64_t order_count = MAX_HTTP_BENCHMARK_ORDER_COUNT;
-            if (requested_count != body.end()) {
-                if (!requested_count->is_number_integer()) {
-                    send_json(response, error_json("order_count must be an integer between 1 and 10000"), 400);
-                    return;
-                }
-                if (requested_count->is_number_integer() && requested_count->get<std::int64_t>() < 0) {
-                    send_json(response, error_json("order_count must be between 1 and 10000"), 400);
-                    return;
-                }
-                order_count = requested_count->get<std::uint64_t>();
-            }
-            const bool compare_baseline = body.value("compare_baseline", true);
-            if (!valid_benchmark_order_count(order_count)) {
-                send_json(response, error_json("order_count must be between 1 and 10000"), 400);
-                return;
-            }
-            if (!admit_benchmark_request()) {
-                response.set_header("Retry-After", "60");
-                send_json(response, json{{"error", "HTTP benchmark rate limit exceeded"},
-                                         {"code", "RATE_LIMITED"},
-                                         {"message", "Retry after the one-minute benchmark window."}}, 429);
-                return;
-            }
             std::vector<bench::BenchmarkResult> results;
-            if (profile_text == "ALL") {
+            if (all_profiles) {
                 results = benchmark_runner_.run_all(static_cast<std::size_t>(order_count), compare_baseline);
             } else {
-                bench::WorkloadProfile profile{};
-                if (!bench::parse_profile(profile_text, profile)) {
-                    send_json(response, error_json("Unknown workload profile"), 400);
-                    return;
-                }
                 results = benchmark_runner_.run(profile, static_cast<std::size_t>(order_count), compare_baseline);
             }
             json output = json::array();
@@ -778,8 +941,6 @@ void HttpServer::register_routes() {
                 });
             }
             send_json(response, {{"results", std::move(output)}});
-        } catch (const json::exception& error) {
-            send_json(response, error_json(error.what()), 400);
         } catch (const std::exception& error) {
             send_json(response, error_json(error.what()), 500);
         }

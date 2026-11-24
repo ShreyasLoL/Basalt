@@ -71,7 +71,31 @@ bool is_allowed_origin(const std::string_view origin, const int port,
 bool is_json_content_type(const std::string_view content_type) {
     const auto separator = content_type.find(';');
     const auto media_type = trim(content_type.substr(0, separator));
-    return lowercase(media_type) == "application/json";
+    if (lowercase(media_type) != "application/json") return false;
+    if (separator == std::string_view::npos) return true;
+
+    bool saw_charset = false;
+    std::string_view parameters = content_type.substr(separator + 1);
+    while (true) {
+        const auto next_separator = parameters.find(';');
+        const auto parameter = trim(parameters.substr(0, next_separator));
+        if (parameter.empty()) return false;
+        const auto equals = parameter.find('=');
+        if (equals == std::string_view::npos || parameter.find('=', equals + 1) != std::string_view::npos) return false;
+        const auto name = lowercase(trim(parameter.substr(0, equals)));
+        auto value = trim(parameter.substr(equals + 1));
+        if (name != "charset" || saw_charset || value.empty()) return false;
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+            value = value.substr(1, value.size() - 2);
+        } else if (value.find('"') != std::string_view::npos) {
+            return false;
+        }
+        if (lowercase(value) != "utf-8") return false;
+        saw_charset = true;
+        if (next_separator == std::string_view::npos) break;
+        parameters.remove_prefix(next_separator + 1);
+    }
+    return saw_charset;
 }
 
 bool method_requires_json(const std::string_view method) {

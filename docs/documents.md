@@ -754,7 +754,7 @@ Cancels an active resting order by its numeric `OrderId`.
 
 #### 4. `POST /api/sim/step`
 Generates and executes `count` synthetic orders against the live engine to populate the book or drive visual simulation mode.
-* **Request Body:** `{ "count": 5 }` (clamped between 1 and 500).
+* **Request Body:** `{ "count": 5 }`. An optional count must be an integer from 1 to 500; out-of-range or wrong-typed values return 400.
 * **Response (`200 OK`):** `{ "executed": 5, "active_orders": 28, "trades_generated": 3 }`
 
 #### 5. `POST /api/reset`

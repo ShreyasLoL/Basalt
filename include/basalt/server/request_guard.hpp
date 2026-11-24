@@ -15,7 +15,8 @@ inline constexpr std::uint64_t MAX_HTTP_BENCHMARK_ORDER_COUNT = 10'000;
 inline constexpr std::size_t MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE = 5;
 
 // Outcome of the transport-level request policy. status is 200 when the request
-// may proceed to routing, otherwise 403 (host/origin) or 415 (media type).
+// may proceed to routing, otherwise 400 (ambiguous duplicate headers), 403
+// (host/origin) or 415 (media type).
 struct RequestDecision {
     int status{200};
     std::string code{};
@@ -35,7 +36,7 @@ struct RequestDecision {
 [[nodiscard]] bool is_allowed_origin(std::string_view origin, int port,
                                      std::span<const std::string> allowlist = {});
 
-// True when the media type (parameters ignored) is application/json.
+// True for application/json with no parameter or one optional UTF-8 charset.
 [[nodiscard]] bool is_json_content_type(std::string_view content_type);
 
 // POST, PUT, PATCH and DELETE must declare application/json. A non-simple

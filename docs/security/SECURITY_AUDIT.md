@@ -59,15 +59,15 @@ The route list below is from `src/server/http_server.cpp`. All routes pass the H
 | `/api/v1/system/metrics` | GET | Read | No body | Operational-state disclosure | Loopback Host/Origin; fixed bounded counters. |
 | `/api/v1/stream` | GET | Read/unavailable | No body | None while unavailable | Returns schema-versioned 501; no WebSocket upgrade is implemented. |
 | `/api/state?depth=` | GET | Read | Depth parsed and capped by legacy handler | Book snapshot disclosure and allocation | Loopback Host/Origin; bounded depth/read models. |
-| `/api/orders` | POST | Write | JSON order ID, side, type, price and quantity | Simulation state and risk engine | Loopback Host/Origin; JSON content type; 64 KiB body; matching/risk validation. Unknown-key strictness is tracked for follow-up validation. |
-| `/api/orders/{id}` | DELETE | Write | Numeric order ID path | Cancel simulation order | Loopback Host/Origin; JSON content type; numeric ID parsing; matching lifecycle checks. |
-| `/api/sim/step` | POST | Write/expensive | JSON step count, currently clamped to 1–500 | CPU and simulated order volume | Loopback Host/Origin; JSON content type; 64 KiB body; fixed maximum of 500 events per request. |
-| `/api/reset` | POST | Write/destructive | Optional JSON `seed_demo` boolean | Clears simulation state | Loopback Host/Origin; JSON content type; explicit boolean conversion. |
-| `/api/benchmark` | POST | Expensive benchmark | JSON profile, order count and baseline comparison | CPU consumption | Loopback Host/Origin; JSON content type; order count 1–10,000; at most 5 requests per server per rolling minute; 8 workers and 32 queued requests. |
+| `/api/orders` | POST | Write | JSON order ID, side, type, price and quantity | Simulation state and risk engine | Loopback Host/Origin; strict object schema; integer price/quantity bounds; unknown keys and deep JSON rejected before state changes. |
+| `/api/orders/{id}` | DELETE | Write | Numeric order ID path; no body | Cancel simulation order | Loopback Host/Origin; JSON content type; numeric ID parsing; non-empty bodies rejected; matching lifecycle checks. |
+| `/api/sim/step` | POST | Write/expensive | Optional JSON integer count, default 1 | CPU and simulated order volume | Loopback Host/Origin; strict object schema; count 1–500 or 400; unknown keys and deep JSON rejected. |
+| `/api/reset` | POST | Write/destructive | Optional JSON `seed_demo` boolean | Clears simulation state | Loopback Host/Origin; strict object schema; boolean only; unknown keys rejected. |
+| `/api/benchmark` | POST | Expensive benchmark | Optional JSON profile, order count and baseline comparison | CPU consumption | Loopback Host/Origin; strict object schema; order count 1–10,000; supported profile validation before admission; at most 5 requests per rolling minute; 8 workers and 32 queued requests. |
 | `/api/v1/*` fallback | GET/POST/PUT/PATCH/DELETE | Unavailable | Route path and bounded body | Method confusion or unintended API surface | Explicit schema-versioned 501 fallback. Other unsupported methods are not registered. |
 | `/api/*` preflight | OPTIONS | Read/policy | Origin and requested method/headers | Browser cross-origin boundary | Host/Origin guard; exact configured allowlist; no wildcard CORS. |
 
-The route inventory describes current code; it does not imply every v1 route is implemented. Mutation JSON schema validation and client-safe parse errors remain part of the HTTP follow-up review.
+The route inventory describes current code; it does not imply every v1 route is implemented. Implemented legacy mutation routes accept only JSON objects with explicit per-route fields, at most 16 levels of JSON nesting, and correctly typed bounded scalar values. Malformed JSON returns fixed client-safe messages. Unexpected runtime exception detail remains a separate follow-up finding.
 
 ## Trust boundaries and threat model
 
@@ -130,7 +130,37 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Recommended remediation:** Bound worker and queued-request counts; add a small explicit cooldown/rate budget to the expensive benchmark route and explicit read/write/keepalive timeouts.
 **Regression tests:** Queue saturation, rate-limit response, timeout and normal benchmark compatibility tests.
 **Status:** Fix implemented and verified. The server now uses a fixed 8-worker pool with at most 32 queued jobs, an explicit 64 KiB body cap, 4 KiB URI/header line caps, 64-header cap, 5-second read/write timeouts, a 2-second keep-alive timeout, at most five requests per keep-alive connection, and a five-per-minute benchmark admission limit after input validation. The existing 10,000-order cap remains. BASALT also rejects repeated Host, Origin, Content-Type, Content-Length or Transfer-Encoding headers before routing. Release build passed; full CTest passed 169/169 with loopback, including queue saturation, oversized URI/header, ambiguous-host/framing and benchmark rate-limit regressions.
+**Associated commit:** `5217dee`.
+
+### SEC-HTTP-002 — Mutation JSON schemas are permissive and malformed media types are accepted
+
+**Finding ID:** SEC-HTTP-002
+**Title:** Legacy mutation handlers default/coerce request values instead of validating explicit schemas
+**Severity:** Medium
+**Affected component:** HTTP input validation and simulation state
+**Affected file:** `src/server/http_server.cpp`, `src/server/request_guard.cpp`
+**Evidence:** Before remediation, mutation handlers used `json.value(...)`, which accepted unknown keys, defaulted missing values and could coerce JSON scalars; `/api/sim/step` silently clamped out-of-range values. The content-type check compared only the media type before `;` and accepted malformed or unsupported parameters.
+**Attack scenario:** A malformed, ambiguous or deeply nested local request reaches mutation logic with a defaulted/coerced value, or causes unnecessary parser work.
+**Potential impact:** Unexpected simulation actions, inconsistent client/server interpretation, or process resource pressure.
+**Recommended remediation:** Enforce top-level object schemas, required/optional keys, exact JSON scalar types and numeric ranges; bound nesting; reject unknown fields and malformed content-type parameters before mutation.
+**Regression tests:** Invalid JSON, arrays, unknown/missing fields, wrong types, nulls, numeric boundaries, deep nesting, ignored DELETE bodies, and valid legacy frontend payloads.
+**Status:** Fix implemented and verified. Mutation requests now use explicit schemas for order, step, reset and benchmark; JSON nesting is capped at 16 before parsing; unknown fields, invalid scalar types and out-of-range step counts are rejected with stable 400 responses. Order quantity and price are bounded by matching-engine limits. DELETE bodies are rejected. Only application/json with an optional single UTF-8 charset parameter is accepted. Focused HTTP/input tests passed 12/12; full CTest passed 173/173 with loopback.
 **Associated commit:** Pending.
+
+### SEC-HTTP-003 — Benchmark exceptions can expose internal exception text
+
+**Finding ID:** SEC-HTTP-003
+**Title:** Unexpected benchmark exceptions are reflected to the HTTP client
+**Severity:** Medium
+**Affected component:** HTTP error handling
+**Affected file:** `src/server/http_server.cpp`
+**Evidence:** The `/api/benchmark` `std::exception` handler currently serializes `error.what()` into a 500 response.
+**Attack scenario:** An internal failure message includes implementation details or a local path and is returned to the requester.
+**Potential impact:** Disclosure of internal state that can help a local caller target other weaknesses.
+**Recommended remediation:** Return a stable generic error code/message, log a redacted diagnostic privately, and preserve the error signal.
+**Regression tests:** Force an internal benchmark failure and assert the client receives no exception/path detail while the failure is logged.
+**Status:** Open; remediation is a separate follow-up feature.
+**Associated commit:** None.
 
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
@@ -144,8 +174,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Increased impact of a separate XSS/content-injection defect. No current raw-HTML sink was found in the React source.
 **Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then migrate or remove the inline-script legacy fallback before enforcing CSP on it. Do not send HSTS for the current HTTP-only loopback server.
 **Regression tests:** HTTP response-header assertions for UI and API; frontend production build, typecheck and tests.
-**Status:** Partially remediated. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. The compiled Vite bundle receives `default-src 'self'` CSP from the C++ server, and Vite preview sends the same production policy. The Vite development server has a development-only CSP that permits the inline module/bootstrap code Vite injects and WebSocket HMR. HSTS is omitted because the application is HTTP-only. Residual: the checked-in legacy fallback contains inline application scripts and loads Tailwind from a CDN, so the C++ server intentionally omits CSP for that fallback to preserve its current behavior. It should be migrated or removed before this finding can close.
-**Associated commit:** Pending.
+**Status:** Partially remediated by `8cac104`. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. The compiled Vite bundle receives `default-src 'self'` CSP from the C++ server, and Vite preview sends the same production policy. The Vite development server has a development-only CSP that permits the inline module/bootstrap code Vite injects and WebSocket HMR. HSTS is omitted because the application is HTTP-only. Residual: the checked-in legacy fallback contains inline application scripts and loads Tailwind from a CDN, so the C++ server intentionally omits CSP for that fallback to preserve its current behavior. It should be migrated or removed before this finding can close.
+**Associated commit:** `8cac104`.
 
 
 ### SEC-CI-001 — Static and secret scanning are not integrated into CI
@@ -207,4 +237,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `0a19e47` | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
 | 2026-11-25 | `91c9804` | `security(network): disable remote HTTP binding` — SEC-NET-001 remediated | Release build; CTest 166/166 with loopback |
 | 2026-11-25 | `5217dee` | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
-| 2026-11-25 | Pending | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production frontend build |
+| 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
+| 2026-11-25 | Pending | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 fix implemented | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
