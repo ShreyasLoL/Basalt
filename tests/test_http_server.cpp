@@ -571,6 +571,37 @@ TEST_F(HttpServerTest, SimulationAndResetSchemasRejectInvalidValuesWithoutMutati
     EXPECT_EQ(empty_reset->status, 200);
 }
 
+TEST_F(HttpServerTest, UnsupportedMethodsAndPathVariantsCannotMutateSimulationState) {
+    auto cli = client();
+    const auto before = cli.Get("/api/state");
+    ASSERT_TRUE(before);
+    const auto before_market = Json::parse(before->body).at("market");
+
+    const auto post_read = cli.Post("/api/state", "{}", "application/json");
+    const auto get_write = cli.Get("/api/reset");
+    const auto get_orders = cli.Get("/api/orders");
+    const auto put_write = cli.Put("/api/orders", "{}", "application/json");
+    const auto patch_read = cli.Patch("/api/state", "{}", "application/json");
+    const auto delete_read = cli.Delete("/api/state", httplib::Headers{}, "{}", "application/json");
+    const auto trailing_slash = cli.Get("/api/state/");
+    const auto options = cli.Options("/api/state");
+
+    for (const auto* response : {&post_read, &get_write, &get_orders, &put_write,
+                                 &patch_read, &delete_read, &trailing_slash}) {
+        ASSERT_TRUE(*response);
+        EXPECT_EQ((*response)->status, 404);
+    }
+    ASSERT_TRUE(options);
+    EXPECT_EQ(options->status, 204);
+
+    const auto after = cli.Get("/api/state");
+    ASSERT_TRUE(after);
+    const auto after_market = Json::parse(after->body).at("market");
+    EXPECT_EQ(after_market.at("total_orders_submitted"), before_market.at("total_orders_submitted"));
+    EXPECT_EQ(after_market.at("total_orders_rejected"), before_market.at("total_orders_rejected"));
+    EXPECT_EQ(after_market.at("active_order_count"), before_market.at("active_order_count"));
+}
+
 TEST_F(HttpServerTest, PreflightAllowsOnlyAllowlistedOrigins) {
     auto cli = client();
     const auto allowed = cli.Options("/api/orders", httplib::Headers{

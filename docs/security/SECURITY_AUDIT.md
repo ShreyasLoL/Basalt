@@ -69,6 +69,8 @@ The route list below is from `src/server/http_server.cpp`. All routes pass the H
 
 The route inventory describes current code; it does not imply every v1 route is implemented. Implemented legacy mutation routes accept only JSON objects with explicit per-route fields, at most 16 levels of JSON nesting, and correctly typed bounded scalar values. Malformed JSON returns fixed client-safe messages. Unexpected runtime exception detail remains a separate follow-up finding.
 
+Method handling is explicit: unsupported method/path combinations return 404 after Host/Origin checks, `/api/v1/*` registered fallback verbs return 501, and the `/api/*` OPTIONS route is reserved for preflight. Regression coverage verifies unsupported verbs and a trailing-slash variation leave simulation counters unchanged.
+
 ## Trust boundaries and threat model
 
 1. Browser or local HTTP client → loopback HTTP gateway.
@@ -159,8 +161,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Disclosure of internal state that can help a local caller target other weaknesses.
 **Recommended remediation:** Return a stable generic error code/message, log a redacted diagnostic privately, and preserve the error signal.
 **Regression tests:** Stable internal-error payload builder is tested directly; Logger redaction tests cover secret-like assignments. The benchmark runtime exception cannot be forced deterministically without adding a test-only failure hook, so the catch branch was reviewed and exercised indirectly through its payload helper.
-**Status:** Fix implemented and verified. The handler truncates exception text to 512 characters before passing it through the Logger's redaction, then returns HTTP 500 with fixed `INTERNAL_ERROR` JSON. The exception message is never copied into the response. Full CTest passed 174/174 with loopback.
-**Associated commit:** Pending.
+**Status:** Fixed and verified in `b752a7a`. The handler truncates exception text to 512 characters before passing it through the Logger's redaction, then returns HTTP 500 with fixed `INTERNAL_ERROR` JSON. The exception message is never copied into the response. Full CTest passed 174/174 with loopback.
+**Associated commit:** `b752a7a`.
 
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
@@ -211,6 +213,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 ## Existing protections verified
 
 - HTTP policy is applied to UI/assets/API routes; loopback Host checks, exact Origin allowlist, no wildcard CORS and JSON media type requirements are covered by real HTTP tests.
+- HTTP methods are registered explicitly; unsupported method/path combinations return 404 and do not change simulation state. The schema-versioned unavailable-route fallback is an explicit 501.
 - Frontend source has no direct unsafe HTML insertion. The production asset build succeeds.
 - Market-data CSV/JSONL readers enforce a 1 MiB per-line and one-million event cap; parser and normalizer tests cover malformed rows, instrument mapping, sequence gaps, stale timestamps and quality state.
 - MCP input is line-framed and bounded, tool argument schemas reject unknown fields, tools expose no shell or arbitrary path access, and kill-switch/audit writes have explicit caps and error reporting.
@@ -239,4 +242,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `5217dee` | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
 | 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
 | 2026-11-25 | `27f6021` | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 remediated | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
-| 2026-11-25 | Pending | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 fix implemented | C++ build; safe error payload test; full CTest 174/174 with loopback |
+| 2026-11-25 | `b752a7a` | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 remediated | C++ build; safe error payload test; full CTest 174/174 with loopback |
+| 2026-11-25 | Pending | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |

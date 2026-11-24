@@ -38,6 +38,7 @@ These apply to the implemented legacy routes, the UI and static assets (see docs
 - POST and DELETE (and PUT/PATCH if added) require `Content-Type: application/json`, optionally with one UTF-8 charset parameter; malformed or unsupported parameters return 415 `UNSUPPORTED_MEDIA_TYPE`. This includes bodiless calls such as `DELETE /api/orders/{id}`. Repeated Host, Origin, Content-Type, Content-Length or Transfer-Encoding headers return 400.
 - `OPTIONS /api/*` answers 204 with method/header allowances only for an accepted origin. Allowed methods are GET, POST, PUT, PATCH, DELETE and OPTIONS; allowed headers are Content-Type, X-Request-ID and Idempotency-Key.
 - `POST /api/benchmark` `order_count` must be an integer 1–10,000 (default 10,000); anything else is 400.
+- Routes register only their intended methods. Unsupported method/path combinations return 404 after the same Host/Origin guard; the explicit `/api/v1/*` fallback returns 501 for its registered verbs, and OPTIONS is reserved for guarded preflight responses.
 
 ### Legacy mutation request schemas
 
