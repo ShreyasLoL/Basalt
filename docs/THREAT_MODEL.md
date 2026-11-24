@@ -42,3 +42,32 @@ Out of scope are compromise of the user's account, a malicious administrator, ph
 - Persistence format and recovery limits: [Persistence](PERSISTENCE.md).
 
 This review does not claim WebSocket security testing: the current HTTP transport reports WebSocket streaming unavailable and returns a schema-versioned error for the stream route.
+
+## Phase 2 system-wide inventory
+
+The gateway and MCP interface are part of a larger local research application. The complete Phase 2 asset, entry-point and trust-boundary inventory is maintained in [the security audit](security/SECURITY_AUDIT.md). This section records the additional system boundaries relevant to future changes.
+
+### Additional assets
+
+- Order-book state, open order lifecycle, fill quantities and matching priority.
+- Cash, positions, fees, reservations, realized/unrealized PnL and account-level exposure.
+- Strategy configuration, backtest inputs/results and replay sequence/state.
+- Instrument master, provider symbol mappings, market-data provenance and event-bus delivery.
+- Build inputs, dependency versions, CI credentials/permissions and generated frontend assets.
+
+### Additional untrusted inputs
+
+- Historical CSV/JSONL lines, headers, numeric fields, timestamps, identifiers and provider labels.
+- HTTP query parameters, path captures, duplicate or malformed headers, JSON members and numeric bounds.
+- MCP JSON-RPC IDs, versions, method names, argument schemas, arrays and strings.
+- Persisted event frames, checkpoints, catalog JSON, dataset files and file paths selected by local configuration.
+- Build and package metadata fetched from CMake, npm and GitHub Actions sources.
+
+### Broader trust boundaries
+
+1. Market-data source or import file → CSV/JSONL parser → normalized event pipeline → strategy, risk and simulation consumers.
+2. Order intent → risk checks and reservation state → matching/execution → ledger and audit state.
+3. Persisted records → bounded recovery/validation → deterministic replay and application state.
+4. CI dependency sources and workflow actions → build/test tools → binaries and bundled browser code.
+
+The matching engine and ledger are not intended to be externally reachable as a financial venue. Their controls preserve simulation integrity and bounded research workloads; they do not make the application suitable for live capital or production exchange use. Local administrator privileges, a compromised user account, same-user malware and malicious dependencies are outside the protection boundary.
