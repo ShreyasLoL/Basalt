@@ -23,6 +23,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -359,7 +360,13 @@ bool prepare_owner_only_dir(const std::filesystem::path& dir) {
     if (error || !std::filesystem::is_directory(dir, error) || error) return false;
     std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace, error);
-    return true;
+    return !error;
+}
+
+std::filesystem::path default_data_file(const std::string_view name) {
+    const auto dir = McpServer::resolve_data_dir();
+    if (dir.empty()) throw std::runtime_error("BASALT MCP private data storage is unavailable");
+    return dir / name;
 }
 
 } // namespace
@@ -380,11 +387,12 @@ std::filesystem::path McpServer::resolve_data_dir(
     warn << "Warning: BASALT MCP falling back to OS temporary directory for local data storage\n";
     std::error_code error;
     auto temp_dir = std::filesystem::temp_directory_path(error);
-    if (!temp_dir.empty()) {
+    if (!error && !temp_dir.empty()) {
         temp_dir /= "basalt-mcp";
-        (void)prepare_owner_only_dir(temp_dir);
+        if (prepare_owner_only_dir(temp_dir)) return temp_dir;
     }
-    return temp_dir;
+    warn << "Error: BASALT MCP could not establish owner-only local data storage\n";
+    return {};
 }
 
 struct McpServer::Impl {
@@ -415,9 +423,9 @@ struct McpServer::Impl {
     std::deque<std::string> cache_order;
 
     Impl(std::filesystem::path audit, std::filesystem::path kill_path, Clock supplied_clock)
-        : audit_path(audit.empty() ? (McpServer::resolve_data_dir() / "mcp_audit.jsonl") : std::move(audit)),
+        : audit_path(audit.empty() ? default_data_file("mcp_audit.jsonl") : std::move(audit)),
           clock(supplied_clock ? std::move(supplied_clock) : Clock(system_now_ns)),
-          kill_log(kill_path.empty() ? (McpServer::resolve_data_dir() / "mcp_killswitch.blog") : std::move(kill_path), 4096),
+          kill_log(kill_path.empty() ? default_data_file("mcp_killswitch.blog") : std::move(kill_path), 4096),
           kill_switch([this](const trading::KillSwitchEvent& event) { return persist_kill(event); }) {
         const auto recovered = kill_log.recover();
         if (!recovered) return;

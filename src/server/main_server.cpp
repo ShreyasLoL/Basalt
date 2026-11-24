@@ -34,6 +34,10 @@ int main(int argc, char** argv) {
             return 2;
         }
         const auto data_dir = basalt::server::McpServer::resolve_data_dir();
+        if (data_dir.empty()) {
+            std::cerr << "BASALT MCP private data storage could not be secured; refusing to start\n";
+            return 1;
+        }
         basalt::server::McpServer server(data_dir / "mcp_audit.jsonl",
                                          data_dir / "mcp_killswitch.blog");
         return server.run_stdio(std::cin, std::cout) ? 0 : 1;

@@ -179,6 +179,21 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Status:** Fixed in the market replay parser hardening commit. The reader stops after at most one byte beyond the line/file cap; total input is limited to 256 MiB, CSV headers to 64 columns, JSON nesting to 32 levels, and unknown JSON object fields are rejected. Valid legacy replay samples remain accepted.
 **Associated commit:** Pending.
 
+### SEC-MCP-001 — MCP data-directory permission failures are ignored
+
+**Finding ID:** SEC-MCP-001
+**Title:** MCP storage could be accepted without verifying owner-only permissions
+**Severity:** Low
+**Affected component:** MCP audit and kill-switch local storage
+**Affected file:** `src/server/mcp_server.cpp`, `src/server/main_server.cpp`
+**Evidence:** `prepare_owner_only_dir()` returned success without checking the `error_code` from `std::filesystem::permissions()`. The OS temporary-directory fallback also ignored that helper's result and returned the path regardless.
+**Attack scenario:** On a filesystem or platform where permission hardening fails, MCP could continue writing local audit and kill-switch data into a directory whose intended access restrictions were not established.
+**Potential impact:** Other local OS accounts could read sensitive audit records or modify kill-switch persistence when the host filesystem does not apply the requested permissions.
+**Recommended remediation:** Treat permission-setting failure as candidate failure, verify the temporary fallback the same way, and refuse MCP startup if no protected data directory can be established.
+**Regression tests:** Existing resolver precedence/fallback tests plus the full MCP suite; the permission-failure branch is code-reviewed but cannot be induced reliably on this Windows filesystem without a platform-specific ACL fixture.
+**Status:** Fixed. Permission errors now reject a candidate; the temporary fallback is checked, and stdio startup/default construction fail closed if no protected directory is available.
+**Associated commit:** Pending.
+
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
 **Finding ID:** SEC-FE-001
@@ -259,4 +274,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `27f6021` | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 remediated | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
 | 2026-11-25 | `b752a7a` | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 remediated | C++ build; safe error payload test; full CTest 174/174 with loopback |
 | 2026-11-25 | `7f7ff0a` | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |
-| 2026-11-25 | Pending | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
+| 2026-11-25 | `a92d8f5` | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
+| 2026-11-25 | Pending | MCP data directory fail-closed permissions — SEC-MCP-001 remediated | C++ build; `basalt_mcp_tests` 13/13 |
