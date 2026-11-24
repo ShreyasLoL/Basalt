@@ -358,21 +358,31 @@ TEST_F(HttpServerTest, BrowserSecurityHeadersCoverUiAndApiResponses) {
     };
     const auto ui = cli.Get("/");
     const auto api = cli.Get("/api/state");
+    const auto legacy_js = cli.Get("/legacy.js");
+    const auto legacy_css = cli.Get("/legacy.css");
     verify_headers(ui);
     verify_headers(api);
+    ASSERT_TRUE(legacy_js);
+    ASSERT_TRUE(legacy_css);
     ASSERT_TRUE(ui);
     ASSERT_TRUE(api);
+    EXPECT_EQ(legacy_js->get_header_value("Content-Type"), "text/javascript; charset=utf-8");
+    EXPECT_EQ(legacy_css->get_header_value("Content-Type"), "text/css; charset=utf-8");
+    EXPECT_FALSE(legacy_js->body.empty());
+    EXPECT_FALSE(legacy_css->body.empty());
+    EXPECT_NE(legacy_js->body.find("addEventListener"), std::string::npos);
+    EXPECT_EQ(legacy_js->body.find("https://"), std::string::npos);
     const auto csp = ui->get_header_value("Content-Security-Policy");
-    if (ui->body.find("Research Workstation") != std::string::npos) {
-        EXPECT_NE(csp.find("default-src 'self'"), std::string::npos);
-        EXPECT_NE(csp.find("script-src 'self'"), std::string::npos);
-        EXPECT_NE(csp.find("object-src 'none'"), std::string::npos);
-        EXPECT_NE(csp.find("frame-ancestors 'none'"), std::string::npos);
-        EXPECT_EQ(csp.find("upgrade-insecure-requests"), std::string::npos);
-    } else {
-        // The inline-script legacy fallback remains available when no Vite bundle
-        // exists, so the strict production CSP is applied only to the bundle.
-        EXPECT_TRUE(csp.empty());
+    EXPECT_NE(csp.find("default-src 'self'"), std::string::npos);
+    EXPECT_NE(csp.find("script-src 'self'"), std::string::npos);
+    EXPECT_NE(csp.find("object-src 'none'"), std::string::npos);
+    EXPECT_NE(csp.find("frame-ancestors 'none'"), std::string::npos);
+    EXPECT_EQ(csp.find("upgrade-insecure-requests"), std::string::npos);
+    if (ui->body.find("CLOB Workbench") != std::string::npos) {
+        EXPECT_NE(ui->body.find("href=\"/legacy.css\""), std::string::npos);
+        EXPECT_NE(ui->body.find("src=\"/legacy.js\""), std::string::npos);
+        EXPECT_EQ(ui->body.find("<script>"), std::string::npos);
+        EXPECT_EQ(ui->body.find("cdn.tailwindcss.com"), std::string::npos);
     }
     EXPECT_TRUE(api->get_header_value("Content-Security-Policy").empty());
 }

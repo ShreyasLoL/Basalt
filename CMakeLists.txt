@@ -379,8 +379,12 @@ basalt_enable_sanitizers(basalt_bench)
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html")
+             "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html"
+             "${CMAKE_CURRENT_SOURCE_DIR}/web/legacy.css"
+             "${CMAKE_CURRENT_SOURCE_DIR}/web/legacy.js")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html" BASALT_WEB_HTML)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/legacy.css" BASALT_WEB_LEGACY_CSS)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/legacy.js" BASALT_WEB_LEGACY_JS)
 configure_file(src/server/embedded_ui.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/generated/basalt_embedded_ui.hpp" @ONLY)
 

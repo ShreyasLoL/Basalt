@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@source "../web/index.html";
+
+@theme {
+  --color-ink: #0b1220;
+  --color-panel: #111b2b;
+  --color-line: #223047;
+  --color-mint: #39d6a0;
+  --color-coral: #ff7185;
+  --color-blueglow: #4ca6ff;
+  --font-sans: Inter, ui-sans-serif, system-ui;
+}

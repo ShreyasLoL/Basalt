@@ -2,4 +2,6 @@
 
 namespace basalt::server::embedded {
 inline constexpr char INDEX_HTML[] = R"BASALTUI(@BASALT_WEB_HTML@)BASALTUI";
+inline constexpr char LEGACY_CSS[] = R"BASALTLEGACYCSS(@BASALT_WEB_LEGACY_CSS@)BASALTLEGACYCSS";
+inline constexpr char LEGACY_JS[] = R"BASALTLEGACYJS(@BASALT_WEB_LEGACY_JS@)BASALTLEGACYJS";
 } // namespace basalt::server::embedded

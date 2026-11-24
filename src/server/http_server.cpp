@@ -235,15 +235,6 @@ std::string request_id(const httplib::Request& request) {
     return {};
 }
 
-bool compiled_frontend_available() {
-#ifdef BASALT_FRONTEND_DIST_DIR
-    std::ifstream input(BASALT_FRONTEND_DIST_DIR "/index.html", std::ios::binary);
-    return input && input.peek() != std::char_traits<char>::eof();
-#else
-    return false;
-#endif
-}
-
 void send_v1_error(httplib::Response& response, const httplib::Request& request,
                    const int status, const std::string& code, const std::string& message,
                    json details = json::object()) {
@@ -405,12 +396,18 @@ void HttpServer::register_routes() {
 
     server_.Get("/", [](const httplib::Request&, httplib::Response& response) {
         response.set_content(ui_html(), "text/html; charset=utf-8");
-        if (compiled_frontend_available()) {
-            response.set_header("Content-Security-Policy",
-                "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
-                "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'");
-        }
+        response.set_header("Content-Security-Policy",
+            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+            "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'");
+    });
+
+    server_.Get("/legacy.css", [](const httplib::Request&, httplib::Response& response) {
+        response.set_content(embedded::LEGACY_CSS, "text/css; charset=utf-8");
+    });
+
+    server_.Get("/legacy.js", [](const httplib::Request&, httplib::Response& response) {
+        response.set_content(embedded::LEGACY_JS, "text/javascript; charset=utf-8");
     });
 
     server_.Options(R"(/api/.*)", [](const httplib::Request& request, httplib::Response& response) {

@@ -201,13 +201,13 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Severity:** Medium
 **Affected component:** Browser security / frontend delivery
 **Affected file:** `src/server/http_server.cpp`, `web/index.html`, `frontend/vite.config.ts`
-**Evidence:** At baseline, no Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, frame restriction or Permissions-Policy was configured. The compiled Vite UI has same-origin script/style assets and no external runtime dependency; `web/index.html` remains a separate legacy fallback with inline scripts and a Tailwind CDN dependency.
+**Evidence:** At baseline, no Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, frame restriction or Permissions-Policy was configured. The compiled Vite UI has same-origin script/style assets; `web/index.html` was a separate legacy fallback with inline scripts and a Tailwind CDN dependency.
 **Attack scenario:** If a future rendering bug or compromised asset introduces script injection, the browser has no CSP defense-in-depth; framing and MIME sniffing are also not explicitly restricted.
 **Potential impact:** Increased impact of a separate XSS/content-injection defect. No current raw-HTML sink was found in the React source.
-**Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then migrate or remove the inline-script legacy fallback before enforcing CSP on it. Do not send HSTS for the current HTTP-only loopback server.
-**Regression tests:** HTTP response-header assertions for UI and API; frontend production build, typecheck and tests.
-**Status:** Partially remediated by `8cac104`. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. The compiled Vite bundle receives `default-src 'self'` CSP from the C++ server, and Vite preview sends the same production policy. The Vite development server has a development-only CSP that permits the inline module/bootstrap code Vite injects and WebSocket HMR. HSTS is omitted because the application is HTTP-only. Residual: the checked-in legacy fallback contains inline application scripts and loads Tailwind from a CDN, so the C++ server intentionally omits CSP for that fallback to preserve its current behavior. It should be migrated or removed before this finding can close.
-**Associated commit:** `8cac104`.
+**Recommended remediation:** Apply a policy compatible with the built UI and Vite development/preview modes, then migrate the inline-script legacy fallback to same-origin assets before enforcing CSP on it. Do not send HSTS for the current HTTP-only loopback server.
+**Regression tests:** HTTP response-header assertions for UI and API plus local legacy asset routes; HTTP integration suite passed 28/28 with both the built Vite index and the legacy fallback selected. Frontend typecheck passed, Vitest 10/10, production build passed, and the legacy CSS generator rejects inline scripts or the Tailwind CDN. Offline npm audit reported 0 vulnerabilities.
+**Status:** Resolved by the legacy fallback hardening commit. BASALT applies `nosniff`, frame denial, a no-referrer policy and a restrictive Permissions-Policy to all C++ responses. Both the compiled Vite bundle and legacy fallback receive `default-src 'self'` CSP from the C++ server; the fallback JavaScript is now an embedded same-origin asset and its Tailwind utilities are generated into same-origin CSS. Vite preview sends the production policy; Vite development has a separate policy for its injected bootstrap and WebSocket HMR. HSTS remains omitted because the application is HTTP-only.
+**Associated commit:** Pending.
 
 
 ### SEC-CI-001 — Static and secret scanning are not integrated into CI
@@ -270,9 +270,10 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `0a19e47` | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
 | 2026-11-25 | `91c9804` | `security(network): disable remote HTTP binding` — SEC-NET-001 remediated | Release build; CTest 166/166 with loopback |
 | 2026-11-25 | `5217dee` | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
-| 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
+| 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — baseline headers and production CSP; legacy fallback remained unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
 | 2026-11-25 | `27f6021` | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 remediated | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
 | 2026-11-25 | `b752a7a` | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 remediated | C++ build; safe error payload test; full CTest 174/174 with loopback |
 | 2026-11-25 | `7f7ff0a` | `security(http): verify unsupported methods cannot mutate state` — existing exact method registration tested | C++ build; HTTP method boundary 17/17; full CTest 175/175 with loopback |
 | 2026-11-25 | `a92d8f5` | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
-| 2026-11-25 | Pending | MCP data directory fail-closed permissions — SEC-MCP-001 remediated | C++ build; `basalt_mcp_tests` 13/13 |
+| 2026-11-25 | `8dfbb3f` | MCP data directory fail-closed permissions — SEC-MCP-001 remediated | C++ build; `basalt_mcp_tests` 13/13 |
+| 2026-11-25 | Pending | Legacy fallback CSP migration — SEC-FE-001 closed | C++ build; HTTP integration suite 28/28 with built and fallback UI; typecheck; Vitest 10/10; frontend build; offline npm audit 0; embedded same-origin asset checks |
