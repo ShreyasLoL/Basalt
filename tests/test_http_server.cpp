@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,12 +54,11 @@ TEST(SimulationFacadeTest, SeedAndBatchUseMatchingEnginesSingleAutomaticIdSequen
     EXPECT_TRUE(facade.verify_invariants());
 }
 
-TEST(RequestGuardTest, ExplicitRemoteBindAddressIsAddedButWildcardIsNot) {
+TEST(RequestGuardTest, RequestPolicyNeverAcceptsRemoteAuthorities) {
     using basalt::server::is_allowed_host;
-    EXPECT_TRUE(is_allowed_host("192.168.1.5:8080", kPort, "192.168.1.5"));
-    EXPECT_FALSE(is_allowed_host("192.168.1.6:8080", kPort, "192.168.1.5"));
-    EXPECT_FALSE(is_allowed_host("0.0.0.0:8080", kPort, "0.0.0.0"));
-    EXPECT_TRUE(is_allowed_host("[fd00::1]:8080", kPort, "fd00::1"));
+    EXPECT_FALSE(is_allowed_host("192.168.1.5:8080", kPort));
+    EXPECT_FALSE(is_allowed_host("0.0.0.0:8080", kPort));
+    EXPECT_FALSE(is_allowed_host("[fd00::1]:8080", kPort));
 }
 
 TEST(RequestGuardTest, OriginMustBeAnAllowlistedHttpLoopbackOrigin) {
@@ -77,10 +77,10 @@ TEST(RequestGuardTest, OriginMustBeAnAllowlistedHttpLoopbackOrigin) {
 TEST(RequestGuardTest, ExplicitOriginAllowlistIsExactAndDoesNotChangeHostPolicy) {
     using basalt::server::is_allowed_origin;
     const std::vector<std::string> allowlist{"http://localhost:5173", "https://research.example.com"};
-    EXPECT_TRUE(is_allowed_origin("http://localhost:5173", kPort, "127.0.0.1", allowlist));
-    EXPECT_TRUE(is_allowed_origin("https://research.example.com", kPort, "127.0.0.1", allowlist));
-    EXPECT_FALSE(is_allowed_origin("https://research.example.com/", kPort, "127.0.0.1", allowlist));
-    EXPECT_FALSE(is_allowed_origin("http://localhost:5174", kPort, "127.0.0.1", allowlist));
+    EXPECT_TRUE(is_allowed_origin("http://localhost:5173", kPort, allowlist));
+    EXPECT_TRUE(is_allowed_origin("https://research.example.com", kPort, allowlist));
+    EXPECT_FALSE(is_allowed_origin("https://research.example.com/", kPort, allowlist));
+    EXPECT_FALSE(is_allowed_origin("http://localhost:5174", kPort, allowlist));
 }
 
 TEST(RequestGuardTest, JsonMediaTypeIgnoresParametersAndCase) {
@@ -131,6 +131,12 @@ TEST(RequestGuardTest, ValidateRequestOriginAppliesHostOriginThenMediaType) {
     // GET and OPTIONS do not need a media type.
     EXPECT_TRUE(validate_request_origin("localhost:8080", "http://localhost:8080", kNone, "OPTIONS", kPort).allowed());
     EXPECT_EQ(validate_request_origin("localhost:8080", "http://evil.example", kNone, "OPTIONS", kPort).status, 403);
+}
+
+TEST(HttpServerConfigTest, DirectConfigCannotRequestRemoteBinding) {
+    basalt::common::AppConfig config;
+    config.bind_address = "192.0.2.10";
+    EXPECT_THROW((basalt::server::HttpServer(config)), std::invalid_argument);
 }
 
 TEST(RequestGuardTest, BenchmarkOrderCountIsCappedAtTenThousand) {

@@ -219,7 +219,7 @@ bool HttpServer::guard_request(const httplib::Request& request, httplib::Respons
     const auto origin = optional_header(request, "Origin");
     const auto decision = validate_request_origin(optional_header(request, "Host"), origin,
                                                   optional_header(request, "Content-Type"),
-                                                  request.method, port_, bind_address_,
+                                                  request.method, port_,
                                                   cors_allowed_origins_);
     response.set_header("Vary", "Origin");
     if (!decision.allowed()) {

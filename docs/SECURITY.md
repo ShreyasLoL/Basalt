@@ -2,7 +2,7 @@
 
 ## Local-first defaults
 
-Bind API and WebSocket listeners to 127.0.0.1. Do not bind 0.0.0.0 unless an explicit secure deployment profile with authentication and network controls is implemented. Enforce payload and subscription limits, input validation, timeouts, rate limits and safe error messages. For browser deployments, prefer same-origin serving; the explicit CORS allowlist defaults to empty rather than wildcard.
+The HTTP API is loopback-only. It binds to `127.0.0.1` by default and also permits the explicit loopback address `::1`. Non-loopback bind addresses are rejected, and `BASALT_ALLOW_REMOTE_BIND=true` fails startup. BASALT does not provide an authenticated remote deployment profile. Enforce payload limits, input validation, timeouts, rate limits and safe error messages. For browser deployments, prefer same-origin serving; the explicit CORS allowlist defaults to empty rather than wildcard.
 
 ### HTTP gateway request policy (implemented)
 
@@ -10,7 +10,7 @@ Bind API and WebSocket listeners to 127.0.0.1. Do not bind 0.0.0.0 unless an exp
 
 | Check | Rule | Failure |
 |---|---|---|
-| Host | Must be `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>` (case-insensitive; the port may be omitted only when the server port is 80). An explicitly opted-in, non-wildcard remote bind address is also accepted as an IP-literal authority. Blocks DNS rebinding, because an attacker hostname never matches. | 403 `FORBIDDEN_HOST` |
+| Host | Must be `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>` (case-insensitive; the port may be omitted only when the server port is 80). Blocks DNS rebinding, because an attacker hostname never matches. | 403 `FORBIDDEN_HOST` |
 | Origin (when present) | Must be a loopback HTTP origin for the listening port or an exact `http(s)://host[:port]` entry in `BASALT_CORS_ALLOWED_ORIGINS`. Paths, wildcards, credentials, `null` and unlisted origins are rejected. | 403 `FORBIDDEN_ORIGIN` |
 | Content-Type for POST/PUT/PATCH/DELETE | Media type must be `application/json` (parameters ignored). Because this is not a CORS "simple" type, browsers must preflight any cross-origin mutation, and the preflight is refused by the Origin rule. | 415 `UNSUPPORTED_MEDIA_TYPE` |
 

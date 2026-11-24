@@ -21,21 +21,16 @@ struct RequestDecision {
     [[nodiscard]] bool allowed() const noexcept { return status == 200; }
 };
 
-// Host-header authorities ("host:port", lowercase) that the gateway answers to.
-// Always the loopback names for `port`; an explicitly configured non-wildcard,
-// non-loopback bind address (remote opt-in) is added as an IP-literal authority.
-[[nodiscard]] std::vector<std::string> allowed_authorities(int port,
-                                                           std::string_view bind_address = "127.0.0.1");
+// Host-header authorities ("host:port", lowercase) that the loopback gateway answers to.
+[[nodiscard]] std::vector<std::string> allowed_authorities(int port);
 
 // True when `host` names one of allowed_authorities(). Case-insensitive; an
 // omitted port is accepted only when the server port is 80.
-[[nodiscard]] bool is_allowed_host(std::string_view host, int port,
-                                   std::string_view bind_address = "127.0.0.1");
+[[nodiscard]] bool is_allowed_host(std::string_view host, int port);
 
 // True when `origin` is exactly "http://" + one of allowed_authorities().
 // "null", other schemes, other ports and other hostnames are rejected.
 [[nodiscard]] bool is_allowed_origin(std::string_view origin, int port,
-                                     std::string_view bind_address = "127.0.0.1",
                                      std::span<const std::string> allowlist = {});
 
 // True when the media type (parameters ignored) is application/json.
@@ -53,7 +48,6 @@ struct RequestDecision {
                                                       std::optional<std::string_view> content_type,
                                                       std::string_view method,
                                                       int port,
-                                                      std::string_view bind_address = "127.0.0.1",
                                                       std::span<const std::string> allowlist = {});
 
 [[nodiscard]] constexpr bool valid_benchmark_order_count(const std::uint64_t count) noexcept {

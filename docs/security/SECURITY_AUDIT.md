@@ -87,8 +87,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Remote mutation of simulated state, unauthenticated inspection, and remote resource exhaustion. No live trading endpoint exists.
 **Recommended remediation:** Remove the remote-binding path and fail clearly on non-loopback bind configuration.
 **Regression tests:** Configuration tests for all environment combinations; startup and live-bind tests prove only IPv4/IPv6 loopback can be bound.
-**Status:** Open at baseline.
-**Associated commit:** None at baseline.
+**Status:** Fix implemented and verified; commit pending. `BASALT_ALLOW_REMOTE_BIND=true` now fails explicitly, all other non-loopback bind addresses are rejected by configuration validation, the request guard no longer accepts caller-supplied remote addresses, and directly constructed `HttpServer` configs are validated before listening. CTest passed 166/166 including configuration and direct-construction regression coverage.
+**Associated commit:** Pending.
 
 ### SEC-HTTP-001 — HTTP work queue and expensive endpoint lack application-level admission control
 
@@ -148,8 +148,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Non-reproducible or compromised builds.
 **Recommended remediation:** Pin exact upstream commit hashes (or immutable archive hashes) and verify the fetched source matches the recorded release.
 **Regression tests:** Clean configure from empty FetchContent cache and compare reported versions/commit IDs.
-**Status:** CMake dependencies now use the immutable commit IDs recorded above; fresh configure verified the resolved commits. Commit pending.
-**Associated commit:** Pending.
+**Status:** CMake dependencies now use the immutable commit IDs recorded above; fresh configure verified the resolved commits.
+**Associated commit:** `0a19e47`.
 
 ## Existing protections verified
 
@@ -176,5 +176,6 @@ This section is updated after every dedicated security commit. A finding is clos
 
 | Date | Commit | Feature / findings | Verification |
 |---|---|---|---|
-| 2026-11-25 | Pending baseline documentation commit | Phase 0 inventory and threat model; SEC-DEP-001, SEC-NET-001, SEC-HTTP-001, SEC-FE-001, SEC-CI-001, SEC-SUP-001 open | Release build; CTest 164/164 with loopback; typecheck; Vitest 10/10; frontend build; npm audit 0 |
-| 2026-11-25 | Pending | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
+| 2026-11-25 | `fad0c43` | Phase 0 inventory and threat model; SEC-DEP-001, SEC-NET-001, SEC-HTTP-001, SEC-FE-001, SEC-CI-001, SEC-SUP-001 recorded open at baseline | Release build; CTest 164/164 with loopback; typecheck; Vitest 10/10; frontend build; npm audit 0 |
+| 2026-11-25 | `0a19e47` | `security(deps): pin patched cpp-httplib release` — SEC-DEP-001 remediated; SEC-SUP-001 improved | Fresh CMake fetch by immutable commit; Release build 85/85; CTest 165/165; encoded-Origin HTTP regression passed; npm audit and `npm audit --omit=dev` each reported zero advisories |
+| 2026-11-25 | Pending | `security(network): disable remote HTTP binding` — SEC-NET-001 fix implemented | Release build; CTest 166/166 with loopback |

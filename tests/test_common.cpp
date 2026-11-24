@@ -68,7 +68,6 @@ TEST(Config, DefaultsAreLoopbackAndValidated) {
     ASSERT_TRUE(config);
     EXPECT_EQ(config.value().bind_address, "127.0.0.1");
     EXPECT_EQ(config.value().port, 8080U);
-    EXPECT_FALSE(config.value().allow_remote_bind);
     EXPECT_EQ(config.value().event_queue_capacity, 65'536U);
 }
 
@@ -87,8 +86,22 @@ TEST(Config, RejectsUnsafeOrOutOfRangeValues) {
 
     auto explicitly_remote = ConfigLoader::parse({
         {"BASALT_BIND_ADDRESS", "192.0.2.10"}, {"BASALT_ALLOW_REMOTE_BIND", "true"}});
-    ASSERT_TRUE(explicitly_remote);
-    EXPECT_EQ(explicitly_remote.value().bind_address, "192.0.2.10");
+    ASSERT_FALSE(explicitly_remote);
+    EXPECT_EQ(explicitly_remote.error().code, "REMOTE_BIND_DISABLED");
+
+    const auto remote_opt_in_only = ConfigLoader::parse({{"BASALT_ALLOW_REMOTE_BIND", "true"}});
+    ASSERT_FALSE(remote_opt_in_only);
+    EXPECT_EQ(remote_opt_in_only.error().code, "REMOTE_BIND_DISABLED");
+
+    const auto legacy_disabled = ConfigLoader::parse({{"BASALT_ALLOW_REMOTE_BIND", "false"}});
+    ASSERT_TRUE(legacy_disabled);
+    EXPECT_EQ(legacy_disabled.value().bind_address, "127.0.0.1");
+
+    AppConfig direct_config;
+    direct_config.bind_address = "::ffff:127.0.0.1";
+    const auto direct_validation = ConfigLoader::validate(direct_config);
+    ASSERT_FALSE(direct_validation);
+    EXPECT_EQ(direct_validation.error().code, "REMOTE_BIND_DISABLED");
 }
 
 TEST(Config, ParsesAllowlistedSettingsAndRejectsUnknownEnum) {

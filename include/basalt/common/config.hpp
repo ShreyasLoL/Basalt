@@ -18,7 +18,6 @@ enum class LogOutput : std::uint8_t { Json, Console };
 struct AppConfig {
     std::string bind_address{"127.0.0.1"};
     std::uint32_t port{8080};
-    bool allow_remote_bind{false};
     LogOutput log_output{LogOutput::Json};
     std::uint32_t event_queue_capacity{65'536};
     std::uint32_t ui_queue_capacity{1'024};
@@ -65,8 +64,13 @@ public:
             }
         }
         if (const auto found = values.find("BASALT_ALLOW_REMOTE_BIND"); found != values.end()) {
-            if (!parse_boolean(found->second, config.allow_remote_bind)) {
+            bool allow_remote_bind = false;
+            if (!parse_boolean(found->second, allow_remote_bind)) {
                 return failure("INVALID_BOOLEAN", "BASALT_ALLOW_REMOTE_BIND must be true or false");
+            }
+            if (allow_remote_bind) {
+                return failure("REMOTE_BIND_DISABLED",
+                    "Remote binding is disabled; BASALT_ALLOW_REMOTE_BIND cannot be enabled");
             }
         }
         if (const auto found = values.find("BASALT_LOG_FORMAT"); found != values.end()) {
@@ -120,9 +124,9 @@ public:
                 return failure("INVALID_BIND_ADDRESS", "Bind address cannot contain whitespace");
             }
         }
-        if (!config.allow_remote_bind && config.bind_address != "127.0.0.1" &&
-            config.bind_address != "::1") {
-            return failure("REMOTE_BIND_DISABLED", "Non-loopback bind requires explicit opt-in");
+        if (config.bind_address != "127.0.0.1" && config.bind_address != "::1") {
+            return failure("REMOTE_BIND_DISABLED",
+                "BASALT only supports loopback bind addresses 127.0.0.1 and ::1");
         }
         if (config.event_queue_capacity == 0 || config.event_queue_capacity > 1'000'000 ||
             config.ui_queue_capacity == 0 || config.ui_queue_capacity > 1'000'000) {
