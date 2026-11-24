@@ -144,8 +144,8 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Potential impact:** Unexpected simulation actions, inconsistent client/server interpretation, or process resource pressure.
 **Recommended remediation:** Enforce top-level object schemas, required/optional keys, exact JSON scalar types and numeric ranges; bound nesting; reject unknown fields and malformed content-type parameters before mutation.
 **Regression tests:** Invalid JSON, arrays, unknown/missing fields, wrong types, nulls, numeric boundaries, deep nesting, ignored DELETE bodies, and valid legacy frontend payloads.
-**Status:** Fix implemented and verified. Mutation requests now use explicit schemas for order, step, reset and benchmark; JSON nesting is capped at 16 before parsing; unknown fields, invalid scalar types and out-of-range step counts are rejected with stable 400 responses. Order quantity and price are bounded by matching-engine limits. DELETE bodies are rejected. Only application/json with an optional single UTF-8 charset parameter is accepted. Focused HTTP/input tests passed 12/12; full CTest passed 173/173 with loopback.
-**Associated commit:** Pending.
+**Status:** Fixed and verified in `27f6021`. Mutation requests now use explicit schemas for order, step, reset and benchmark; JSON nesting is capped at 16 before parsing; unknown fields, invalid scalar types and out-of-range step counts are rejected with stable 400 responses. Order quantity and price are bounded by matching-engine limits. DELETE bodies are rejected. Only application/json with an optional single UTF-8 charset parameter is accepted. Focused HTTP/input tests passed 12/12; full CTest passed 173/173 with loopback.
+**Associated commit:** `27f6021`.
 
 ### SEC-HTTP-003 — Benchmark exceptions can expose internal exception text
 
@@ -158,9 +158,9 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Attack scenario:** An internal failure message includes implementation details or a local path and is returned to the requester.
 **Potential impact:** Disclosure of internal state that can help a local caller target other weaknesses.
 **Recommended remediation:** Return a stable generic error code/message, log a redacted diagnostic privately, and preserve the error signal.
-**Regression tests:** Force an internal benchmark failure and assert the client receives no exception/path detail while the failure is logged.
-**Status:** Open; remediation is a separate follow-up feature.
-**Associated commit:** None.
+**Regression tests:** Stable internal-error payload builder is tested directly; Logger redaction tests cover secret-like assignments. The benchmark runtime exception cannot be forced deterministically without adding a test-only failure hook, so the catch branch was reviewed and exercised indirectly through its payload helper.
+**Status:** Fix implemented and verified. The handler truncates exception text to 512 characters before passing it through the Logger's redaction, then returns HTTP 500 with fixed `INTERNAL_ERROR` JSON. The exception message is never copied into the response. Full CTest passed 174/174 with loopback.
+**Associated commit:** Pending.
 
 ### SEC-FE-001 — Browser security headers are not explicitly configured
 
@@ -238,4 +238,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `91c9804` | `security(network): disable remote HTTP binding` — SEC-NET-001 remediated | Release build; CTest 166/166 with loopback |
 | 2026-11-25 | `5217dee` | `security(http): bound request admission and benchmark work` — SEC-HTTP-001 fix implemented; duplicate sensitive headers rejected | Release build; targeted HTTP tests 21/21; full CTest 169/169 with loopback |
 | 2026-11-25 | `8cac104` | `security(frontend): add browser security headers` — SEC-FE-001 partially remediated; legacy fallback remains unresolved | C++ build; HTTP security-header test; typecheck; Vitest 10/10; production build; Vite preview returned CSP/security headers |
-| 2026-11-25 | Pending | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 fix implemented | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
+| 2026-11-25 | `27f6021` | `security(http): validate mutation JSON schemas` — SEC-HTTP-002 remediated | C++ build; focused HTTP/input tests 12/12; full CTest 173/173 with loopback |
+| 2026-11-25 | Pending | `security(http): return safe errors for benchmark failures` — SEC-HTTP-003 fix implemented | C++ build; safe error payload test; full CTest 174/174 with loopback |

@@ -1,4 +1,5 @@
 #include "basalt/server/http_server.hpp"
+#include "basalt/server/http_errors.hpp"
 #include "basalt/server/request_guard.hpp"
 #include "basalt/server/simulation_facade.hpp"
 
@@ -222,6 +223,17 @@ TEST(RequestGuardTest, BenchmarkOrderCountIsCappedAtTenThousand) {
     EXPECT_FALSE(valid_benchmark_order_count(1'000'000));
     EXPECT_EQ(basalt::server::MAX_HTTP_BENCHMARK_ORDER_COUNT, 10'000U);
     EXPECT_EQ(basalt::server::MAX_HTTP_BENCHMARK_REQUESTS_PER_MINUTE, 5U);
+}
+
+TEST(HttpErrorResponseTest, BenchmarkFailurePayloadIsStaticAndClientSafe) {
+    const std::string body = basalt::server::detail::benchmark_failure_json();
+    const auto error = Json::parse(body);
+    EXPECT_EQ(error.at("error"), "internal_error");
+    EXPECT_EQ(error.at("code"), "INTERNAL_ERROR");
+    EXPECT_EQ(error.at("message"),
+              "Benchmark execution failed. See the local server log for details.");
+    EXPECT_EQ(body.find("exception"), std::string::npos);
+    EXPECT_EQ(body.find("path"), std::string::npos);
 }
 
 TEST(HttpServerQueueTest, ThreadPoolRejectsRequestsBeyondItsQueueBound) {

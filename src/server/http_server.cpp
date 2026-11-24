@@ -1,4 +1,6 @@
 #include "basalt/server/http_server.hpp"
+#include "basalt/common/logger.hpp"
+#include "basalt/server/http_errors.hpp"
 #include "basalt/server/request_guard.hpp"
 
 #include "basalt_embedded_ui.hpp"
@@ -23,6 +25,11 @@ namespace basalt::server {
 namespace {
 
 using json = nlohmann::json;
+
+common::Logger& http_logger() {
+    static common::Logger logger(std::clog, common::LogFormat::Json, common::LogLevel::Warning);
+    return logger;
+}
 
 // CORS is not wildcarded. The pre-routing guard echoes only same-origin or
 // explicitly configured origins; preflight responses add the method/header list.
@@ -942,7 +949,17 @@ void HttpServer::register_routes() {
             }
             send_json(response, {{"results", std::move(output)}});
         } catch (const std::exception& error) {
-            send_json(response, error_json(error.what()), 500);
+            constexpr std::size_t MAX_HTTP_EXCEPTION_LOG_LENGTH = 512;
+            const std::string_view diagnostic(error.what());
+            http_logger().log(common::LogLevel::Error, "http_benchmark_failed", {
+                {"diagnostic", diagnostic.substr(0, MAX_HTTP_EXCEPTION_LOG_LENGTH)}});
+            response.status = 500;
+            response.set_content(detail::benchmark_failure_json(), "application/json; charset=utf-8");
+        } catch (...) {
+            http_logger().log(common::LogLevel::Error, "http_benchmark_failed", {
+                {"diagnostic", "non-standard exception"}});
+            response.status = 500;
+            response.set_content(detail::benchmark_failure_json(), "application/json; charset=utf-8");
         }
     });
 

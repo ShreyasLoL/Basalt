@@ -384,7 +384,7 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/index.html" BASALT_WEB_HTML)
 configure_file(src/server/embedded_ui.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/generated/basalt_embedded_ui.hpp" @ONLY)
 
-add_library(basalt_http STATIC src/server/http_server.cpp)
+add_library(basalt_http STATIC src/server/http_server.cpp src/server/http_errors.cpp)
 target_include_directories(basalt_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(basalt_http PRIVATE
