@@ -83,7 +83,7 @@ Method handling is explicit: unsupported method/path combinations return 404 aft
 
 In-scope actors include a hostile web page attempting DNS rebinding or cross-origin access, a local process sending malformed HTTP/MCP input, a malicious replay file, corrupted local records, and accidental resource exhaustion. The user's OS account is trusted to choose local paths and start processes. The application cannot protect its files or in-memory state from a fully compromised host, an administrator with equivalent privileges, physical access to an unlocked session, or malicious code already running as the same user. Loopback and CORS do not authenticate local clients. BASALT has no live brokerage order placement; provider integrations in this build are synthetic/replay or diagnostic-only.
 
-The [threat model](THREAT_MODEL.md) records additional STRIDE scenarios and controls. Its assumptions remain: no remote deployment, no live execution and no cryptographic tamper-evident audit chain.
+The [threat model](../THREAT_MODEL.md) records additional STRIDE scenarios and controls. Its assumptions remain: no remote deployment, no live execution and no cryptographic tamper-evident audit chain.
 
 ## Findings
 
@@ -221,7 +221,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 **Attack scenario:** A vulnerable dependency or accidentally committed credential may enter the repository without an automated warning.
 **Potential impact:** Delayed detection of dependency or source-level problems and credential exposure.
 **Recommended remediation:** Add a minimal read-only CI security job for dependency and secret scans and run a practical C++ static analysis configuration.
-**Regression tests:** `actionlint` 1.7.12 parsed the workflow successfully. Repo-wide clang-tidy completed across 36 backend translation units with warnings-as-errors and no unsuppressed findings. `npm audit --package-lock-only --audit-level=low` reported zero vulnerabilities. OSV Scanner v2.7.1 scanned the npm lockfile's 236 packages and reported no issues; it did not report CMake FetchContent dependencies, which were reviewed separately against upstream advisories. Gitleaks scanned 51 commits with no leaks. A working-tree scan found eight redacted example/test matches, all inside generated `build-phase2/_deps/httplib-src` documentation/tests; no findings were outside that generated dependency tree. Docker is unavailable locally, so the exact pinned container invocations and hosted workflow jobs have not run here.
+**Regression tests:** `actionlint` 1.7.12 parsed the workflow successfully. Repo-wide clang-tidy completed across 36 backend translation units with warnings-as-errors and no unsuppressed findings. `npm audit --package-lock-only --audit-level=low` reported zero vulnerabilities. OSV Scanner v2.7.1 scanned the npm lockfile's 236 packages and reported no issues; it did not report CMake FetchContent dependencies, which were reviewed separately against upstream advisories. Gitleaks' initial history scan covered 51 commits and its most recent history scan, run after `11df918`, covered 53 commits; neither found leaks. A working-tree scan found eight redacted example/test matches, all inside generated `build-phase2/_deps/httplib-src` documentation/tests; no findings were outside that generated dependency tree. Docker is unavailable locally, so the exact pinned container invocations and hosted workflow jobs have not run here.
 **Status:** Resolved in `f05b261`; hosted CI execution remains unobserved. The one excluded clang-tidy check, `clang-analyzer-core.StackAddressEscape`, reports a false positive in the pinned cpp-httplib callback wrapper; all remaining enabled checks treat warnings as errors.
 **Associated commit:** `f05b261`.
 
@@ -262,7 +262,7 @@ Severity uses Critical / High / Medium / Low / Informational. A finding is confi
 
 ## Change and verification log
 
-This section is updated after every dedicated security commit. A finding is closed only after code, regression tests, build/test results and commit hash are recorded.
+This log records security implementation commits and their verification. Documentation-only maintenance is visible in Git history. A finding is closed only after code, regression tests, build/test results and commit hash are recorded.
 
 | Date | Commit | Feature / findings | Verification |
 |---|---|---|---|
@@ -277,4 +277,5 @@ This section is updated after every dedicated security commit. A finding is clos
 | 2026-11-25 | `a92d8f5` | Market replay parser hardening — SEC-MD-001 remediated | C++ build; `basalt_market_data_tests` 17/17 |
 | 2026-11-25 | `8dfbb3f` | MCP data directory fail-closed permissions — SEC-MCP-001 remediated | C++ build; `basalt_mcp_tests` 13/13 |
 | 2026-11-25 | `e724bd1` | Legacy fallback CSP migration — SEC-FE-001 closed | C++ build; HTTP integration suite 28/28 with built and fallback UI; typecheck; Vitest 10/10; frontend build; offline npm audit 0; embedded same-origin asset checks |
-| 2026-11-25 | `f05b261` | `security(ci): add static and supply-chain scans` — SEC-CI-001 resolved in configuration | actionlint 1.7.12 passed; clang-tidy 36 translation units, exit 0; npm audit 0; OSV v2.7.1 found no issues in 236 npm packages; Gitleaks history scan: 51 commits, no leaks. Gitleaks working-tree scan flagged eight generated cpp-httplib example/test fixtures under `build-phase2/_deps` only. Final CTest and ASan/UBSan each passed 177/177; typecheck, Vitest 10/10 and frontend production build passed. Docker is unavailable locally, and hosted CI itself was not triggered. |
+| 2026-11-25 | `f05b261` | `security(ci): add static and supply-chain scans` — SEC-CI-001 resolved in configuration | actionlint 1.7.12 passed; clang-tidy 36 translation units, exit 0; npm audit 0; OSV v2.7.1 found no issues in 236 npm packages; Gitleaks history scans: 51 commits before this commit and 53 through `11df918`, no leaks. Gitleaks working-tree scan flagged eight generated cpp-httplib example/test fixtures under `build-phase2/_deps` only. Final CTest and ASan/UBSan each passed 177/177; typecheck, Vitest 10/10 and frontend production build passed. Docker is unavailable locally, and hosted CI itself was not triggered. |
+| 2026-11-25 | `11df918` | `security(docs): document posture and verification` — published local posture and vulnerability reporting guidance | Documentation records the completed local test and scan evidence and its limits; hosted CI execution remains unobserved. |
