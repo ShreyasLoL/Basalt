@@ -107,3 +107,12 @@ On 2026-11-25, the full Release CTest suite passed **177/177**. A separate Clang
 Gitleaks' initial history scan covered 51 commits and its most recent history scan, run after `11df918`, covered 53; neither found leaks. Its working-tree scan reported eight redacted matches, all in generated `build-phase2/_deps/httplib-src` upstream documentation and test fixtures; it reported no findings elsewhere in the tree, including the local MCP config. These generated false positives were not added to a broad ignore file. The CI job scans full Git history from a clean checkout and does not configure or scan generated build directories.
 
 This Windows host has no Docker executable, so the exact pinned container invocations were not run locally. The Gitleaks and OSV Scanner Windows release binaries were downloaded from official releases and verified against published SHA-256 digests before scanning. The hosted GitHub Actions workflow itself has not been triggered. CMake explicitly rejects TSan and libFuzzer configurations on Windows, so those runs were not performed locally; the existing CI jobs provide Linux configurations for them.
+
+## Phase 3 local verification (2026-11-27)
+
+- Full CTest: **182/182 passed** with loopback access. This verifies the newly added concurrency regression and storage/HTTP regressions along with the existing suite.
+- Focused checks recorded with their feature commits: SimulationFacade concurrency 1/1; persistence fault injection/recovery 4/4; HTTP validation and replay/parser regressions 18/18.
+- `python scripts/dependency_sbom.py --check` passed for the pinned CMake inputs and checked-in CycloneDX BOM. The local BOM contains 239 components: three native dependencies and 236 npm lockfile packages.
+- Frontend typecheck passed; Vitest passed **16/16**; Vite production build passed. The updated accessibility and replay/backtest interaction tests use controlled API responses and do not claim that the current HTTP server implements those optional routes.
+- A full build attempt compiled and linked targets until the final `basalt_server.exe` link. Windows returned permission denied while replacing the existing executable; no process was stopped. CTest was still run separately and passed. TSan and libFuzzer campaigns remain unrun on Windows, and hosted CI has not been observed.
+- No browser visual/end-to-end QA is claimed. The available local preview path was previously unreachable, and the user requested no computer UI access during this turn.

@@ -237,3 +237,15 @@ All commits are local. Never push.
 - [x] Confirmed the false-positive MCP legacy-file finding from Phase 5; confirmed the SQLite mismatch and resolved it by trimming the target; confirmed and fixed the missing shared-capital and queue/arithmetic gaps described in Phase 6.
 - [deferred] TSan and libFuzzer smoke remain for a supported Linux runner; no remote CI result is claimed.
 - [x] Recorded remaining limits and three recommended next steps in `HARDENING.md`.
+
+## BASALT Phase 3 security and UI engineering (2026-11-27)
+
+- [x] Recorded the before-change code/UI review and required actions in `docs/PHASE3_GAP_CHECKLIST.md`.
+- [x] Added concurrent submit/cancel/snapshot regression through `SimulationFacade` (`66a94df`); focused CTest 1/1.
+- [x] Added deterministic storage failure injection for writes, flushes, resize and replacement plus recovery/reconciliation assertions (`74b67ac`); focused CTest 4/4.
+- [x] Added order-book state-transition, JSONL replay-import and direct HTTP mutation-schema fuzz harnesses, seed corpora and CI smoke jobs (`b014192`). Related HTTP/replay/parser CTest passed 18/18. Harnesses compile with local `clang-cl /W4 /WX`; Windows TSan/libFuzzer campaigns were not run.
+- [x] Added exact CMake FetchContent pin verification and a CycloneDX 1.5 BOM with all three native dependencies and 236 npm lockfile packages (`4f08daa`). `python scripts/dependency_sbom.py --check` passed.
+- [x] Refreshed all 13 workspace views to the graphite/lavender system, larger interaction targets, keyboard affordances, truthful empty/error/risk states, and responsive metrics/controls (`38b895b`). Backtesting binds real API dataset/strategy values and limits the model to bar approximation; replay commands require v1/session state, submit explicitly, and serialize pending actions (`110a273`). Corrected overview tick-price formatting and neutral unknown-health color (`9fe7f0b`).
+- [x] Frontend typecheck passed; Vitest passed 16/16; Vite production build passed. Full CTest passed 182/182 with loopback access.
+- [deferred] Final `basalt_server.exe` link was blocked by a Windows permission error on replacement; no process was stopped. TSan, fuzz campaigns, hosted CI and browser visual QA remain unclaimed. The available preview path was unreachable earlier, and the user requested no computer UI access during this turn.
+- Seven Phase 3 source feature commits are local on `main`; the documentation summary is being committed separately. Nothing was pushed; pre-existing user files remain unstaged and untouched.

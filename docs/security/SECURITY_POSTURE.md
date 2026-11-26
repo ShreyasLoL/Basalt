@@ -1,9 +1,9 @@
 # BASALT Security Posture
 
-**Assessment date:** 2026-11-25
+**Assessment date:** 2026-11-27
 **Scope:** current checked source and default configuration
 
-BASALT's security posture is designed for a local-first research and exchange simulator. The Phase 2 work adds concrete protections at the HTTP, browser, market-data, MCP, dependency and CI boundaries. It does not make BASALT a production exchange, brokerage platform or authenticated multi-user service.
+BASALT's security posture is designed for a local-first research and exchange simulator. Phase 2 and Phase 3 work add concrete protections at the HTTP, browser, market-data, persistence, MCP, dependency and CI boundaries. They do not make BASALT a production exchange, brokerage platform or authenticated multi-user service.
 
 ## Active controls
 
@@ -29,4 +29,4 @@ Loopback does not protect against a compromised host, malware or another process
 
 Host and Origin validation make browser-based cross-site access harder; they do not prove who sent a native local request. CSP is defense in depth and does not replace safe rendering or validation. CRC is a corruption check, not a cryptographic authenticity check. Tests and scanners cover selected failure classes and cannot prove the absence of vulnerabilities.
 
-Local verification on 2026-11-25 passed Release and ASan/UBSan CTest (177/177 each), frontend typecheck, Vitest (10/10), production build, actionlint and clang-tidy across 36 backend translation units. npm audit reported zero vulnerabilities; OSV reported no issues among 236 frontend lockfile packages. The most recent Gitleaks history scan, run after `11df918`, found no leaks in 53 commits. Hosted CI was not triggered; TSan, libFuzzer and the pinned Docker invocations were not run locally. Scanner coverage and the generated upstream fixture matches are detailed in [Security Testing](SECURITY_TESTING.md); see the [Security Audit](SECURITY_AUDIT.md) for finding status.
+The 2026-11-25 scanner/build baseline passed Release and ASan/UBSan CTest (177/177 each), frontend typecheck, Vitest (10/10), production build, actionlint and clang-tidy across 36 backend translation units. npm audit reported zero vulnerabilities; OSV reported no issues among 236 frontend lockfile packages. The most recent Gitleaks history scan, run after `11df918`, found no leaks in 53 commits. Phase 3 verification on 2026-11-27 passed full CTest (182/182), frontend typecheck, Vitest (16/16), production build and the CMake pin/CycloneDX check; focused concurrency, persistence and HTTP/replay regressions also passed. New order-book and HTTP fuzz harnesses compile locally, but TSan and libFuzzer campaigns were not run on Windows. Hosted CI was not triggered. Scanner coverage, local build limits and browser QA limits are detailed in [Security Testing](SECURITY_TESTING.md); see the [Security Audit](SECURITY_AUDIT.md) for finding status.

@@ -398,20 +398,20 @@ Launch this mode through an MCP client that manages stdio servers. See [docs/MCP
 
 ## Verification
 
-Latest local verification on 2026-11-18:
+Latest local verification on 2026-11-27:
 
 | Check | Recorded result |
 |---|---:|
-| C++ Release clean-first build | Passed (85 Ninja targets, no warnings) |
-| CTest suite | 164 / 164 (6.20 s) |
-| ASan + UBSan clean build and CTest | 85 targets; 164 / 164 (13.34 s, no reports) |
+| C++ build | All targets except final `basalt_server.exe` link; Windows denied replacing the existing executable |
+| CTest suite | 182 / 182 (10.25 s, loopback access enabled) |
+| ASan + UBSan | Prior Phase 2 run passed 177 / 177; not rerun after Phase 3 test additions |
 | Frontend typecheck | Passed |
-| Frontend Vitest suite | 10 / 10 (3 files) |
+| Frontend Vitest suite | 16 / 16 (3 files) |
 | Frontend production build | Passed (42 modules) |
-| TSan / libFuzzer campaigns | Deferred locally; Windows platform guard; Linux CI jobs configured, not yet run |
-| Platform and portfolio demos | Both passed; shared-capital demo reports one fill and one `INSUFFICIENT_CASH` rejection |
+| CMake pins / CycloneDX SBOM | `python scripts/dependency_sbom.py --check` passed |
+| TSan / libFuzzer campaigns | Deferred locally; Windows platform guard; Linux CI jobs configured, hosted jobs not observed |
 
-The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP, HTTP and platform integration modules. Loopback access was enabled for the complete CTest run. The ASan+UBSan run included Clang's runtime DLL directory on `PATH`. TSan and fuzzing platform limits are recorded in [fuzz/FINDINGS.md](fuzz/FINDINGS.md).
+The C++ count is cumulative across matching, common utilities, market data, persistence, trading, strategy, backtesting, multi-instrument matching, telemetry, MCP, HTTP and platform integration modules. The final server link could not replace the existing executable due to a Windows permission error; no process was stopped. The complete CTest suite still passed 182/182. Phase 3 fuzz harness translation units compile with the local Clang front end, but no Windows fuzz campaign or TSan run is claimed. See [fuzz/FINDINGS.md](fuzz/FINDINGS.md) and [docs/PHASE3_GAP_CHECKLIST.md](docs/PHASE3_GAP_CHECKLIST.md) for remaining limits and feature evidence.
 
 See [HARDENING.md](HARDENING.md) for the phase checklist and detailed baseline evidence.
 

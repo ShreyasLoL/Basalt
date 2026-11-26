@@ -44,3 +44,11 @@ Use separate build directories for `-DBASALT_ENABLE_SANITIZERS=ON` (ASan+UBSan) 
 ```
 
 The GitHub workflow is configured to run ASan/UBSan, TSan and 30-second fuzz budgets for all seven fuzzers on Linux Clang. Project targets receive libFuzzer coverage instrumentation without linking a second fuzzing entry point; each harness links the runtime. The local Windows Clang runtime does not link its prebuilt libFuzzer archive with ASan-instrumented objects (`annotate_string` mismatch), and WSL is unavailable in this host profile; see `fuzz/FINDINGS.md` for the local platform limits and exact runs.
+
+## Phase 3 security and UI verification (2026-11-27)
+
+- The new `SimulationFacade` concurrency regression passed 1/1; persistence fault-injection/recovery checks passed 4/4; focused HTTP validation and replay/parser regressions passed 18/18.
+- The order-book and HTTP mutation-schema libFuzzer harnesses compile with `clang-cl /W4 /WX`. Windows cannot run the configured libFuzzer or TSan builds, so no local campaign or race-detector pass is claimed. Linux CI has the blocking jobs, but this unpushed branch has no hosted result.
+- `python scripts/dependency_sbom.py --check` passed, confirming all exact CMake pins and the current CycloneDX inventory.
+- The full local CTest run passed **182/182** with loopback access. The build reached the final `basalt_server.exe` link, but Windows returned permission denied when replacing the existing executable; no process was stopped. The test result is recorded separately from that incomplete final link.
+- Frontend typecheck passed, Vitest passed **16/16** across 3 files, and the Vite production build passed. A browser visual/end-to-end pass was not performed: the local preview was unreachable through the available host path, and computer UI access was out of scope for this turn.

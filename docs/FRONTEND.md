@@ -8,27 +8,27 @@ The current bundled HTTP gateway reports `websocket_available: false` because cp
 
 ## Workspaces
 
-1. **Overview:** feed/system health, watchlist summary, portfolio headline and recent paper events.
-2. **Market Watch:** symbol, exchange, LTP, bid/ask/spread, change, volume, session high/low, source badge and quality/stale age.
-3. **Instrument Workstation:** candles and volume, 20-level available depth, time-and-sales, source/quality detail, paper order ticket.
-4. **Order Book:** external observed depth and internal CLOB shown in separate panels; FIFO queue visible only for internal simulated book.
-5. **Strategy Lab:** create/configure/validate/start/pause/stop, parameter schema, warm-up, signals, per-run metrics and failure reason.
-6. **Paper Trading:** account selection, order/execution blotters, model selection, simulated fill disclosure and cancel/modify controls.
-7. **Portfolio & Risk:** cash/position ledger, conservative marks, realized/unrealized P&L, fees, exposure gauges, limit utilization, risk rejection log and emergency kill switch.
-8. **Backtesting:** dataset selection and license/provenance, chronology/splits, model/cost config, reproducibility manifest and 18-metric tearsheet.
-9. **Market Replay:** play/pause/step/seek, 1x/5x/10x/MAX, sequence/time position, gap indicators and deterministic result hashes.
-10. **Analytics:** equity/drawdown, return distribution, trade/fee/slippage breakdown and capacity assumptions.
-11. **Data Sources:** adapters, source, license label, connectivity, age, subscription and event counters; never display credential values.
-12. **System Monitor:** T0–T10 latency p50/p95/p99, event rates, queue depth/replacements/drops, duplicates/out-of-order/gaps, storage health and build metadata.
-13. **Settings:** theme, layout, local config, limits and redacted provider status.
+1. **Overview:** local service health, one market-watch summary, best bid/ask/spread, recent paper trades and navigation into related workspaces.
+2. **Market Watch:** symbol, exchange, last/bid/ask/spread, volume, source and feed quality. The instrument filter is scoped to this workspace; selecting an instrument uses a native button inside the table row.
+3. **Instrument Workstation:** candlestick price history when the local API provides bars, available book depth, recent executions and the paper order ticket. The chart does not claim to display volume.
+4. **Order Book:** internal simulated CLOB depth and resting queue. External market depth is explicitly disconnected on the current server.
+5. **Strategy Lab:** API-provided lifecycle state and start/pause commands. Creating or configuring strategies is not implemented in the current frontend/server contract.
+6. **Paper Trading:** supported paper order entry, working order cancellation, execution blotter and legacy-only simulation reset controls.
+7. **Portfolio & Risk:** API-provided cash, equity, P&L, positions, risk utilization, rejection log and v1 kill-switch control. Unknown risk state is distinct from an explicitly inactive kill switch.
+8. **Backtesting:** dataset and strategy values come from the local API; the only displayed execution model is bar-based approximation. Empty API data stays empty and unsupported requests return the server error rather than fabricated runs or metrics.
+9. **Market Replay:** session ID entry, play/pause/step, explicit speed application and event-sequence seek. Commands require REST v1 and are serialized while pending; the current server reports unimplemented routes with 501.
+10. **Analytics:** metric labels with blank values until a completed run is available.
+11. **Data Sources:** API-reported provider status when available; credentials are never rendered.
+12. **System Monitor:** API-reported system metrics and audit events, with empty states when the service does not provide them.
+13. **Settings:** current API mode, bind default, simulation boundary, health and credential-handling guidance. This is a posture view, not an editable settings form.
 
 ## Visual and interaction rules
 
-Dark-first palette: background #090D16, panel #111827, positive/bid #10B981, negative/ask #F43F5E, warning/stale #F59E0B, text #E5E7EB. Use tabular numbers and monospace for sequence/price/quantity. Responsive grid supports laptop and narrow screens, keyboard focus is visible, color is never the only state cue, and confirm only destructive simulation resets where data would be lost. Keyboard shortcuts are discoverable and do not override browser/system shortcuts.
+Dark-first palette follows the root `DESIGN.md`: near-black canvas, layered graphite panels, fine hairlines and sparse lavender accents. Positive/bid, negative/ask, warning/stale and error states retain distinct semantic colors. Use tabular numbers and monospace for sequence/price/quantity. Responsive grids support laptop and narrow screens, keyboard focus is visible, color is never the only state cue, and confirm only destructive simulation resets where data would be lost. Keyboard shortcuts are discoverable and do not override browser/system shortcuts.
 
 ## State model and update rate
 
-Zustand owns entity maps keyed by stable IDs and bounded ring buffers for time-series views. `App` and workspace views subscribe via per-field selectors and memoized panels (`React.memo`) so WebSocket stream frames do not re-render unrelated workspace trees. A WebSocket ingest worker validates frame schema and updates an external typed store. UI quote renders are throttled/coalesced (target at most 10–20 visual updates/sec per active view); chart series batch updates outside broad React render loops. Executions, order state changes, feed faults, risk events and sequence gaps are never silently dropped. When `mode === "v1"` and the WebSocket stream is connected without a flagged gap, periodic REST `refresh()` merges `marketWatch`, `trades`, `activity` and `lastEventSeq` by sequence instead of overwriting newer stream state. On gap/reconnect, it requests a REST snapshot, reconciles sequence, then resumes. Once the workstation enters `legacy` mode, it stops probing `/api/v1/health` on every 1s poll tick (re-probing v1 at most every 30s or on manual Retry/Refresh), makes no WebSocket or optional `/api/v1/*` requests, displays an explicit legacy compatibility banner, and `ChartPanel` shows a clear `"no history in legacy mode"` message without polling `/bars`. Components expose loading, empty, stale, degraded, disconnected and error states.
+Zustand stores dashboard entities and bounded recent activity; `App` and memoized workspace panels subscribe through field selectors. `api.ts` validates and bounds WebSocket frame buffering before updating the store. Executions, order changes, feed faults, risk events and sequence gaps are retained; quote updates can be coalesced. When `mode === "v1"` and the stream is connected without a flagged gap, periodic REST refresh merges newer state instead of overwriting it. On a gap or reconnect, it requests a REST snapshot. In legacy mode, it re-probes v1 at most every 30 seconds or on manual refresh, makes no WebSocket or optional `/api/v1/*` requests, displays a compatibility banner, and `ChartPanel` shows a no-history message without polling `/bars`. Views preserve empty, stale, degraded, disconnected and error states.
 
 ## Design system workflow
 
@@ -40,4 +40,4 @@ Frontend package lock is committed; scripts provide dev, typecheck, build and te
 
 ## Current verification
 
-On 2026-11-18, `npm test -- --reporter=dot` passed 10/10 Vitest tests across 3 files (`api.test.ts`, `App.test.tsx`, and `store.test.ts`). This is the current unit/UI test count; it does not claim a browser end-to-end run. Typecheck and production build also passed in the same verification cycle.
+On 2026-11-27, `npm test -- --reporter=dot` passed 16/16 Vitest tests across 3 files (`api.test.ts`, `App.test.tsx`, and `store.test.ts`). Typecheck and production build passed. Tests cover Market Watch filtering and selection, accurate risk status, API-bound backtest payloads, replay gating and explicit commands. No browser visual or end-to-end run is claimed: the local preview was unreachable through the available host path, and the user requested no computer UI access during this implementation.
