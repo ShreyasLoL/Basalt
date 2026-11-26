@@ -4,6 +4,7 @@
 #include "basalt/server/request_guard.hpp"
 
 #include "basalt_embedded_ui.hpp"
+#include "http_validation.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -58,78 +59,6 @@ void send_request_error(httplib::Response& response, const char* code,
                         const char* message) {
     send_json(response, json{{"error", "request_error"}, {"code", code},
                              {"message", message}}, 400);
-}
-
-constexpr std::size_t MAX_REQUEST_JSON_DEPTH = 16;
-
-bool json_depth_within_limit(const std::string_view text) {
-    std::size_t depth = 0;
-    bool in_string = false;
-    bool escaped = false;
-    for (const char ch : text) {
-        if (in_string) {
-            if (escaped) escaped = false;
-            else if (ch == '\\') escaped = true;
-            else if (ch == '"') in_string = false;
-            continue;
-        }
-        if (ch == '"') in_string = true;
-        else if (ch == '{' || ch == '[') {
-            if (++depth > MAX_REQUEST_JSON_DEPTH) return false;
-        } else if ((ch == '}' || ch == ']') && depth > 0) {
-            --depth;
-        }
-    }
-    return true;
-}
-
-bool parse_request_object(const std::string_view text, json& value,
-                          httplib::Response& response, const bool allow_empty) {
-    if (text.empty() && allow_empty) {
-        value = json::object();
-        return true;
-    }
-    if (!json_depth_within_limit(text)) {
-        send_request_error(response, "JSON_TOO_DEEP", "JSON request exceeds the maximum nesting depth");
-        return false;
-    }
-    try {
-        value = json::parse(text);
-    } catch (const json::exception&) {
-        send_request_error(response, "INVALID_JSON", "Request body must be valid JSON");
-        return false;
-    }
-    if (!value.is_object()) {
-        send_request_error(response, "INVALID_SCHEMA", "Request body must be a JSON object");
-        return false;
-    }
-    return true;
-}
-
-bool validate_object_fields(const json& value,
-                            const std::initializer_list<std::string_view> required,
-                            const std::initializer_list<std::string_view> allowed,
-                            httplib::Response& response) {
-    for (const auto field : required) {
-        if (!value.contains(std::string(field))) {
-            send_request_error(response, "INVALID_SCHEMA", "A required request field is missing");
-            return false;
-        }
-    }
-    for (auto field = value.begin(); field != value.end(); ++field) {
-        bool known = false;
-        for (const auto name : allowed) {
-            if (field.key() == name) {
-                known = true;
-                break;
-            }
-        }
-        if (!known) {
-            send_request_error(response, "INVALID_SCHEMA", "Request contains an unexpected field");
-            return false;
-        }
-    }
-    return true;
 }
 
 bool json_unsigned_value(const json& value, std::uint64_t& output) {
@@ -715,12 +644,12 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/orders", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        json body;
-        if (!parse_request_object(request.body, body, response, false) ||
-            !validate_object_fields(body, {"side", "type", "quantity"},
-                                    {"id", "side", "type", "price", "quantity"}, response)) {
+        auto validation = detail::validate_mutation_body(request.body, detail::MutationBodySchema::Order);
+        if (!validation) {
+            send_request_error(response, validation.code, validation.message);
             return;
         }
+        json body = std::move(validation.body);
 
         OrderRequest order{};
         if (body.contains("id") && !json_unsigned_value(body.at("id"), order.id)) {
@@ -814,11 +743,12 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/sim/step", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        json body;
-        if (!parse_request_object(request.body, body, response, true) ||
-            !validate_object_fields(body, {}, {"count"}, response)) {
+        auto validation = detail::validate_mutation_body(request.body, detail::MutationBodySchema::Step);
+        if (!validation) {
+            send_request_error(response, validation.code, validation.message);
             return;
         }
+        json body = std::move(validation.body);
         std::size_t count = 1;
         if (body.contains("count")) {
             std::uint64_t requested = 0;
@@ -858,11 +788,12 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/reset", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        json body;
-        if (!parse_request_object(request.body, body, response, true) ||
-            !validate_object_fields(body, {}, {"seed_demo"}, response)) {
+        auto validation = detail::validate_mutation_body(request.body, detail::MutationBodySchema::Reset);
+        if (!validation) {
+            send_request_error(response, validation.code, validation.message);
             return;
         }
+        json body = std::move(validation.body);
         bool seed_demo = false;
         if (body.contains("seed_demo")) {
             if (!body.at("seed_demo").is_boolean()) {
@@ -877,11 +808,12 @@ void HttpServer::register_routes() {
 
     server_.Post("/api/benchmark", [this](const httplib::Request& request, httplib::Response& response) {
         if (!guard_request(request, response)) return;
-        json body;
-        if (!parse_request_object(request.body, body, response, true) ||
-            !validate_object_fields(body, {}, {"profile", "order_count", "compare_baseline"}, response)) {
+        auto validation = detail::validate_mutation_body(request.body, detail::MutationBodySchema::Benchmark);
+        if (!validation) {
+            send_request_error(response, validation.code, validation.message);
             return;
         }
+        json body = std::move(validation.body);
 
         std::string profile_text = "ALL";
         if (body.contains("profile")) {

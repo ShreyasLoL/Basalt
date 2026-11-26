@@ -388,7 +388,8 @@ file(READ "${CMAKE_CURRENT_SOURCE_DIR}/web/legacy.js" BASALT_WEB_LEGACY_JS)
 configure_file(src/server/embedded_ui.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/generated/basalt_embedded_ui.hpp" @ONLY)
 
-add_library(basalt_http STATIC src/server/http_server.cpp src/server/http_errors.cpp)
+add_library(basalt_http STATIC src/server/http_server.cpp src/server/http_errors.cpp
+                              src/server/http_validation.cpp)
 target_include_directories(basalt_http PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(basalt_http PRIVATE
@@ -432,11 +433,20 @@ if(BASALT_ENABLE_FUZZERS)
     basalt_add_fuzzer(basalt_fuzz_csv fuzz/fuzz_csv.cpp)
     target_link_libraries(basalt_fuzz_csv PRIVATE basalt_persistence)
 
+    basalt_add_fuzzer(basalt_fuzz_jsonl fuzz/fuzz_jsonl.cpp)
+    target_link_libraries(basalt_fuzz_jsonl PRIVATE basalt_market_data)
+
+    basalt_add_fuzzer(basalt_fuzz_order_book fuzz/fuzz_order_book.cpp)
+    target_link_libraries(basalt_fuzz_order_book PRIVATE basalt_core)
+
     basalt_add_fuzzer(basalt_fuzz_json fuzz/fuzz_json.cpp)
     target_link_libraries(basalt_fuzz_json PRIVATE nlohmann_json::nlohmann_json)
 
     basalt_add_fuzzer(basalt_fuzz_mcp fuzz/fuzz_mcp.cpp)
     target_link_libraries(basalt_fuzz_mcp PRIVATE basalt_mcp)
+
+    basalt_add_fuzzer(basalt_fuzz_http_validation fuzz/fuzz_http_validation.cpp)
+    target_link_libraries(basalt_fuzz_http_validation PRIVATE basalt_http nlohmann_json::nlohmann_json)
 endif()
 
 add_executable(basalt_platform_tests tests/test_platform_runner.cpp)

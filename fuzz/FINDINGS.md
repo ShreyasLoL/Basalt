@@ -2,12 +2,15 @@
 
 ## Harnesses and corpora
 
-`BASALT_ENABLE_FUZZERS=ON` adds four Clang/libFuzzer entry points:
+`BASALT_ENABLE_FUZZERS=ON` adds seven Clang/libFuzzer entry points:
 
 | Target | Production code exercised | Seed corpus |
 |---|---|---|
 | `basalt_fuzz_event_log` | `.blog` framing, recovery and valid-prefix reading | empty log, truncated header, invalid frame |
 | `basalt_fuzz_csv` | `HistoryStore::parse_csv` | valid row, malformed row |
+| `basalt_fuzz_jsonl` | `CsvJsonReplayProvider::load_json_lines` and bounded replay stepping | valid quote, rejected nested/unknown-field row |
+| `basalt_fuzz_order_book` | MatchingEngine submit/cancel/reset transitions and book invariants | submit/cancel sequence, extreme values |
+| `basalt_fuzz_http_validation` | HTTP mutation JSON parsing, nesting limits, per-route field schemas and scalar bounds | valid order, invalid numeric type, over-depth body |
 | `basalt_fuzz_json` | nlohmann JSON parser | valid object, truncated array |
 | `basalt_fuzz_mcp` | `McpServer::process_line` request-frame parser | initialize request, malformed frame |
 
@@ -27,7 +30,7 @@ Host: Windows 11, Clang 22.1.8 (`x86_64-pc-windows-msvc`), Ninja, Release.
 
 TSan was not run locally. Windows Clang does not provide the supported TSan runtime used by this project; configuring `-DBASALT_ENABLE_TSAN=ON` fails early with that platform requirement. `wsl.exe --status` returned `Wsl/E_ACCESSDENIED`, so a Linux environment could not be used from this host. A Linux Clang TSan job is defined in `.github/workflows/ci.yml`, but has not run because this local branch has not been pushed.
 
-The four harness translation units compiled in the earlier Windows libFuzzer attempt, but linking the prebuilt Windows runtime failed with an `annotate_string` mismatch (`FuzzerCrossOver.cpp.obj` value 0 versus the ASan-instrumented harness value 1). The CMake option now fails early on Windows rather than implying that this runtime is supported. The Linux Clang CI fuzz job builds the harnesses and runs their corpora for 30 seconds each, but that job has not run from this local branch. **No fuzz campaign result is claimed; crash/hang discovery remains deferred until a compatible Linux run is available.**
+The four original harness translation units compiled in the earlier Windows libFuzzer attempt, but linking the prebuilt Windows runtime failed with an `annotate_string` mismatch (`FuzzerCrossOver.cpp.obj` value 0 versus the ASan-instrumented harness value 1). The CMake option now fails early on Windows rather than implying that this runtime is supported. The three Phase 3 harnesses cannot be built on this Windows host for the same documented platform restriction. The Linux Clang CI fuzz job is configured to build all seven harnesses and run their corpora for 30 seconds each, but that job has not run from this local branch. **No fuzz campaign result is claimed; crash/hang discovery remains deferred until a compatible Linux run is available.**
 
 ## Randomized order-book parity
 

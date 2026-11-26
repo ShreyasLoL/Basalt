@@ -109,10 +109,16 @@ jobs:
         run: ./build-fuzz/basalt_fuzz_event_log -max_total_time=30 -max_len=65536 fuzz/corpus/event_log
       - name: Fuzz CSV parser
         run: ./build-fuzz/basalt_fuzz_csv -max_total_time=30 -max_len=262144 fuzz/corpus/csv
+      - name: Fuzz JSONL replay parser
+        run: ./build-fuzz/basalt_fuzz_jsonl -max_total_time=30 -max_len=262144 fuzz/corpus/jsonl
+      - name: Fuzz order-book state transitions
+        run: ./build-fuzz/basalt_fuzz_order_book -max_total_time=30 -max_len=6912 fuzz/corpus/order_book
       - name: Fuzz JSON parser
         run: ./build-fuzz/basalt_fuzz_json -max_total_time=30 -max_len=262144 fuzz/corpus/json
       - name: Fuzz MCP frames
         run: ./build-fuzz/basalt_fuzz_mcp -max_total_time=30 -max_len=307200 fuzz/corpus/mcp
+      - name: Fuzz HTTP mutation validation
+        run: ./build-fuzz/basalt_fuzz_http_validation -max_total_time=30 -max_len=65537 fuzz/corpus/http_validation
 
   security-scans:
     name: Dependency and secret scans
