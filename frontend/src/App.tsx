@@ -230,10 +230,12 @@ const MarketWatch = memo(function MarketWatch({
   rows,
   selected,
   onSelect,
+  emptyState,
 }: {
   rows: MarketRow[];
   selected: string | null;
   onSelect: (id: string) => void;
+  emptyState?: ReactNode;
 }) {
   return (
     <div className="panel table-panel">
@@ -242,7 +244,7 @@ const MarketWatch = memo(function MarketWatch({
         <span className="quiet-label">Source and feed quality travel with each row</span>
       </div>
       {rows.length === 0 ? (
-        <EmptyState title="No instruments available" detail="The instrument catalog or market watch endpoint has not returned data." />
+        emptyState ?? <EmptyState title="No instruments available" detail="The instrument catalog or market watch endpoint has not returned data." />
       ) : (
         <div className="table-scroll">
           <table>
@@ -252,13 +254,8 @@ const MarketWatch = memo(function MarketWatch({
                 <tr
                   className={"clickable-row " + (selected === row.instrumentId ? "selected-row" : "")}
                   key={row.instrumentId}
-                  onClick={() => onSelect(row.instrumentId)}
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") onSelect(row.instrumentId);
-                  }}
                 >
-                  <td><strong>{row.symbol}</strong><small>{row.instrumentId}</small></td>
+                  <td><button className="instrument-select" type="button" aria-pressed={selected === row.instrumentId} onClick={() => onSelect(row.instrumentId)}><strong>{row.symbol}</strong><small>{row.instrumentId}</small></button></td>
                   <td>{row.exchange}</td>
                   <td className="mono">{row.lastPrice === null ? "—" : formatPrice(row.lastPrice, row.priceUnit)}</td>
                   <td className="mono positive">{row.bidPrice === null ? "—" : formatPrice(row.bidPrice, row.priceUnit)}</td>
@@ -368,9 +365,9 @@ const OrderTicket = memo(function OrderTicket({
       </div>
       {legacy && <div className="inline-notice">Legacy gateway active · LIMIT and MARKET only · price entered in integer ticks</div>}
       <form className="ticket-form" onSubmit={(event) => void handleSubmit(event)}>
-        <div className="segmented">
-          <button type="button" className={side === "BUY" ? "active-buy" : ""} onClick={() => setSide("BUY")}>BUY</button>
-          <button type="button" className={side === "SELL" ? "active-sell" : ""} onClick={() => setSide("SELL")}>SELL</button>
+        <div className="segmented" role="group" aria-label="Order side">
+          <button type="button" className={side === "BUY" ? "active-buy" : ""} aria-pressed={side === "BUY"} onClick={() => setSide("BUY")}>BUY</button>
+          <button type="button" className={side === "SELL" ? "active-sell" : ""} aria-pressed={side === "SELL"} onClick={() => setSide("SELL")}>SELL</button>
         </div>
         <label>Order type
           <select value={type} onChange={(event) => setType(event.target.value as OrderCommand["type"])}>
@@ -501,18 +498,7 @@ const ActiveOrders = memo(function ActiveOrders({
               <td className="mono">{formatNumber(order.remainingQuantity)}</td>
               <td className="mono">{order.sequence}</td>
               <td>{order.status}</td>
-              <td>
-                <button
-                  className="subtle-button danger-button"
-                  onClick={() => void cancelOrder(order.id, mode).then(
-                    () => onMessage("Order " + order.id + " cancelled."),
-                    (error: unknown) => onMessage(error instanceof Error ? error.message : "Cancel failed.", true),
-                  )}
-                  disabled={mode === "disconnected"}
-                >
-                  Cancel
-                </button>
-              </td>
+              <td><CancelOrderButton orderId={order.id} mode={mode} onMessage={onMessage} /></td>
             </tr>
           ))}
         </tbody>
@@ -521,12 +507,38 @@ const ActiveOrders = memo(function ActiveOrders({
   );
 });
 
+function CancelOrderButton({
+  orderId,
+  mode,
+  onMessage,
+}: {
+  orderId: number;
+  mode: ApiMode;
+  onMessage: (message: string, error?: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function cancel() {
+    setBusy(true);
+    try {
+      await cancelOrder(orderId, mode);
+      onMessage("Order " + orderId + " cancelled.");
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "Cancel failed.", true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <button className="subtle-button danger-button" type="button" onClick={() => void cancel()} disabled={busy || mode === "disconnected"} aria-busy={busy}>{busy ? "Cancelling…" : "Cancel"}</button>;
+}
+
 const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
   filter,
   onSelect,
+  onClearFilter,
 }: {
   filter: string;
   onSelect: (id: string) => void;
+  onClearFilter: () => void;
 }) {
   const marketWatch = useWorkstation((state) => state.marketWatch);
   const selectedInstrumentId = useWorkstation((state) => state.selectedInstrumentId);
@@ -540,7 +552,18 @@ const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
   return (
     <>
       <PageHeader title="Market Watch" subtitle="Instrument quotes with source, quality and event freshness." />
-      <MarketWatch rows={filteredRows} selected={selectedInstrumentId} onSelect={onSelect} />
+      <MarketWatch
+        rows={filteredRows}
+        selected={selectedInstrumentId}
+        onSelect={onSelect}
+        emptyState={marketWatch.length > 0 ? (
+          <EmptyState
+            title="No instruments match this filter"
+            detail="Try a different symbol or exchange, or clear the current filter."
+            action={<button className="text-button" type="button" onClick={onClearFilter}>Clear filter</button>}
+          />
+        ) : undefined}
+      />
     </>
   );
 });
@@ -743,7 +766,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
           ) : <EmptyState title="No position snapshot" detail="Positions will appear after the portfolio ledger endpoint is available." />}
         </section>
         <section className="panel">
-          <div className="section-heading"><div><div className="eyebrow">RISK GATES</div><h2>Limit utilization</h2></div><span className={risk?.killSwitch ? "quality-badge stale" : "quality-badge ok"}>{risk?.killSwitch ? "KILL SWITCH ON" : "STATUS UNKNOWN"}</span></div>
+          <div className="section-heading"><div><div className="eyebrow">RISK GATES</div><h2>Limit utilization</h2></div><span className={risk?.killSwitch ? "quality-badge stale" : risk ? "quality-badge ok" : "quality-badge"}>{risk?.killSwitch ? "KILL SWITCH ON" : risk ? "KILL SWITCH OFF" : "STATUS UNKNOWN"}</span></div>
           {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{formatNumber(limit.used)} / {formatNumber(limit.limit)} {limit.unit}</span></div><div className="limit-track"><span style={{ width: limit.used !== null && limit.limit ? Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" : "0%" }} /></div></div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
         </section>
       </div>
@@ -924,7 +947,7 @@ const Settings = memo(function Settings() {
   const health = useWorkstation((state) => state.health);
   return (
     <>
-      <PageHeader title="Settings" subtitle="Local endpoint and display settings for this workstation." />
+      <PageHeader title="Settings" subtitle="Runtime posture and credential handling for this local workstation." />
       <section className="panel settings-grid">
         <div><div className="eyebrow">API MODE</div><strong>{mode.toUpperCase()}</strong><small>Schema-versioned REST with legacy CLOB compatibility fallback.</small></div>
         <div><div className="eyebrow">BIND DEFAULT</div><strong>127.0.0.1:8080</strong><small>Remote binding requires explicit configuration.</small></div>
@@ -994,7 +1017,7 @@ export default function App() {
       case "Overview":
         return <Overview onNavigate={setWorkspace} />;
       case "Market Watch":
-        return <MarketWatchWorkspace filter={filter} onSelect={selectInstrument} />;
+        return <MarketWatchWorkspace filter={filter} onSelect={selectInstrument} onClearFilter={() => setFilter("")} />;
       case "Instrument Workstation":
         return <InstrumentWorkstation onMessage={notify} />;
       case "Order Book":
@@ -1060,10 +1083,11 @@ export default function App() {
       </aside>
 
       <main className="main-shell">
+        <a className="skip-link" href="#main-content">Skip to workspace content</a>
         <header className="topbar">
           <div className="breadcrumb"><span>Workspace</span><i>/</i><strong>{workspace}</strong></div>
           <div className="topbar-actions">
-            <label className="search-box"><span aria-hidden="true">⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter instruments" aria-label="Filter instruments" /></label>
+            {workspace === "Market Watch" && <label className="search-box"><span aria-hidden="true">⌕</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter instruments" aria-label="Filter instruments" /></label>}
             <div className="feed-indicator"><StatusDot state={quality} /><span>{sourceLabel(primarySource)}</span><QualityBadge quality={quality} /></div>
             <button className="icon-button" onClick={() => void refresh({ forceV1Probe: true })} aria-label="Refresh market and system state" title="Refresh">↻</button>
           </div>
@@ -1080,9 +1104,9 @@ export default function App() {
             <button className="text-button" onClick={() => void refresh({ forceV1Probe: true })}>Retry</button>
           </div>
         ) : null}
-        {toast && <div className={"toast " + (toast.error ? "error" : "success")} role="status">{toast.message}<button onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
+        {toast && <div className={"toast " + (toast.error ? "error" : "success")} role={toast.error ? "alert" : "status"} aria-live={toast.error ? "assertive" : "polite"}>{toast.message}<button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
 
-        <div className="workspace-content">{renderWorkspace()}</div>
+        <div className="workspace-content" id="main-content" tabIndex={-1}>{renderWorkspace()}</div>
         <footer className="app-footer">
           <span>BASALT · LOCAL-FIRST MARKET RESEARCH</span>
           <span>{lastUpdated ? "Updated " + new Date(lastUpdated).toLocaleTimeString() : "Awaiting data"} · {mode.toUpperCase()}</span>

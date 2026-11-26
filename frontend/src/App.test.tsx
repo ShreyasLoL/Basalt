@@ -83,6 +83,30 @@ describe("BASALT workstation", () => {
     expect(screen.getByText("No position snapshot")).toBeInTheDocument();
   });
 
+  it("limits the market filter to Market Watch and lets users recover from no matches", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("BASALT-SIM")).toBeInTheDocument());
+    expect(screen.queryByRole("textbox", { name: "Filter instruments" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Market Watch" }));
+    const filter = screen.getByRole("textbox", { name: "Filter instruments" });
+    fireEvent.change(filter, { target: { value: "no-such-instrument" } });
+    expect(screen.getByText("No instruments match this filter")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+    expect(screen.getByRole("button", { name: /BASALT-SIM/ })).toBeInTheDocument();
+  });
+
+  it("provides a skip link and native keyboard-operable instrument selection", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("BASALT-SIM")).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Skip to workspace content" })).toHaveAttribute("href", "#main-content");
+    fireEvent.click(screen.getByRole("button", { name: "Market Watch" }));
+    const instrument = screen.getByRole("button", { name: /BASALT-SIM/ });
+    expect(instrument).toHaveAttribute("aria-pressed");
+    fireEvent.click(instrument);
+    expect(screen.getByRole("heading", { name: "Instrument Workstation" })).toBeInTheDocument();
+  });
+
   it("keeps analytics empty until a completed run exists", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Analytics" }));

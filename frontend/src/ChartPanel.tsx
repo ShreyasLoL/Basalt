@@ -51,28 +51,33 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
 
     if (container && typeof ResizeObserver !== "undefined") {
       try {
+        const theme = getComputedStyle(container);
+        const chartCanvas = theme.getPropertyValue("--chart-canvas").trim() || "#141516";
+        const chartGrid = theme.getPropertyValue("--chart-grid").trim() || "#242527";
+        const chartText = theme.getPropertyValue("--muted").trim() || "#a1a1a6";
+        const accent = theme.getPropertyValue("--accent").trim() || "#5e6ad2";
         chart = createChart(container, {
           autoSize: true,
           layout: {
-            background: { type: ColorType.Solid, color: "#111827" },
-            textColor: "#94a3b8",
+            background: { type: ColorType.Solid, color: chartCanvas },
+            textColor: chartText,
             fontFamily: "Inter, ui-sans-serif, system-ui",
           },
           grid: {
-            vertLines: { color: "#202a3a" },
-            horzLines: { color: "#202a3a" },
+            vertLines: { color: chartGrid },
+            horzLines: { color: chartGrid },
           },
-          rightPriceScale: { borderColor: "#29364a" },
-          timeScale: { borderColor: "#29364a", timeVisible: true },
-          crosshair: { vertLine: { color: "#4b5d75" }, horzLine: { color: "#4b5d75" } },
+          rightPriceScale: { borderColor: chartGrid },
+          timeScale: { borderColor: chartGrid, timeVisible: true },
+          crosshair: { vertLine: { color: accent }, horzLine: { color: accent } },
         });
         series = chart.addSeries(CandlestickSeries, {
-          upColor: "#10b981",
-          downColor: "#f43f5e",
-          borderUpColor: "#10b981",
-          borderDownColor: "#f43f5e",
-          wickUpColor: "#10b981",
-          wickDownColor: "#f43f5e",
+          upColor: "#34d399",
+          downColor: "#fb7185",
+          borderUpColor: "#34d399",
+          borderDownColor: "#fb7185",
+          wickUpColor: "#34d399",
+          wickDownColor: "#fb7185",
         });
         chartRef.current = chart;
 
@@ -146,12 +151,12 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
       <div className="section-heading">
         <div>
           <div className="eyebrow">Price history</div>
-          <h2>Candles and volume</h2>
+          <h2>Candlestick price history</h2>
         </div>
         <span className="quiet-label">1 minute · {barCount > 0 ? barCount + " bars" : "no bars"}</span>
       </div>
       <div className="chart-wrap">
-        <div className="chart-canvas" ref={containerRef} aria-label="Instrument candlestick chart" />
+        <div className="chart-canvas" ref={containerRef} role="img" aria-label={"Candlestick price chart for " + (instrumentId ?? "no selected instrument")} />
         {barCount === 0 && <div className="chart-empty">{message}</div>}
       </div>
     </section>
