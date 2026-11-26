@@ -132,6 +132,8 @@ jobs:
       - name: npm dependency audit
         working-directory: frontend
         run: npm audit --package-lock-only --audit-level=low
+      - name: Verify FetchContent pins and CycloneDX SBOM
+        run: python scripts/dependency_sbom.py --check
       - name: OSV dependency scan
         run: >-
           docker run --rm

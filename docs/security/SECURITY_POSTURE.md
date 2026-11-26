@@ -13,7 +13,7 @@ BASALT's security posture is designed for a local-first research and exchange si
 - Responses include browser security headers and a restrictive CSP for the compiled UI and the same-origin legacy fallback assets.
 - Market-data replay parsing bounds line and file size, CSV columns, JSON nesting, accepted properties and event counts.
 - MCP runs over local stdio, bounds frames and tool inputs, validates schemas, records local tool actions and exposes no arbitrary shell, file or credential operation. Data storage setup fails closed when the intended permission controls cannot be established.
-- C++ dependencies are pinned to immutable commits, npm dependencies are locked, and CI defines read-only dependency, secret and static-analysis jobs plus sanitizer and fuzz jobs.
+- C++ dependencies are pinned to immutable commits and checked against `dependencies/cmake-fetchcontent.lock.json`; npm dependencies are locked. `sbom/basalt.cdx.json` inventories native FetchContent components and every locked frontend package. CI verifies both pin declarations and the generated BOM, and defines read-only dependency, secret and static-analysis jobs plus sanitizer and fuzz jobs.
 
 ## Access and connectivity
 

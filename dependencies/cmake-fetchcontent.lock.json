@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "dependencies": [
+    {
+      "cmakeName": "googletest",
+      "name": "googletest",
+      "version": "1.14.0",
+      "repository": "https://github.com/google/googletest.git",
+      "commit": "f8d7d77c06936315286eb55f8de22cd23c188571",
+      "purl": "pkg:github/google/googletest@1.14.0"
+    },
+    {
+      "cmakeName": "httplib",
+      "name": "cpp-httplib",
+      "version": "0.58.0",
+      "repository": "https://github.com/yhirose/cpp-httplib.git",
+      "commit": "4f3f9ef19be83ae97a5d9a059432dc00e445b7ab",
+      "purl": "pkg:github/yhirose/cpp-httplib@0.58.0"
+    },
+    {
+      "cmakeName": "nlohmann_json",
+      "name": "json",
+      "version": "3.11.3",
+      "repository": "https://github.com/nlohmann/json.git",
+      "commit": "9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03",
+      "purl": "pkg:github/nlohmann/json@3.11.3"
+    }
+  ]
+}

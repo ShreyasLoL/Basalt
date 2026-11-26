@@ -24,6 +24,16 @@ cd ..
 
 `npm audit` needs access to the npm registry. It reads the lockfile without requiring a separate install in the audit-only invocation.
 
+## Native dependency pins and CycloneDX inventory
+
+The checked-in CMake pin lock records the exact Git repository and 40-character commit expected for each FetchContent dependency. Verify the lock against `CMakeLists.txt` and confirm that the committed CycloneDX 1.5 BOM matches both that lock and the complete frontend npm lockfile:
+
+```sh
+python scripts/dependency_sbom.py --check
+```
+
+After an intentional dependency change, review and update `dependencies/cmake-fetchcontent.lock.json` or `frontend/package-lock.json`, then regenerate `sbom/basalt.cdx.json` with `python scripts/dependency_sbom.py`. The BOM inventories three immutable C++ source dependencies and every package-lock entry, including transitive npm packages. This inventory is not a vulnerability scan or source-integrity attestation.
+
 ## C++ static analysis
 
 The CI clang-tidy profile analyzes every `src/**/*.cpp` translation unit with the Clang static analyzer's core and C++ checks and treats unsuppressed warnings as errors:
@@ -65,15 +75,18 @@ cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=cl
 cmake --build build-fuzz --parallel
 ./build-fuzz/basalt_fuzz_event_log -max_total_time=30 -max_len=65536 fuzz/corpus/event_log
 ./build-fuzz/basalt_fuzz_csv -max_total_time=30 -max_len=262144 fuzz/corpus/csv
+./build-fuzz/basalt_fuzz_jsonl -max_total_time=30 -max_len=262144 fuzz/corpus/jsonl
+./build-fuzz/basalt_fuzz_order_book -max_total_time=30 -max_len=6912 fuzz/corpus/order_book
+./build-fuzz/basalt_fuzz_http_validation -max_total_time=30 -max_len=65537 fuzz/corpus/http_validation
 ./build-fuzz/basalt_fuzz_json -max_total_time=30 -max_len=262144 fuzz/corpus/json
 ./build-fuzz/basalt_fuzz_mcp -max_total_time=30 -max_len=307200 fuzz/corpus/mcp
 ```
 
-These are bounded smoke campaigns for EventLog recovery, CSV, JSON and MCP frames. They are not a claim of exhaustive fuzz coverage.
+These are bounded smoke campaigns for EventLog recovery, CSV/JSONL parsing, order-book state transitions, HTTP mutation schemas, JSON and MCP frames. They are not a claim of exhaustive fuzz coverage.
 
 ## Dependency and secret scans
 
-CI uses read-only permissions and pinned container digests. For a manual scan with Docker installed and a complete Git history checked out:
+CI verifies the FetchContent pin lock and CycloneDX BOM, runs `npm audit`, and uses read-only permissions and pinned container digests for OSV Scanner and Gitleaks. The SBOM is committed at `sbom/basalt.cdx.json`. For a manual scan with Docker installed and a complete Git history checked out:
 
 ```sh
 docker run --rm -v "$PWD:/src" -w /src \
