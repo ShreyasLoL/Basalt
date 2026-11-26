@@ -8,11 +8,13 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -118,6 +120,72 @@ TEST(SimulationFacadeTest, SeedAndBatchUseMatchingEnginesSingleAutomaticIdSequen
     ASSERT_EQ(batch.size(), 2U);
     EXPECT_EQ(batch[0].order_id, 12U);
     EXPECT_EQ(batch[1].order_id, 13U);
+    EXPECT_TRUE(facade.verify_invariants());
+}
+
+TEST(SimulationFacadeTest, ConcurrentSubmitsCancelsAndSnapshotsPreserveConsistentState) {
+    constexpr std::size_t worker_count = 4;
+    constexpr std::size_t orders_per_worker = 500;
+    basalt::server::SimulationFacade facade(false);
+    std::array<std::vector<basalt::OrderId>, worker_count> submitted_ids{};
+    std::atomic_size_t finished_workers{0};
+    std::atomic_size_t observations{0};
+    std::atomic_bool invalid_result{false};
+    std::atomic_bool invalid_snapshot{false};
+
+    std::thread observer([&] {
+        do {
+            const auto view = facade.inspect(orders_per_worker * worker_count, 10, 10);
+            if (!facade.verify_invariants() || view.stats.active_order_count != view.book.resting_orders.size() ||
+                (view.book.has_best_bid && view.book.has_best_ask &&
+                 view.book.best_bid > view.book.best_ask)) {
+                invalid_snapshot.store(true, std::memory_order_relaxed);
+            }
+            observations.fetch_add(1, std::memory_order_relaxed);
+        } while (finished_workers.load(std::memory_order_acquire) != worker_count);
+    });
+
+    std::array<std::thread, worker_count> workers{};
+    for (std::size_t worker = 0; worker < worker_count; ++worker) {
+        workers[worker] = std::thread([&, worker] {
+            const auto side = worker % 2 == 0 ? basalt::Side::Buy : basalt::Side::Sell;
+            const auto base_price = side == basalt::Side::Buy ? 10'000LL : 50'000LL;
+            for (std::size_t index = 0; index < orders_per_worker; ++index) {
+                const auto price = base_price + static_cast<basalt::Price>(worker * 1'000 + index);
+                const auto submitted = facade.submit_order(
+                    {0, side, basalt::OrderType::Limit, price, 1});
+                if (submitted.status != basalt::OrderStatus::New || submitted.order_id == 0 ||
+                    submitted.remaining_quantity != 1) {
+                    invalid_result.store(true, std::memory_order_relaxed);
+                    continue;
+                }
+                submitted_ids[worker].push_back(submitted.order_id);
+                if (index % 2 == 0) {
+                    const auto cancelled = facade.cancel_order(submitted.order_id);
+                    if (!cancelled.success || cancelled.status != basalt::OrderStatus::Cancelled) {
+                        invalid_result.store(true, std::memory_order_relaxed);
+                    }
+                }
+            }
+            finished_workers.fetch_add(1, std::memory_order_release);
+        });
+    }
+
+    for (auto& worker : workers) worker.join();
+    observer.join();
+
+    std::set<basalt::OrderId> unique_ids;
+    for (const auto& ids : submitted_ids) unique_ids.insert(ids.begin(), ids.end());
+    const auto final_view = facade.inspect(orders_per_worker * worker_count, 10, 10);
+    EXPECT_FALSE(invalid_result.load());
+    EXPECT_FALSE(invalid_snapshot.load());
+    EXPECT_GT(observations.load(), 0U);
+    EXPECT_EQ(unique_ids.size(), orders_per_worker * worker_count);
+    EXPECT_EQ(final_view.stats.total_orders_submitted, orders_per_worker * worker_count);
+    EXPECT_EQ(final_view.stats.total_orders_cancelled,
+              worker_count * ((orders_per_worker + 1) / 2));
+    EXPECT_EQ(final_view.stats.active_order_count, orders_per_worker * worker_count / 2);
+    EXPECT_EQ(final_view.book.resting_orders.size(), final_view.stats.active_order_count);
     EXPECT_TRUE(facade.verify_invariants());
 }
 
