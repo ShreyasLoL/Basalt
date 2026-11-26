@@ -57,7 +57,7 @@ function sourceLabel(source: string | null): string {
 }
 
 function StatusDot({ state }: { state: FeedQualityState | "OK" | "ERROR" | "UNKNOWN" }) {
-  const color = state === "OK" ? "green" : state === "STALE" || state === "DEGRADED" ? "amber" : "red";
+  const color = state === "OK" ? "green" : state === "STALE" || state === "DEGRADED" ? "amber" : state === "ERROR" || state === "DISCONNECTED" ? "red" : "neutral";
   return <span className={"status-dot " + color} aria-hidden="true" />;
 }
 
@@ -442,7 +442,7 @@ const Overview = memo(function Overview({
           </div>
           {row ? (
             <div className="quote-summary">
-              <div><span>Last price</span><strong>{row.lastPrice === null ? "—" : formatPrice(row.lastPrice, "MICRO_INR")}</strong></div>
+              <div><span>Last price</span><strong>{row.lastPrice === null ? "—" : formatPrice(row.lastPrice, row.priceUnit)}</strong></div>
               <div><span>Source</span><strong>{sourceLabel(row.source)}</strong></div>
               <div><span>Exchange</span><strong>{row.exchange}</strong></div>
               <div><span>Feed quality</span><strong>{row.quality}</strong></div>
