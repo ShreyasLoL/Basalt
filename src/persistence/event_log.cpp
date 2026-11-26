@@ -217,6 +217,15 @@ common::Result<void> EventLog::append_locked(const common::EventSequence sequenc
     const auto crc = crc32(reinterpret_cast<const std::byte*>(crc_input.data()), crc_input.size());
     write_le(frame, crc);
     frame += payload;
+    if (detail::consume_storage_failure_for_testing(detail::StorageFailurePoint::PartialEventAppend)) {
+        const auto partial_size = frame.size() / 2U;
+        append_stream_.write(frame.data(), static_cast<std::streamsize>(partial_size));
+        append_stream_.flush();
+        append_stream_.close();
+        recovered_ = false;
+        return common::Result<void>::failure(
+            {"LOG_WRITE", "Event-log append failed; recover before retrying"});
+    }
     append_stream_.write(frame.data(), static_cast<std::streamsize>(frame.size()));
     append_stream_.flush();
     if (!append_stream_) {

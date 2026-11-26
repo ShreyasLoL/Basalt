@@ -3,6 +3,7 @@
 #include "basalt/persistence/event_log.hpp"
 #include "basalt/persistence/history.hpp"
 #include "basalt/persistence/replay.hpp"
+#include "../src/persistence/storage_io.hpp"
 
 #include <gtest/gtest.h>
 
@@ -80,6 +81,104 @@ TEST(EventLogTest, QuarantinesTornTailAndContinuesAtLastValidSequence) {
     ASSERT_TRUE(frames);
     ASSERT_EQ(frames.value().size(), 2U);
     EXPECT_EQ(frames.value().back().sequence, 2U);
+}
+
+TEST(EventLogTest, PartialAppendIsQuarantinedBeforeSequenceCanBeReused) {
+    TemporaryDirectory directory;
+    const auto path = directory.path() / "partial-append.blog";
+    EventLog log(path);
+    ASSERT_TRUE(log.recover());
+    {
+        detail::ScopedStorageFailure failure(detail::StorageFailurePoint::PartialEventAppend);
+        const auto interrupted = log.append_next("interrupted-frame");
+        ASSERT_FALSE(interrupted);
+        EXPECT_EQ(interrupted.error().code, "LOG_WRITE");
+    }
+    EXPECT_EQ(log.last_sequence(), 0U);
+
+    const auto recovered = log.recover();
+    ASSERT_TRUE(recovered);
+    EXPECT_EQ(recovered.value().valid_frames, 0U);
+    EXPECT_GT(recovered.value().discarded_bytes, 0U);
+    ASSERT_FALSE(recovered.value().quarantined_tail.empty());
+    EXPECT_EQ(std::filesystem::file_size(recovered.value().quarantined_tail),
+              recovered.value().discarded_bytes);
+    const auto retry = log.append_next("reconciled-frame");
+    ASSERT_TRUE(retry);
+    EXPECT_EQ(retry.value(), 1U);
+    const auto frames = log.read_all();
+    ASSERT_TRUE(frames);
+    ASSERT_EQ(frames.value().size(), 1U);
+    EXPECT_EQ(frames.value().front(), (LogFrame{1, "reconciled-frame"}));
+}
+
+TEST(EventLogTest, FlushFailureIsReconciledBeforeReplayAndNextAppend) {
+    TemporaryDirectory directory;
+    EventLog log(directory.path() / "flush-failure.blog");
+    ASSERT_TRUE(log.recover());
+    {
+        detail::ScopedStorageFailure failure(detail::StorageFailurePoint::Flush);
+        const auto uncertain = log.append_next("fill:10000:2");
+        ASSERT_FALSE(uncertain);
+        EXPECT_EQ(uncertain.error().code, "STORAGE_FLUSH");
+    }
+    EXPECT_EQ(log.last_sequence(), 0U);
+
+    const auto recovered = log.recover();
+    ASSERT_TRUE(recovered);
+    EXPECT_EQ(recovered.value().last_sequence, 1U);
+    EXPECT_EQ(recovered.value().valid_frames, 1U);
+    const auto next = log.append_next("mark:10500");
+    ASSERT_TRUE(next);
+    EXPECT_EQ(next.value(), 2U);
+
+    const auto frames = log.read_all();
+    ASSERT_TRUE(frames);
+    Checkpoint checkpoint{0, HistoryStore::sha256("position=0"), "position=0"};
+    const auto apply = [](std::string& state, const LogFrame& frame) {
+        state += "|" + frame.payload;
+        return common::Result<void>::success();
+    };
+    const auto hash = [](const std::string_view state) { return HistoryStore::sha256(state); };
+    const auto replay = replay_from_checkpoint(checkpoint, frames.value(), apply, hash);
+    ASSERT_TRUE(replay);
+    EXPECT_EQ(replay.value().state_blob, "position=0|fill:10000:2|mark:10500");
+    EXPECT_EQ(replay.value().manifest.replayed_events, 2U);
+}
+
+TEST(EventLogTest, ResizeFailureLeavesRecoverySourceAndCanBeRetried) {
+    TemporaryDirectory directory;
+    const auto path = directory.path() / "resize-failure.blog";
+    EventLog writer(path);
+    ASSERT_TRUE(writer.recover());
+    ASSERT_TRUE(writer.append(1, "valid"));
+    ASSERT_TRUE(writer.close());
+    {
+        std::ofstream tail(path, std::ios::binary | std::ios::app);
+        tail.write("torn", 4);
+        ASSERT_TRUE(tail.good());
+    }
+    const auto damaged_size = std::filesystem::file_size(path);
+
+    EventLog recovery(path);
+    {
+        detail::ScopedStorageFailure failure(detail::StorageFailurePoint::Resize);
+        const auto failed = recovery.recover();
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().code, "STORAGE_RESIZE");
+    }
+    EXPECT_EQ(std::filesystem::file_size(path), damaged_size);
+    EXPECT_TRUE(std::filesystem::exists(path.string() + ".corrupt"));
+
+    const auto retried = recovery.recover();
+    ASSERT_TRUE(retried);
+    EXPECT_EQ(retried.value().last_sequence, 1U);
+    EXPECT_EQ(retried.value().discarded_bytes, 4U);
+    EXPECT_EQ(std::filesystem::file_size(path), retried.value().valid_bytes);
+    const auto frames = recovery.read_all();
+    ASSERT_TRUE(frames);
+    ASSERT_EQ(frames.value().size(), 1U);
+    EXPECT_EQ(frames.value().front().payload, "valid");
 }
 
 TEST(EventLogTest, VerifiesCrcAndRecoversOnlyThePriorCompletePrefix) {
@@ -238,6 +337,39 @@ TEST(CheckpointTest, AtomicallyPersistsStateAndDetectsCorruption) {
         file.write(&damaged, 1);
     }
     EXPECT_EQ(store.load().error().code, "CHECKPOINT_CRC");
+}
+
+TEST(CheckpointTest, FailedWriteAndRenameKeepPreviousCheckpointAuthoritative) {
+    TemporaryDirectory directory;
+    CheckpointStore store(directory.path() / "replace-failure.checkpoint");
+    const Checkpoint original{42, "old-hash", "old-state"};
+    const Checkpoint replacement{43, "new-hash", "new-state"};
+    ASSERT_TRUE(store.save(original));
+
+    {
+        detail::ScopedStorageFailure failure(detail::StorageFailurePoint::Write);
+        const auto failed = store.save(replacement);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().code, "STORAGE_WRITE");
+    }
+    const auto after_write_failure = store.load();
+    ASSERT_TRUE(after_write_failure);
+    EXPECT_EQ(after_write_failure.value(), original);
+
+    {
+        detail::ScopedStorageFailure failure(detail::StorageFailurePoint::Rename);
+        const auto failed = store.save(replacement);
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().code, "STORAGE_RENAME");
+    }
+    const auto after_rename_failure = store.load();
+    ASSERT_TRUE(after_rename_failure);
+    EXPECT_EQ(after_rename_failure.value(), original);
+
+    ASSERT_TRUE(store.save(replacement));
+    const auto after_retry = store.load();
+    ASSERT_TRUE(after_retry);
+    EXPECT_EQ(after_retry.value(), replacement);
 }
 
 TEST(CatalogTest, ReopensDeterministicTransactionalDatasetMetadata) {
