@@ -627,7 +627,7 @@ const StrategyLab = memo(function StrategyLab() {
   const status = useWorkstation((state) => state.optionalStatus.strategies);
   return (
     <>
-      <PageHeader title="Strategy Lab" subtitle="Configure and run isolated strategies that can emit intents only through risk controls." />
+      <PageHeader title="Strategy Lab" subtitle="Inspect strategy lifecycle state; order intents remain subject to server risk controls." />
       {status === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
       {strategies.length === 0 ? (
         <EmptyState title="No strategy runs available" detail="The current server does not expose strategy runtime state. No sample signals or performance values are shown." />
@@ -782,15 +782,28 @@ const Backtesting = memo(function Backtesting({
 }) {
   const datasets = useWorkstation((state) => state.datasets);
   const datasetStatus = useWorkstation((state) => state.optionalStatus.datasets);
+  const strategies = useWorkstation((state) => state.strategies);
+  const strategyStatus = useWorkstation((state) => state.optionalStatus.strategies);
   const [dataset, setDataset] = useState("");
+  const [strategy, setStrategy] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!strategies.some((item) => item.id === strategy)) setStrategy(strategies[0]?.id ?? "");
+  }, [strategies, strategy]);
+
   async function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!dataset || !strategy) return;
     setBusy(true);
     try {
       const result = await fetchOptional<{ run_id: string }>("/api/v1/backtests", {
         method: "POST",
-        body: JSON.stringify({ dataset_id: dataset, strategy_id: "1", split: "chronological", execution_model: "BAR_APPROXIMATION_MODEL" }),
+        body: JSON.stringify({
+          dataset_id: dataset,
+          strategy_id: strategy,
+          split: "chronological",
+          execution_model: "BAR_APPROXIMATION_MODEL",
+        }),
       });
       onMessage("Backtest queued: " + result.run_id);
     } catch (error) {
@@ -803,15 +816,16 @@ const Backtesting = memo(function Backtesting({
     <>
       <PageHeader title="Backtesting" subtitle="Chronological runs enforce next-bar execution and preserve a reproducibility manifest." />
       {datasetStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/datasets" />}
+      {strategyStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
       <div className="research-grid">
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">NEW RUN</div><h2>Backtest configuration</h2></div></div>
-          {datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : (
+          {datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
             <form className="ticket-form" onSubmit={(event) => void run(event)}>
               <label>Dataset<select value={dataset} onChange={(event) => setDataset(event.target.value)} required><option value="">Select dataset</option>{datasets.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.license}</option>)}</select></label>
-              <label>Strategy<select><option>SMA Crossover</option><option>RSI Mean Reversion</option><option>Bollinger Bands</option><option>VWAP Reversion</option><option>Momentum Breakout</option><option>Order-Book Imbalance</option></select></label>
-              <label>Execution model<select><option>Bar-Based Approximation</option><option>Order-Book Replay</option></select></label>
-              <button className="primary-button" type="submit" disabled={busy}>{busy ? "Queueing…" : "Run backtest"}</button>
+              <label>Strategy<select value={strategy} onChange={(event) => setStrategy(event.target.value)} required><option value="">Select strategy</option>{strategies.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.version}</option>)}</select></label>
+              <div className="model-note"><span className="eyebrow">EXECUTION MODEL</span><strong>Bar-based approximation</strong><small>Next-bar execution · only model supported by this backtest engine</small></div>
+              <button className="primary-button" type="submit" disabled={busy || !dataset || !strategy}>{busy ? "Queueing…" : "Run backtest"}</button>
             </form>
           )}
         </section>
@@ -825,36 +839,58 @@ const Backtesting = memo(function Backtesting({
 });
 
 const Replay = memo(function Replay() {
+  const mode = useWorkstation((state) => state.mode);
   const [session, setSession] = useState("");
-  const [message, setMessage] = useState("No recorded session selected.");
+  const [speed, setSpeed] = useState("1x");
+  const [eventSequence, setEventSequence] = useState("");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [message, setMessage] = useState("Enter a stored session ID. The local replay API validates availability when a command is sent.");
+  const sessionReady = mode === "v1" && session.trim().length > 0;
+
   async function command(action: string, extra: Record<string, unknown> = {}) {
-    if (!session) {
-      setMessage("Select a stored session before controlling replay.");
+    if (mode !== "v1") {
+      setMessage("Replay controls require the REST v1 API; the current server mode does not support them.");
       return;
     }
+    if (!session.trim()) {
+      setMessage("Enter a stored session ID before controlling replay.");
+      return;
+    }
+    if (busyAction) return;
+    setBusyAction(action);
     try {
-      await fetchOptional("/api/v1/replay/" + encodeURIComponent(session) + "/commands", {
+      await fetchOptional("/api/v1/replay/" + encodeURIComponent(session.trim()) + "/commands", {
         method: "POST",
         body: JSON.stringify({ action, ...extra }),
       });
       setMessage("Replay command accepted: " + action);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Replay endpoint unavailable.");
+    } finally {
+      setBusyAction(null);
     }
   }
+  const seekSequence = Number(eventSequence);
+  const seekReady = eventSequence.trim().length > 0 && Number.isSafeInteger(seekSequence) && seekSequence >= 0;
+  const sessionStatus = mode !== "v1" ? mode === "legacy" ? "LEGACY MODE" : mode.toUpperCase() : session.trim() ? "SESSION ID ENTERED" : "NO SESSION";
   return (
     <>
       <PageHeader title="Market Replay" subtitle="Play recorded events on a virtual clock without modifying the source session." />
       <section className="panel replay-panel">
-        <div className="section-heading"><div><div className="eyebrow">REPLAY TRANSPORT</div><h2>Deterministic session</h2></div><span className="quality-badge degraded">NO SESSION</span></div>
-        <label>Session ID<input value={session} onChange={(event) => setSession(event.target.value)} placeholder="Stored .blog or imported session ID" /></label>
+        <div className="section-heading"><div><div className="eyebrow">REPLAY TRANSPORT</div><h2>Deterministic session</h2></div><span className="quality-badge">{sessionStatus}</span></div>
+        {mode !== "v1" && <div className="inline-notice">Replay commands are unavailable until the REST v1 service is connected.</div>}
+        <label>Session ID<input value={session} onChange={(event) => setSession(event.target.value)} placeholder="Stored .blog or imported session ID" autoComplete="off" /></label>
         <div className="transport-controls">
-          <button className="subtle-button" onClick={() => void command("play")}>Play</button>
-          <button className="subtle-button" onClick={() => void command("pause")}>Pause</button>
-          <button className="subtle-button" onClick={() => void command("step")}>Step +1 event</button>
-          <label>Speed<select defaultValue="1x" onChange={(event) => void command("speed", { speed: event.target.value })}><option>1x</option><option>5x</option><option>10x</option><option>MAX</option></select></label>
+          <button className="subtle-button" type="button" onClick={() => void command("play")} disabled={!sessionReady || busyAction !== null}>{busyAction === "play" ? "Starting…" : "Play"}</button>
+          <button className="subtle-button" type="button" onClick={() => void command("pause")} disabled={!sessionReady || busyAction !== null}>{busyAction === "pause" ? "Pausing…" : "Pause"}</button>
+          <button className="subtle-button" type="button" onClick={() => void command("step")} disabled={!sessionReady || busyAction !== null}>{busyAction === "step" ? "Stepping…" : "Step +1 event"}</button>
+          <label>Speed<select value={speed} onChange={(event) => setSpeed(event.target.value)}><option>1x</option><option>5x</option><option>10x</option><option>MAX</option></select></label>
+          <button className="subtle-button" type="button" onClick={() => void command("speed", { speed })} disabled={!sessionReady || busyAction !== null}>{busyAction === "speed" ? "Applying…" : "Apply speed"}</button>
         </div>
-        <label className="seek-label">Seek<input type="range" min="0" max="100" defaultValue="0" disabled={!session} onChange={(event) => void command("seek", { position: Number(event.target.value) })} /></label>
+        <div className="seek-controls">
+          <label>Target event sequence<input type="number" min="0" step="1" inputMode="numeric" value={eventSequence} onChange={(event) => setEventSequence(event.target.value)} placeholder="Enter an event sequence" /></label>
+          <button className="subtle-button" type="button" onClick={() => void command("seek", { position: seekSequence })} disabled={!sessionReady || !seekReady || busyAction !== null}>{busyAction === "seek" ? "Seeking…" : "Seek to event"}</button>
+        </div>
         <div className="inline-notice" role="status">{message}</div>
       </section>
     </>

@@ -35,6 +35,22 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function v1ApiFetch() {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/v1/health") return jsonResponse({ schema_version: 1, state: "OK", websocket_available: false });
+    if (url === "/api/v1/market/watch") return jsonResponse({ instruments: [] });
+    if (url === "/api/v1/strategies") return jsonResponse({ strategies: [{ id: "strategy-rsi", name: "RSI Mean Reversion", version: "1.0", state: "STOPPED", lastSignal: null, error: null }] });
+    if (url === "/api/v1/datasets") return jsonResponse({ datasets: [{ id: "dataset-42", label: "Licensed sample", source: "HISTORICAL", license: "Permitted", range: "2025", hash: "sha256:example" }] });
+    if (url === "/api/v1/portfolio/1") return jsonResponse({ accountId: "1", positions: [] });
+    if (url === "/api/v1/risk/1") return jsonResponse({ killSwitch: false, limits: [], rejections: [] });
+    if (url === "/api/v1/system/metrics") return jsonResponse({ stages: [], eventRate: null, queueDepth: null, replacements: null, dropped: null, duplicates: null, outOfOrder: null });
+    if (url === "/api/v1/backtests" && init?.method === "POST") return jsonResponse({ run_id: "run-42" }, 202);
+    if (url.startsWith("/api/v1/replay/") && url.endsWith("/commands")) return jsonResponse({ accepted: true });
+    return jsonResponse({ error: "not_found" }, 404);
+  });
+}
+
 describe("BASALT workstation", () => {
   beforeEach(() => {
     useWorkstation.setState({ ...EMPTY_DASHBOARD, optionalStatus: {} });
@@ -105,6 +121,68 @@ describe("BASALT workstation", () => {
     expect(instrument).toHaveAttribute("aria-pressed");
     fireEvent.click(instrument);
     expect(screen.getByRole("heading", { name: "Instrument Workstation" })).toBeInTheDocument();
+  });
+
+  it("submits the selected dataset and strategy with the supported backtest model", async () => {
+    const fetchSpy = v1ApiFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Backtesting" }));
+    const dataset = await screen.findByLabelText("Dataset");
+    await screen.findByRole("option", { name: /Licensed sample/ });
+    fireEvent.change(dataset, { target: { value: "dataset-42" } });
+    fireEvent.change(screen.getByLabelText("Strategy"), { target: { value: "strategy-rsi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run backtest" }));
+
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([url, init]) => String(url) === "/api/v1/backtests" && init?.method === "POST")).toBe(true));
+    const request = fetchSpy.mock.calls.find(([url, init]) => String(url) === "/api/v1/backtests" && init?.method === "POST");
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+      dataset_id: "dataset-42",
+      strategy_id: "strategy-rsi",
+      split: "chronological",
+      execution_model: "BAR_APPROXIMATION_MODEL",
+    });
+  });
+
+  it("requires an available v1 session and applies replay speed and event sequence on demand", async () => {
+    const fetchSpy = v1ApiFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Market Replay" }));
+    const session = await screen.findByLabelText("Session ID");
+    fireEvent.change(session, { target: { value: "session/a" } });
+    expect(screen.getByText("SESSION ID ENTERED")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(screen.getByText("Replay command accepted: play")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Speed"), { target: { value: "5x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply speed" }));
+    await waitFor(() => expect(screen.getByText("Replay command accepted: speed")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Target event sequence"), { target: { value: "42" } });
+    fireEvent.click(screen.getByRole("button", { name: "Seek to event" }));
+
+    await waitFor(() => expect(fetchSpy.mock.calls.filter(([url, init]) => String(url).startsWith("/api/v1/replay/") && init?.method === "POST")).toHaveLength(3));
+    const commands = fetchSpy.mock.calls
+      .filter(([url, init]) => String(url).startsWith("/api/v1/replay/") && init?.method === "POST")
+      .map(([url, init]) => ({ url: String(url), body: JSON.parse(String(init?.body)) }));
+    expect(commands[0]).toMatchObject({ url: "/api/v1/replay/session%2Fa/commands", body: { action: "play" } });
+    expect(commands[1]).toMatchObject({ body: { action: "speed", speed: "5x" } });
+    expect(commands[2]).toMatchObject({ body: { action: "seek", position: 42 } });
+  });
+
+  it("keeps replay transport disabled in legacy mode", async () => {
+    render(<App />);
+    await waitFor(() => expect(useWorkstation.getState().mode).toBe("legacy"));
+    fireEvent.click(screen.getByRole("button", { name: "Market Replay" }));
+    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
+    expect(screen.getByText("Replay commands are unavailable until the REST v1 service is connected.")).toBeInTheDocument();
+  });
+
+  it("reports an inactive kill switch when the risk API explicitly says it is off", async () => {
+    vi.stubGlobal("fetch", v1ApiFetch());
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Portfolio & Risk" }));
+    expect(await screen.findByText("KILL SWITCH OFF")).toBeInTheDocument();
   });
 
   it("keeps analytics empty until a completed run exists", () => {
