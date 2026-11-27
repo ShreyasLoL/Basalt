@@ -106,6 +106,11 @@ describe("BASALT workstation", () => {
     expect(screen.queryByRole("textbox", { name: "Filter instruments" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Market Watch" }));
+    const volume = screen.getByRole("button", { name: "Volume" });
+    fireEvent.click(volume);
+    expect(volume.closest("th")).toHaveAttribute("aria-sort", "descending");
+    fireEvent.click(volume);
+    expect(volume.closest("th")).toHaveAttribute("aria-sort", "ascending");
     const filter = screen.getByRole("textbox", { name: "Filter instruments" });
     fireEvent.change(filter, { target: { value: "no-such-instrument" } });
     expect(screen.getByText("No instruments match this filter")).toBeInTheDocument();

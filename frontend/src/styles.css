@@ -110,6 +110,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .text-button { padding: 3px 0; border: 0; background: none; color: #93c5fd; font-size: 10px; cursor: pointer; }
 .text-button:hover { color: #bfdbfe; }
 
+.sort-button { color: inherit; background: transparent; border: 0; cursor: pointer; font: inherit; text-transform: inherit; min-height: 28px; }
+.sort-button:hover, th[aria-sort] .sort-button { color: var(--blue); }
 .table-panel { padding-bottom: 8px; }
 .table-scroll { overscroll-behavior-inline: contain; width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: 10px; }

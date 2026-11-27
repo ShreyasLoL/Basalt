@@ -18,4 +18,8 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | L | Identify every v1 mutation and bind paper orders to the selected instrument | Implemented | cd48204 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | M | Complete quote provenance, chart and depth navigation, instrument freshness and execution timestamps | Implemented | 9c0e13a | TypeScript, production build, Vitest | Browser pass tracked in J |
 | N | Consolidate loading and recovery states for optional research data | Implemented | aed1350 | TypeScript, production build, Vitest | Browser pass tracked in J |
-| O | Refine table access and keyboard focus on workspace changes | Not started | — | — | Repeat browser checks |
+| O | Refine table access and keyboard focus on workspace changes | Implemented | 13ad644 | TypeScript, production build, Vitest | Browser pass tracked in J |
+| P | Sort market quotes by symbol, price, spread and volume with missing values last | In progress | — | — | Verify sort and selection |
+| Q | Compare both depth ladders on the same scale and contextualize resting queues | Not started | — | — | Check asymmetric books |
+| R | Filter execution history by aggressor and show latest fills first | Not started | — | — | Verify filtering and counts |
+| S | Verify positive chart rendering and benchmark measurements in Chrome | Not started | — | — | Keep fixture and gateway evidence distinct |

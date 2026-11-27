@@ -210,6 +210,9 @@ const ActivityList = memo(function ActivityList({ records }: { records: Activity
   );
 });
 
+type QuoteSort = "symbol" | "lastPrice" | "spread" | "volume";
+const quoteColumns: Record<QuoteSort, string> = { symbol: "Instrument", lastPrice: "LTP", spread: "Spread", volume: "Volume" };
+
 const MarketWatch = memo(function MarketWatch({
   rows,
   selected,
@@ -221,6 +224,28 @@ const MarketWatch = memo(function MarketWatch({
   onSelect: (id: string) => void;
   emptyState?: ReactNode;
 }) {
+  const [sort, setSort] = useState<{ key: QuoteSort; descending: boolean } | null>(null);
+  const ordered = useMemo(() => {
+    if (!sort) return rows;
+    return [...rows].sort((left, right) => {
+      const a = left[sort.key], b = right[sort.key];
+      if (a === null || b === null) return Number(a === null) - Number(b === null);
+      // Tick and currency prices each have their own ordering.
+      if ((sort.key === "lastPrice" || sort.key === "spread") && left.priceUnit !== right.priceUnit) {
+        return left.priceUnit.localeCompare(right.priceUnit);
+      }
+      const difference = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
+      return sort.descending ? -difference : difference;
+    });
+  }, [rows, sort]);
+  function heading(key: QuoteSort) {
+    const active = sort?.key === key;
+    return <th aria-sort={active ? sort.descending ? "descending" : "ascending" : undefined}>
+      <button className="sort-button" onClick={() => setSort({ key, descending: active ? !sort.descending : key !== "symbol" })}>
+        {quoteColumns[key]} <span aria-hidden="true">{active ? sort.descending ? "↓" : "↑" : "↕"}</span>
+      </button>
+    </th>;
+  }
   return (
     <div className="panel table-panel">
       <div className="section-heading">
@@ -232,9 +257,9 @@ const MarketWatch = memo(function MarketWatch({
       ) : (
         <div className="table-scroll" role="region" aria-label="Instrument quotes" tabIndex={0}>
           <table>
-            <thead><tr><th>Instrument</th><th>Exchange</th><th>LTP</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Feed</th><th>Event time (ms)</th></tr></thead>
+            <thead><tr>{heading("symbol")}<th>Exchange</th>{heading("lastPrice")}<th>Bid</th><th>Ask</th>{heading("spread")}{heading("volume")}<th>Source</th><th>Feed</th><th>Event time (ms)</th></tr></thead>
             <tbody>
-              {rows.map((row) => (
+              {ordered.map((row) => (
                 <tr
                   className={"clickable-row " + (selected === row.instrumentId ? "selected-row" : "")}
                   key={row.instrumentId}
