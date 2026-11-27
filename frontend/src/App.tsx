@@ -23,8 +23,8 @@ import type {
 } from "./types";
 
 const NAV = [
-  { group: "WORKSPACE", items: ["Overview", "Market Watch", "Instrument Workstation", "Order Book"] },
-  { group: "PAPER", items: ["Strategy Lab", "Paper Trading", "Portfolio & Risk"] },
+  { group: "WORKSPACE", items: ["Overview", "Market Watch", "Instrument Workstation", "Charts", "Order Book"] },
+  { group: "PAPER", items: ["Strategy Lab", "Paper Trading", "Orders", "Executions", "Portfolio & Risk"] },
   { group: "RESEARCH", items: ["Backtesting", "Market Replay", "Analytics"] },
   { group: "SYSTEM", items: ["Data Sources", "System Monitor", "Settings"] },
 ] as const;
@@ -116,19 +116,20 @@ const BookLadder = memo(function BookLadder({
 }) {
   const max = Math.max(1, ...levels.map((level) => level.totalVolume));
   if (levels.length === 0) {
-    return <div className="table-empty">No resting liquidity in this book.</div>;
+    return <div className="table-empty">No depth levels reported.</div>;
   }
   return (
-    <div className="ladder-list">
+    <table className="depth-table">
+      <thead><tr><th>Price</th><th>Quantity</th><th>Orders</th></tr></thead><tbody>
       {levels.map((level) => (
-        <div className={"ladder-row " + (level.price === best ? "best-level" : "")} key={level.price}>
-          <div className={"depth-track " + level.side.toLowerCase()} style={{ width: (level.totalVolume / max * 100) + "%" }} />
-          <span className="ladder-price">{formatPrice(level.price, unit)}</span>
-          <span className="ladder-qty">{formatNumber(level.totalVolume)}</span>
-          <span className="ladder-orders">{level.orderCount}</span>
-        </div>
+        <tr className={level.price === best ? "best-level" : ""} key={level.price}>
+          <th scope="row">{formatPrice(level.price, unit)}</th>
+          <td className="depth-volume"><span aria-hidden="true" className={"depth-track " + level.side.toLowerCase()} style={{ width: (level.totalVolume / max * 100) + "%" }} />{formatNumber(level.totalVolume)}</td>
+          <td>{formatNumber(level.orderCount)}</td>
+        </tr>
       ))}
-    </div>
+      </tbody>
+    </table>
   );
 });
 
@@ -150,9 +151,9 @@ const BookPane = memo(function BookPane({
           </div>
           <h2>{side === "BUY" ? "Buy interest" : "Sell interest"}</h2>
         </div>
-        <span className="quiet-label">PRICE / QTY / ORDERS</span>
+        <span className="quiet-label">{book?.instrumentId}</span>
       </div>
-      <BookLadder levels={levels} unit={book?.priceUnit ?? "TICKS"} best={best} />
+      {book ? <div className="table-scroll"><BookLadder levels={levels} unit={book.priceUnit} best={best} /></div> : <p className="table-empty">Awaiting a book snapshot.</p>}
     </section>
   );
 });
@@ -170,11 +171,12 @@ const TradeTable = memo(function TradeTable({
   return (
     <div className="table-scroll">
       <table>
-        <thead><tr><th>Trade</th><th>Price</th><th>Qty</th><th>Buy ID</th><th>Sell ID</th><th>Aggressor</th><th>Model</th></tr></thead>
+        <thead><tr><th>Trade</th><th>Instrument</th><th>Price</th><th>Qty</th><th>Buy ID</th><th>Sell ID</th><th>Aggressor</th><th>Model</th></tr></thead>
         <tbody>
           {trades.map((trade) => (
             <tr key={trade.tradeId}>
               <td className="mono">#{trade.tradeId}</td>
+              <td>{trade.instrumentId}</td>
               <td>{formatPrice(trade.price, trade.priceUnit ?? unit)}</td>
               <td className="mono">{formatNumber(trade.quantity)}</td>
               <td className="mono">{trade.buyOrderId}</td>
@@ -221,7 +223,7 @@ const MarketWatch = memo(function MarketWatch({
     <div className="panel table-panel">
       <div className="section-heading">
         <div><div className="eyebrow">WATCHLIST</div><h2>Market Watch</h2></div>
-        <span className="quiet-label">Source and feed quality travel with each row</span>
+        <span className="quiet-label">{formatNumber(rows.length)} instruments</span>
       </div>
       {rows.length === 0 ? (
         emptyState ?? <EmptyState title="No instruments available" detail="The instrument catalog or market watch endpoint has not returned data." />
@@ -343,7 +345,7 @@ const OrderTicket = memo(function OrderTicket({
         <div><div className="eyebrow">PAPER ORDER</div><h2>Order ticket</h2></div>
         <span className="sim-tag">SIMULATION ONLY</span>
       </div>
-      {legacy && <div className="inline-notice">Legacy gateway active · LIMIT and MARKET only · price entered in integer ticks</div>}
+      {mode === "legacy" && <div className="inline-notice">Legacy gateway active · LIMIT and MARKET only · price entered in integer ticks</div>}
       <form className="ticket-form" onSubmit={(event) => void handleSubmit(event)}>
         <div className="segmented" role="group" aria-label="Order side">
           <button type="button" className={side === "BUY" ? "active-buy" : ""} aria-pressed={side === "BUY"} onClick={() => setSide("BUY")}>BUY</button>
@@ -386,7 +388,7 @@ const OrderTicket = memo(function OrderTicket({
             <option value="DEPTH_REPLAY_MODEL" disabled={legacy}>Depth replay</option>
           </select>
         </label>
-        <button className="primary-button" type="submit" disabled={busy || mode === "disconnected"}>
+        <button className="primary-button" type="submit" disabled={busy || (mode !== "v1" && mode !== "legacy")}>
           {busy ? "Submitting…" : "Submit paper order"}
         </button>
       </form>
@@ -490,12 +492,13 @@ const ActiveOrders = memo(function ActiveOrders({
   return (
     <div className="table-scroll">
       <table>
-        <thead><tr><th>Order ID</th><th>Side</th><th>Price</th><th>Remaining</th><th>FIFO seq</th><th>Status</th><th /></tr></thead>
+        <thead><tr><th>Order ID</th><th>Side</th><th>Type</th><th>Price</th><th>Remaining</th><th>FIFO seq</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
           {orders.map((order) => (
             <tr key={order.id}>
               <td className="mono">{order.id}</td>
               <td><span className={"side-label " + order.side.toLowerCase()}>{order.side}</span></td>
+              <td>{order.type}</td>
               <td className="mono">{formatPrice(order.price, unit)}</td>
               <td className="mono">{formatNumber(order.remainingQuantity)}</td>
               <td className="mono">{order.sequence}</td>
@@ -530,7 +533,7 @@ function CancelOrderButton({
       setBusy(false);
     }
   }
-  return <button className="subtle-button danger-button" type="button" onClick={() => void cancel()} disabled={busy || mode === "disconnected"} aria-busy={busy}>{busy ? "Cancelling…" : "Cancel"}</button>;
+  return <button className="subtle-button danger-button" type="button" onClick={() => void cancel()} disabled={busy || (mode !== "v1" && mode !== "legacy")} aria-busy={busy}>{busy ? "Cancelling…" : "Cancel"}</button>;
 }
 
 const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
@@ -547,7 +550,7 @@ const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
   const filteredRows = useMemo(() => {
     const query = filter.trim().toLowerCase();
     return marketWatch.filter((row) =>
-      query.length === 0 || row.symbol.toLowerCase().includes(query) || row.exchange.toLowerCase().includes(query),
+      query.length === 0 || row.symbol.toLowerCase().includes(query) || row.exchange.toLowerCase().includes(query) || row.instrumentId.toLowerCase().includes(query),
     );
   }, [filter, marketWatch]);
 
@@ -611,7 +614,7 @@ const OrdersScreen = memo(function OrdersScreen({
   return (
     <>
       <PageHeader title="Order Book" subtitle="External observed liquidity and internal simulated liquidity are kept separate." />
-      <div className="inline-notice">External market depth is not connected to this legacy server.</div>
+      <div className="inline-notice">This gateway reports internal resting orders separately from observed quotes. External depth levels are unavailable.</div>
       <div className="book-grid large-book">
         <BookPane book={book} side="BUY" />
         <BookPane book={book} side="SELL" />
@@ -715,6 +718,25 @@ const PaperTrading = memo(function PaperTrading({
     </>
   );
 });
+
+function TradingRecords({ workspace, onMessage }: {
+  workspace: "Orders" | "Executions" | "Charts";
+  onMessage: (message: string, error?: boolean) => void;
+}) {
+  const mode = useWorkstation(state => state.mode);
+  const book = useWorkstation(state => state.book);
+  const trades = useWorkstation(state => state.trades);
+  const selectedId = useWorkstation(state => state.selectedInstrumentId);
+  return <>
+    <PageHeader title={workspace} subtitle={selectedId ?? "Select an instrument in Market Watch."} />
+    {workspace === "Charts" ? <ChartPanel instrumentId={selectedId} mode={mode} /> : <section className="panel">
+      <div className="section-heading"><h2>{workspace === "Orders" ? "Working orders" : "Paper fills"}</h2></div>
+      {workspace === "Executions" ? <TradeTable trades={trades} unit={book?.priceUnit ?? "TICKS"} />
+        : book ? <ActiveOrders orders={book.restingOrders} mode={mode} unit={book.priceUnit} onMessage={onMessage} />
+        : <EmptyState title="Awaiting order snapshot" detail="Working orders appear when the book is available." />}
+    </section>}
+  </>;
+}
 
 function EndpointNotice({ endpoint }: { endpoint: string }) {
   return <div className="inline-notice">This server build does not provide {endpoint}; BASALT will show an empty state until the corresponding phase is available.</div>;
@@ -1058,6 +1080,10 @@ export default function App() {
         return <MarketWatchWorkspace filter={filter} onSelect={selectInstrument} onClearFilter={() => setFilter("")} />;
       case "Instrument Workstation":
         return <InstrumentWorkstation onMessage={notify} />;
+      case "Orders":
+      case "Executions":
+      case "Charts":
+        return <TradingRecords workspace={workspace} onMessage={notify} />;
       case "Order Book":
         return <OrdersScreen onMessage={notify} />;
       case "Strategy Lab":

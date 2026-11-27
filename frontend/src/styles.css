@@ -146,6 +146,11 @@ td small { display: block; margin-top: 3px; color: var(--quiet); font-size: 8px;
 .empty-state p { margin: 6px 0 0; max-width: 430px; color: var(--quiet); font-size: 9px; line-height: 1.55; }
 
 .book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.depth-table :is(th, td) { padding: 8px; text-align: end; }
+.depth-table th:first-child { text-align: start; }
+.depth-table tbody th { font-variant-numeric: tabular-nums; font-weight: 400; }
+.depth-table .best-level th { font-weight: 700; color: var(--text); }
+.depth-volume { position: relative; }
 .large-book { margin-bottom: 14px; }
 .book-pane { padding: 13px; }
 .book-pane .section-heading { align-items: center; }
