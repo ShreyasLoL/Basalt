@@ -382,3 +382,24 @@ td small { font-size: 10px; }
   .seek-controls { align-items: stretch; flex-direction: column; }
   .transport-controls { align-items: stretch; }
 }
+
+/* Workstation hierarchy */
+:root { --tile-radius: 14px; --control-radius: 6px; --display: Georgia, Cambria, serif; font-variant-numeric: tabular-nums; }
+.page-header h1 { font-family: var(--display); font-weight: 500; font-size: clamp(30px, 3vw, 46px); }
+.panel, .metric-card { border-radius: var(--tile-radius); }
+.quote-hero { padding: clamp(18px, 3vw, 36px); background: var(--panel-raised); }
+.quote-hero h2 { font-size: 24px; }
+.quote-summary div:first-child strong { font-size: clamp(20px, 2.4vw, 32px); line-height: 1.1; }
+.quality-badge, .sim-tag { border-radius: 9999px; }
+.status-dot.green { background: var(--blue); }
+.status-dot.red { background: var(--amber); }
+.quality-badge.ok { color: var(--blue); border-color: var(--line); }
+.quality-badge.disconnected { color: var(--amber); border-color: var(--line); }
+.panel + .panel:is(.book-pane), .stack > .panel + .panel, .overview-grid > .panel + .panel, .two-column > .panel + .panel, .research-grid > .panel + .panel, .paper-grid > .panel + .panel { margin-top: 0; }
+@media (min-width: 821px) {
+  .overview-grid, .two-column, .research-grid { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: transform 120ms ease-out; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+}

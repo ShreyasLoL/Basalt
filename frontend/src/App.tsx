@@ -1,3 +1,4 @@
+import { formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ChartPanel } from "./ChartPanel";
 import {
@@ -29,27 +30,6 @@ const NAV = [
 ] as const;
 
 type WorkspaceName = (typeof NAV)[number]["items"][number];
-
-function formatNumber(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
-}
-
-function formatMoney(micro: number | null | undefined): string {
-  if (micro === null || micro === undefined || !Number.isFinite(micro)) return "—";
-  const rupees = micro / 10_000;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  }).format(rupees);
-}
-
-function formatPrice(value: number | null, unit: PriceUnit): string {
-  if (value === null) return "—";
-  return unit === "MICRO_INR" ? formatMoney(value) : formatNumber(value) + " ticks";
-}
 
 function sourceLabel(source: string | null): string {
   if (!source) return "SOURCE UNAVAILABLE";
@@ -428,14 +408,8 @@ const Overview = memo(function Overview({
   return (
     <>
       <PageHeader title="Overview" subtitle="Local market state, paper activity, and system health in one view." />
-      <div className="metric-grid">
-        <Metric label="Best bid" value={book?.bestBid === null || book?.bestBid === undefined ? "—" : formatPrice(book.bestBid, book.priceUnit)} tone="positive" detail="Internal simulated book" />
-        <Metric label="Best ask" value={book?.bestAsk === null || book?.bestAsk === undefined ? "—" : formatPrice(book.bestAsk, book.priceUnit)} tone="negative" detail="Internal simulated book" />
-        <Metric label="Spread" value={book?.spread === null || book?.spread === undefined ? "—" : formatPrice(book.spread, book.priceUnit)} detail="No implicit currency conversion" />
-        <Metric label="Recent executions" value={formatNumber(trades.length)} detail="Bounded recent history" />
-      </div>
       <div className="overview-grid">
-        <section className="panel">
+        <section className="panel quote-hero">
           <div className="section-heading">
             <div><div className="eyebrow">MARKET WATCH</div><h2>{row?.symbol ?? "No active instrument"}</h2></div>
             {row && <QualityBadge quality={row.quality} />}
@@ -459,6 +433,12 @@ const Overview = memo(function Overview({
           </div>
           <button className="text-button" onClick={() => onNavigate("System Monitor")}>Inspect system →</button>
         </section>
+      </div>
+      <div className="metric-grid">
+        <Metric label="Best bid" value={book?.bestBid === null || book?.bestBid === undefined ? "—" : formatPrice(book.bestBid, book.priceUnit)} tone="positive" detail="Internal simulated book" />
+        <Metric label="Best ask" value={book?.bestAsk === null || book?.bestAsk === undefined ? "—" : formatPrice(book.bestAsk, book.priceUnit)} tone="negative" detail="Internal simulated book" />
+        <Metric label="Spread" value={book?.spread === null || book?.spread === undefined ? "—" : formatPrice(book.spread, book.priceUnit)} detail="No implicit currency conversion" />
+        <Metric label="Recent executions" value={formatNumber(trades.length)} detail="Bounded recent history" />
       </div>
       <section className="panel">
         <div className="section-heading">
@@ -1088,6 +1068,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to workspace content</a>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">B</div>
@@ -1119,7 +1100,6 @@ export default function App() {
       </aside>
 
       <main className="main-shell">
-        <a className="skip-link" href="#main-content">Skip to workspace content</a>
         <header className="topbar">
           <div className="breadcrumb"><span>Workspace</span><i>/</i><strong>{workspace}</strong></div>
           <div className="topbar-actions">
