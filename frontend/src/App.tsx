@@ -886,7 +886,8 @@ const Replay = memo(function Replay() {
   const [speed, setSpeed] = useState("1x");
   const [eventSequence, setEventSequence] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [message, setMessage] = useState("Enter a stored session ID. The local replay API validates availability when a command is sent.");
+  const sessionHint = "Enter a stored session ID. The local replay API validates availability when a command is sent.";
+  const [message, setMessage] = useState(sessionHint);
   const sessionReady = mode === "v1" && session.trim().length > 0;
 
   async function command(action: string, extra: Record<string, unknown> = {}) {
@@ -921,16 +922,16 @@ const Replay = memo(function Replay() {
       <section className="panel replay-panel">
         <div className="section-heading"><div><div className="eyebrow">REPLAY TRANSPORT</div><h2>Deterministic session</h2></div><span className="quality-badge">{sessionStatus}</span></div>
         {mode !== "v1" && <div className="inline-notice">Replay commands are unavailable until the REST v1 service is connected.</div>}
-        <label>Session ID<input value={session} onChange={(event) => setSession(event.target.value)} placeholder="Stored .blog or imported session ID" autoComplete="off" /></label>
+        <label>Session ID<input value={session} disabled={busyAction !== null} onChange={(event) => { setSession(event.target.value); setMessage(sessionHint); }} placeholder="Stored .blog or imported session ID" autoComplete="off" /></label>
         <div className="transport-controls">
           <button className="subtle-button" type="button" onClick={() => void command("play")} disabled={!sessionReady || busyAction !== null}>{busyAction === "play" ? "Starting…" : "Play"}</button>
           <button className="subtle-button" type="button" onClick={() => void command("pause")} disabled={!sessionReady || busyAction !== null}>{busyAction === "pause" ? "Pausing…" : "Pause"}</button>
           <button className="subtle-button" type="button" onClick={() => void command("step")} disabled={!sessionReady || busyAction !== null}>{busyAction === "step" ? "Stepping…" : "Step +1 event"}</button>
-          <label>Speed<select value={speed} onChange={(event) => setSpeed(event.target.value)}><option>1x</option><option>5x</option><option>10x</option><option>MAX</option></select></label>
+          <label>Speed<select disabled={!sessionReady || busyAction !== null} value={speed} onChange={(event) => setSpeed(event.target.value)}><option>1x</option><option>5x</option><option>10x</option><option>MAX</option></select></label>
           <button className="subtle-button" type="button" onClick={() => void command("speed", { speed })} disabled={!sessionReady || busyAction !== null}>{busyAction === "speed" ? "Applying…" : "Apply speed"}</button>
         </div>
         <div className="seek-controls">
-          <label>Target event sequence<input type="number" min="0" step="1" inputMode="numeric" value={eventSequence} onChange={(event) => setEventSequence(event.target.value)} placeholder="Enter an event sequence" /></label>
+          <label>Target event sequence<input disabled={!sessionReady || busyAction !== null} type="number" min="0" step="1" inputMode="numeric" value={eventSequence} onChange={(event) => setEventSequence(event.target.value)} placeholder="Enter an event sequence" /></label>
           <button className="subtle-button" type="button" onClick={() => void command("seek", { position: seekSequence })} disabled={!sessionReady || !seekReady || busyAction !== null}>{busyAction === "seek" ? "Seeking…" : "Seek to event"}</button>
         </div>
         <div className="inline-notice" role="status">{message}</div>
@@ -1004,17 +1005,18 @@ const SystemMonitor = memo(function SystemMonitor() {
   const lastEventSeq = useWorkstation((state) => state.lastEventSeq);
   const replayGapDetected = useWorkstation((state) => state.replayGapDetected);
   const status = useWorkstation((state) => state.optionalStatus.systemMetrics);
-  const streamDotState = streamConnected ? "OK" : mode === "legacy" ? "DEGRADED" : "ERROR";
+  const restOnly = useWorkstation(state => state.health?.websocketAvailable === false);
+  const streamDotState = streamConnected ? "OK" : restOnly ? "DEGRADED" : "ERROR";
   const streamLabel = streamConnected
     ? "Stream connected"
     : mode === "legacy"
       ? "Stream unavailable in legacy mode"
-      : "Stream disconnected";
+      : restOnly ? "REST polling · gateway has no stream" : "Stream disconnected";
   return (
     <>
       <PageHeader title="System Monitor" subtitle="Pipeline timings and queue health come from measured local telemetry." />
-      <section className="panel stream-status" aria-live="polite">
-        <div><StatusDot state={streamDotState} /><strong>{streamLabel}</strong></div>
+      <section className="panel stream-status">
+        <div><StatusDot state={streamDotState} /><strong role="status">{streamLabel}</strong></div>
         <span className="mono">Last event sequence: {lastEventSeq || "—"}</span>
         {replayGapDetected && <span className="warning-copy">Sequence recovery requested; REST snapshot reconciliation is in progress.</span>}
         <span className="quiet-label">Bounded event buffer · {streamEventCount}/512</span>
@@ -1023,7 +1025,7 @@ const SystemMonitor = memo(function SystemMonitor() {
       {metrics ? (
         <>
           <div className="metric-grid"><Metric label="Event rate" value={metrics.eventRate === null ? "—" : formatNumber(metrics.eventRate) + " / s"} /><Metric label="Queue depth" value={formatNumber(metrics.queueDepth)} /><Metric label="Replacements" value={formatNumber(metrics.replacements)} /><Metric label="Dropped durable events" value={formatNumber(metrics.dropped)} tone={metrics.dropped ? "warning" : "neutral"} /></div>
-          <section className="panel table-panel"><div className="section-heading"><div><div className="eyebrow">T0–T10 PIPELINE</div><h2>Stage latency</h2></div><span className="quiet-label">Nanoseconds · monotonic clock</span></div><div className="table-scroll"><table><thead><tr><th>Stage</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead><tbody>{metrics.stages.map((stage) => <tr key={stage.name}><td>{stage.name}</td><td className="mono">{formatNumber(stage.p50Ns)}</td><td className="mono">{formatNumber(stage.p95Ns)}</td><td className="mono">{formatNumber(stage.p99Ns)}</td></tr>)}</tbody></table></div></section>
+          <section className="panel table-panel"><div className="section-heading"><div><div className="eyebrow">T0–T10 PIPELINE</div><h2>Stage latency</h2></div><span className="quiet-label">Nanoseconds · monotonic clock</span></div>{metrics.stages.length ? <div className="table-scroll"><table><thead><tr><th>Stage</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead><tbody>{metrics.stages.map((stage) => <tr key={stage.name}><td>{stage.name}</td><td className="mono">{formatNumber(stage.p50Ns)}</td><td className="mono">{formatNumber(stage.p95Ns)}</td><td className="mono">{formatNumber(stage.p99Ns)}</td></tr>)}</tbody></table></div> : <p className="table-empty">No stage timings reported.</p>}</section>
         </>
       ) : <EmptyState title="No runtime telemetry" detail="Latency, queue, duplicate and ordering metrics remain unavailable until the system metrics endpoint responds." />}
       <section className="panel"><div className="section-heading"><div><div className="eyebrow">AUDIT TRAIL</div><h2>Recent system events</h2></div></div><ActivityList records={activity} /></section>
@@ -1054,8 +1056,8 @@ export default function App() {
   const error = useWorkstation((state) => state.error);
   const health = useWorkstation((state) => state.health);
   const lastUpdated = useWorkstation((state) => state.lastUpdated);
-  const primarySource = useWorkstation((state) => state.marketWatch[0]?.source ?? null);
-  const quality = useWorkstation((state) => state.marketWatch[0]?.quality ?? "DISCONNECTED");
+  const primarySource = useWorkstation(state => state.marketWatch.find(row => row.instrumentId === state.selectedInstrumentId)?.source ?? null);
+  const quality = useWorkstation(state => state.marketWatch.find(row => row.instrumentId === state.selectedInstrumentId)?.quality ?? "DISCONNECTED");
   const refresh = useWorkstation((state) => state.refresh);
   const setSelected = useWorkstation((state) => state.setSelectedInstrument);
   const applyFrames = useWorkstation((state) => state.applyStreamFrames);

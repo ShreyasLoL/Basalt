@@ -185,6 +185,8 @@ describe("BASALT workstation", () => {
     expect(commands[0]).toMatchObject({ url: "/api/v1/replay/session%2Fa/commands", body: { action: "play" } });
     expect(commands[1]).toMatchObject({ body: { action: "speed", speed: "5x" } });
     expect(commands[2]).toMatchObject({ body: { action: "seek", position: 42 } });
+    fireEvent.change(session, { target: { value: "another-session" } });
+    expect(screen.queryByText("Replay command accepted: seek")).not.toBeInTheDocument();
   });
 
   it("keeps replay transport disabled in legacy mode", async () => {
