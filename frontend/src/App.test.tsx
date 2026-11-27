@@ -231,6 +231,16 @@ describe("BASALT workstation", () => {
     expect(v1CallsAfterReprobeWindow).toBe(1);
   });
 
+  it("offers a fresh request after the v1 history endpoint fails", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(jsonResponse({ message: "History unavailable" }, 404))
+      .mockResolvedValueOnce(jsonResponse({ bars: [] }));
+    vi.stubGlobal("fetch", fetch);
+    render(<ChartPanel instrumentId="1" mode="v1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry history" }));
+    expect(await screen.findByText("No bars are available for this instrument and interval.")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a clear no-history message in ChartPanel in legacy mode without fetching /bars", () => {
     const fetchSpy = vi.fn(async () => jsonResponse({ error: "not_found" }, 404));
     vi.stubGlobal("fetch", fetchSpy);

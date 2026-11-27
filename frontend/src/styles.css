@@ -170,7 +170,7 @@ td small { display: block; margin-top: 3px; color: var(--quiet); font-size: 8px;
 .chart-panel { min-height: 290px; }
 .chart-wrap { position: relative; height: 235px; }
 .chart-canvas { position: absolute; inset: 0; }
-.chart-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 24, 39, .32); color: var(--quiet); font-size: 10px; text-align: center; pointer-events: none; }
+.chart-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(17, 24, 39, .32); color: var(--quiet); font-size: 10px; text-align: center; align-content: center; gap: 12px; }
 
 .order-ticket { min-width: 0; }
 .ticket-form { display: flex; flex-direction: column; gap: 11px; }
