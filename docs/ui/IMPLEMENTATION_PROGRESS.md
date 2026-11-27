@@ -1,0 +1,16 @@
+# Workstation modernization
+
+Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatter reuse. The prior session reported 16 passing tests, typecheck and build.
+
+| ID | Implementation task | Status | Commit | Checks | Outstanding |
+| --- | --- | --- | --- | --- | --- |
+| A | Share responsive grid, surface and control tokens | In progress | — | — | Consolidate competing grid rules |
+| B | Make all workspace destinations accessible on small screens | Not started | — | — | Replace horizontal mobile navigation |
+| C | Tie Overview to instrument selection and expose account and activity context | Not started | — | — | First quote currently wins |
+| D | Label book columns, distinguish missing depth, identify executions and improve ticket gating | Not started | — | — | Check legacy and v1 |
+| E | Handle chart loading, renderer failure and retry | Not started | — | — | Verify bars contract |
+| F | Improve strategy lifecycle, dataset selection and analytics grouping | Not started | — | — | Check empty and disconnected states |
+| G | Implement measured benchmark workflow | Not started | — | — | Verify gateway request and result |
+| H | Distinguish flat portfolio, missing risk and provider loading states | Not started | — | — | Verify partial responses |
+| I | Scope replay feedback and distinguish REST-only monitoring | Not started | — | — | Exercise commands and stream cleanup |
+| J | Run browser, responsive, keyboard and integration checks and record findings | Not started | — | — | Production build and all destinations |

@@ -408,7 +408,7 @@ const Overview = memo(function Overview({
   return (
     <>
       <PageHeader title="Overview" subtitle="Local market state, paper activity, and system health in one view." />
-      <div className="overview-grid">
+      <div className="bento">
         <section className="panel quote-hero">
           <div className="section-heading">
             <div><div className="eyebrow">MARKET WATCH</div><h2>{row?.symbol ?? "No active instrument"}</h2></div>
@@ -736,7 +736,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
         <Metric label="Realized P&L" value={portfolio ? formatMoney(portfolio.realizedPnlMicro) : "—"} tone={portfolio?.realizedPnlMicro && portfolio.realizedPnlMicro < 0 ? "negative" : "positive"} />
         <Metric label="Unrealized P&L" value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Conservative quote marks" : "No ledger snapshot"} />
       </div>
-      <div className="two-column">
+      <div className="bento">
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">POSITIONS</div><h2>Open exposure</h2></div></div>
           {portfolio?.positions.length ? (
@@ -797,7 +797,7 @@ const Backtesting = memo(function Backtesting({
       <PageHeader title="Backtesting" subtitle="Chronological runs enforce next-bar execution and preserve a reproducibility manifest." />
       {datasetStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/datasets" />}
       {strategyStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
-      <div className="research-grid">
+      <div className="bento">
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">NEW RUN</div><h2>Backtest configuration</h2></div></div>
           {datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
