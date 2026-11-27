@@ -847,6 +847,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
         body: JSON.stringify({ scope: "GLOBAL", reason: "Operator action from workstation" }),
       });
       onMessage("Paper kill switch latched.");
+      await useWorkstation.getState().refresh({ forceV1Probe: true });
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "Kill switch endpoint is unavailable.", true);
     } finally {
@@ -855,21 +856,21 @@ const PortfolioRisk = memo(function PortfolioRisk({
   }
   return (
     <>
-      <PageHeader title="Portfolio & Risk" subtitle="Account state uses ledger postings and conservative bid/ask marks." action={<button className="danger-button primary-button" onClick={() => void killSwitch()} disabled={busy || mode !== "v1"}>Emergency kill switch</button>} />
+      <PageHeader title="Portfolio & Risk" subtitle="Account state uses ledger postings and conservative bid/ask marks." action={<button className="danger-button primary-button" onClick={() => void killSwitch()} disabled={busy || mode !== "v1" || risk?.killSwitch === true}>{risk?.killSwitch ? "Kill switch latched" : "Emergency kill switch"}</button>} />
       {!portfolio && portfolioStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/portfolio/1" />}
       {!risk && riskStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/risk/1" />}
       <div className="metric-grid">
         <Metric label="Cash balance" value={portfolio ? formatMoney(portfolio.cashMicro) : "—"} detail={portfolio ? "Account " + portfolio.accountId : "No account data"} />
-        <Metric label="Equity" value={portfolio ? formatMoney(portfolio.equityMicro) : "—"} detail="Mark source is reported by the API" />
+        <Metric label="Equity" value={formatMoney(portfolio?.equityMicro)} detail={portfolio?.equityMicro == null ? "Account valuation unavailable" : "Ledger valuation"} />
         <Metric label="Realized P&L" value={portfolio ? formatMoney(portfolio.realizedPnlMicro) : "—"} tone={pnlTone(portfolio?.realizedPnlMicro)} />
-        <Metric label="Unrealized P&L" tone={pnlTone(portfolio?.unrealizedPnlMicro)} value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Conservative quote marks" : "No ledger snapshot"} />
+        <Metric label="Unrealized P&L" tone={pnlTone(portfolio?.unrealizedPnlMicro)} value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Account ledger" : "No ledger snapshot"} />
       </div>
       <div className="bento">
         <section className="panel">
-          <div className="section-heading"><div><div className="eyebrow">POSITIONS</div><h2>Open exposure</h2></div></div>
+          <div className="section-heading"><div><div className="eyebrow">POSITIONS</div><h2>Position ledger</h2></div>{portfolio && <span className="quiet-label">Fees paid · {formatMoney(portfolio.feesMicro)}</span>}</div>
           {portfolio?.positions.length ? (
-            <div className="table-scroll" role="region" aria-label="Positions" tabIndex={0}><table><thead><tr><th>Instrument</th><th>Qty</th><th>Average cost</th><th>Mark</th></tr></thead><tbody>
-              {portfolio.positions.map((position) => <tr key={position.instrumentId}><td>{position.instrumentId}</td><td className="mono">{formatNumber(position.quantity)}</td><td>{formatMoney(position.averageCostMicro)}</td><td>{formatMoney(position.markMicro)}</td></tr>)}
+            <div className="table-scroll" role="region" aria-label="Positions" tabIndex={0}><table><thead><tr><th>Instrument</th><th>Qty</th><th>Average cost</th><th>Mark</th><th>Mark source</th></tr></thead><tbody>
+              {portfolio.positions.map((position) => <tr key={position.instrumentId}><td>{position.instrumentId}</td><td className="mono">{formatNumber(position.quantity)}</td><td>{formatMoney(position.averageCostMicro)}</td><td>{formatMoney(position.markMicro)}</td><td>{position.markSource || "—"}</td></tr>)}
             </tbody></table></div>
           ) : <EmptyState title={portfolio ? "No open positions" : "No position snapshot"} detail={portfolio ? "The account ledger reports no open exposure." : "Positions appear when the ledger is available."} />}
         </section>
@@ -1105,7 +1106,14 @@ const SystemMonitor = memo(function SystemMonitor() {
       {status === "unavailable" && <EndpointNotice endpoint="/api/v1/system/metrics" />}
       {metrics ? (
         <>
-          <div className="metric-grid"><Metric label="Event rate" value={metrics.eventRate === null ? "—" : formatNumber(metrics.eventRate) + " / s"} /><Metric label="Queue depth" value={formatNumber(metrics.queueDepth)} /><Metric label="Replacements" value={formatNumber(metrics.replacements)} /><Metric label="Dropped durable events" value={formatNumber(metrics.dropped)} tone={metrics.dropped ? "warning" : "neutral"} /></div>
+          <div className="metric-grid"><Metric label="Event rate" value={metrics.eventRate === null ? "—" : formatNumber(metrics.eventRate) + " / s"} /><Metric label="Queue depth" value={formatNumber(metrics.queueDepth)} /><Metric label="Replacements" value={formatNumber(metrics.replacements)} /><Metric label="Dropped events" value={formatNumber(metrics.dropped)} tone={metrics.dropped ? "warning" : "neutral"} /></div>
+          <section className="panel">
+            <div className="section-heading"><h2>Event ordering</h2></div>
+            <dl className="facts">
+              <dt>Duplicates</dt><dd>{formatNumber(metrics.duplicates)}</dd>
+              <dt>Out of order</dt><dd>{formatNumber(metrics.outOfOrder)}</dd>
+            </dl>
+          </section>
           <section className="panel table-panel"><div className="section-heading"><div><div className="eyebrow">T0–T10 PIPELINE</div><h2>Stage latency</h2></div><span className="quiet-label">Nanoseconds · monotonic clock</span></div>{metrics.stages.length ? <div className="table-scroll" role="region" aria-label="Pipeline latency" tabIndex={0}><table><thead><tr><th>Stage</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead><tbody>{metrics.stages.map((stage) => <tr key={stage.name}><td>{stage.name}</td><td className="mono">{formatNumber(stage.p50Ns)}</td><td className="mono">{formatNumber(stage.p95Ns)}</td><td className="mono">{formatNumber(stage.p99Ns)}</td></tr>)}</tbody></table></div> : <p className="table-empty">No stage timings reported.</p>}</section>
         </>
       ) : <EmptyState title="No runtime telemetry" detail="Latency, queue, duplicate and ordering metrics remain unavailable until the system metrics endpoint responds." />}

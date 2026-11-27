@@ -114,6 +114,7 @@ export interface PortfolioSummary {
     quantity: number;
     averageCostMicro: number;
     markMicro: number | null;
+    markSource?: string | null;
   }>;
 }
 
