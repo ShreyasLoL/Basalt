@@ -263,6 +263,19 @@ describe("BASALT workstation", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("distinguishes loading providers from a confirmed empty inventory", async () => {
+    let release!: (response: Response) => void;
+    const providers = new Promise<Response>(resolve => { release = resolve; });
+    const api = v1ApiFetch();
+    vi.stubGlobal("fetch", (url: RequestInfo | URL) => String(url).endsWith("/data-sources") ? providers : api(url));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Data Sources" }));
+    await waitFor(() => expect(screen.getByText("Loading provider inventory…")).toBeInTheDocument());
+    expect(screen.queryByText("No provider adapters connected")).not.toBeInTheDocument();
+    release(jsonResponse({ providers: [] }));
+    expect(await screen.findByText("No provider adapters connected")).toBeInTheDocument();
+  });
+
   it("shows a clear no-history message in ChartPanel in legacy mode without fetching /bars", () => {
     const fetchSpy = vi.fn(async () => jsonResponse({ error: "not_found" }, 404));
     vi.stubGlobal("fetch", fetchSpy);

@@ -140,6 +140,11 @@ td small { display: block; margin-top: 3px; color: var(--quiet); font-size: 8px;
 .info-panel p { margin: 10px 0 6px; color: #cbd5e1; font-size: 11px; line-height: 1.6; }
 .info-panel small { color: var(--quiet); font-size: 9px; }
 
+.loading-state { display: grid; gap: 12px; padding: 16px; color: var(--muted); }
+.loading-lines { display: grid; gap: 8px; }
+.loading-lines i { height: 8px; width: 72%; background: var(--line); border-radius: 2px; }
+.loading-lines i:nth-child(2) { width: 54%; }
+.loading-lines i:last-child { width: 36%; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 140px; padding: 18px; color: var(--muted); text-align: center; }
 .empty-mark { display: grid; place-items: center; width: 28px; height: 28px; margin-bottom: 10px; border: 1px solid #3a4659; border-radius: 50%; color: var(--quiet); }
 .empty-state strong { color: #cbd5e1; font-size: 11px; font-weight: 600; }

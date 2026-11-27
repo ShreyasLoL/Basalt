@@ -435,7 +435,7 @@ const Overview = memo(function Overview({
               <div><span>Exchange</span><strong>{row.exchange}</strong></div>
               <div><span>Volume</span><strong>{formatNumber(row.volume)}</strong></div>
             </div>
-          ) : <EmptyState title="Waiting for instrument data" detail="The market watch endpoint returned no instruments." />}
+          ) : mode === "connecting" ? <LoadingState label="Loading market snapshot…" /> : <EmptyState title="No quote available" detail={mode === "disconnected" ? "Reconnect to the local market service." : "The market watch returned no instruments."} />}
           <div className="button-row">
             <button className="text-button" onClick={() => onNavigate("Market Watch")}>Open Market Watch →</button>
             <button className="text-button" onClick={() => onNavigate("Order Book")}>Inspect depth →</button>
@@ -644,11 +644,12 @@ const OrdersScreen = memo(function OrdersScreen({
 const StrategyLab = memo(function StrategyLab() {
   const strategies = useWorkstation((state) => state.strategies);
   const status = useWorkstation((state) => state.optionalStatus.strategies);
+  const mode = useWorkstation(state => state.mode);
   return (
     <>
       <PageHeader title="Strategy Lab" subtitle="Inspect strategy lifecycle state; order intents remain subject to server risk controls." />
       {status === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
-      {strategies.length === 0 ? (
+      {mode === "connecting" || (mode === "v1" && !status && !strategies.length) ? <LoadingState label="Loading strategies…" /> : status === "unavailable" ? null : strategies.length === 0 ? (
         <EmptyState title="No strategies reported" detail="Strategy controls appear when the server reports a strategy definition." />
       ) : (
         <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Strategy</th><th>Version</th><th>Lifecycle</th><th>Last signal</th><th>Last error</th><th>Controls</th></tr></thead><tbody>
@@ -762,6 +763,12 @@ function EndpointNotice({ endpoint }: { endpoint: string }) {
   return <div className="inline-notice">Data unavailable from <code>{endpoint}</code>.</div>;
 }
 
+function LoadingState({ label }: { label: string }) {
+  return <div className="loading-state" role="status">
+    <span>{label}</span><div className="loading-lines" aria-hidden="true"><i /><i /><i /></div>
+  </div>;
+}
+
 const PortfolioRisk = memo(function PortfolioRisk({
   onMessage,
 }: {
@@ -869,7 +876,7 @@ const Backtesting = memo(function Backtesting({
       <div className="bento">
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">NEW RUN</div><h2>Backtest configuration</h2></div></div>
-          {datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
+          {mode === "connecting" || (mode === "v1" && (!datasetStatus || !strategyStatus)) ? <LoadingState label="Loading backtest inputs…" /> : datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
             <form className="ticket-form" onSubmit={(event) => void run(event)}>
               <label>Dataset<select value={dataset} onChange={(event) => setDataset(event.target.value)} required><option value="">Select dataset</option>{datasets.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.license}</option>)}</select></label>
               {selectedDataset && <dl className="facts">
@@ -980,7 +987,7 @@ const DataSources = memo(function DataSources() {
   useEffect(() => {
     if (mode !== "v1") {
       setSources([]);
-      setStatus("unavailable");
+      setStatus(mode === "connecting" ? "loading" : "unavailable");
       return;
     }
     setStatus("loading");
@@ -998,7 +1005,7 @@ const DataSources = memo(function DataSources() {
   return (
     <>
       <PageHeader title="Data Sources" subtitle="Provider connectivity is separate from internal simulated liquidity." />
-      {mode === "connecting" || (mode === "v1" && status === "loading") ? <p className="panel" role="status">Loading provider inventory…</p>
+      {mode === "connecting" || (mode === "v1" && status === "loading") ? <LoadingState label="Loading provider inventory…" />
         : status === "unavailable" ? <section className="panel"><EndpointNotice endpoint="/api/v1/data-sources" />
           {mode === "v1" && <button className="subtle-button" onClick={() => setAttempt(value => value + 1)}>Retry providers</button>}</section>
         : sources.length === 0 ? <EmptyState title="No provider adapters connected" detail="Synthetic and recorded data remain available offline; provider credentials are never displayed." /> : (

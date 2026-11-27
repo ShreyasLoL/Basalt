@@ -156,7 +156,7 @@ export interface RefreshOptions {
 interface WorkstationStore extends DashboardState {
   optionalStatus: Record<string, "ready" | "unavailable">;
   refresh: (options?: RefreshOptions) => Promise<void>;
-  refreshOptional: () => Promise<void>;
+  refreshOptional: (force?: boolean) => Promise<void>;
   setStreamConnected: (connected: boolean) => void;
   applyStreamFrames: (frames: Record<string, unknown>[]) => void;
   markReplayGap: () => void;
@@ -165,6 +165,7 @@ interface WorkstationStore extends DashboardState {
 
 const emptyOptional = { strategies: [], datasets: [], portfolio: null, risk: null, systemMetrics: null };
 let refreshing = false;
+let lastOptionalProbe = 0;
 
 export const useWorkstation = create<WorkstationStore>((set, get) => ({
   ...EMPTY_DASHBOARD,
@@ -223,7 +224,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
         replayGapDetected: false,
         error: null,
       });
-      if (snapshot.mode === "v1") await get().refreshOptional();
+      if (snapshot.mode === "v1") await get().refreshOptional(options?.forceV1Probe);
     } catch (error) {
       set({
         ...emptyOptional, optionalStatus: {},
@@ -237,7 +238,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       refreshing = false;
     }
   },
-  refreshOptional: async () => {
+  refreshOptional: async (force = false) => {
     if (get().mode !== "v1") return;
     const endpoints = [
       ["strategies", "/api/v1/strategies"],
@@ -246,8 +247,11 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       ["datasets", "/api/v1/datasets"],
       ["systemMetrics", "/api/v1/system/metrics"],
     ] as const;
-    const statuses: Record<string, "ready" | "unavailable"> = {};
-    for (const [key, path] of endpoints) {
+    const statuses = { ...get().optionalStatus };
+    const probeMissing = force || Date.now() - lastOptionalProbe >= V1_REPROBE_INTERVAL_MS;
+    if (probeMissing) lastOptionalProbe = Date.now();
+    await Promise.all(endpoints.map(async ([key, path]) => {
+      if (statuses[key] === "unavailable" && !probeMissing) return;
       try {
         const value: unknown = await fetchOptional(path);
         statuses[key] = "ready";
@@ -266,7 +270,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
         set({ [key]: emptyOptional[key] });
         statuses[key] = "unavailable";
       }
-    }
+    }));
     set({ optionalStatus: statuses });
   },
   setStreamConnected: (streamConnected) => set({ streamConnected }),
