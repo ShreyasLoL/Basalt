@@ -635,7 +635,7 @@ const StrategyLab = memo(function StrategyLab() {
       <PageHeader title="Strategy Lab" subtitle="Inspect strategy lifecycle state; order intents remain subject to server risk controls." />
       {status === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
       {strategies.length === 0 ? (
-        <EmptyState title="No strategy runs available" detail="The current server does not expose strategy runtime state. No sample signals or performance values are shown." />
+        <EmptyState title="No strategies reported" detail="Strategy controls appear when the server reports a strategy definition." />
       ) : (
         <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Strategy</th><th>Version</th><th>Lifecycle</th><th>Last signal</th><th>Last error</th><th>Controls</th></tr></thead><tbody>
           {strategies.map((strategy) => <tr key={strategy.id}><td>{strategy.name}</td><td>{strategy.version}</td><td>{strategy.state}</td><td>{strategy.lastSignal ?? "—"}</td><td>{strategy.error ?? "—"}</td><td><StrategyControls id={strategy.id} /></td></tr>)}
@@ -651,6 +651,7 @@ const StrategyLab = memo(function StrategyLab() {
 });
 
 function StrategyControls({ id }: { id: string }) {
+  const mode = useWorkstation(state => state.mode);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   async function command(action: string) {
@@ -667,7 +668,7 @@ function StrategyControls({ id }: { id: string }) {
       setBusy(false);
     }
   }
-  return <div className="button-row"><button className="subtle-button" disabled={busy} onClick={() => void command("start")}>Start</button><button className="subtle-button" disabled={busy} onClick={() => void command("pause")}>Pause</button><span className="quiet-label">{message}</span></div>;
+  return <div className="button-row"><button className="subtle-button" disabled={busy || mode !== "v1"} onClick={() => void command("start")}>Start</button><button className="subtle-button" disabled={busy || mode !== "v1"} onClick={() => void command("pause")}>Pause</button><span role="status" className="quiet-label">{message}</span></div>;
 }
 
 const PaperTrading = memo(function PaperTrading({
@@ -809,6 +810,9 @@ const Backtesting = memo(function Backtesting({
   const strategies = useWorkstation((state) => state.strategies);
   const strategyStatus = useWorkstation((state) => state.optionalStatus.strategies);
   const [dataset, setDataset] = useState("");
+  const selectedDataset = datasets.find(item => item.id === dataset);
+  const mode = useWorkstation(state => state.mode);
+  const [queuedRun, setQueuedRun] = useState("");
   const [strategy, setStrategy] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -817,7 +821,7 @@ const Backtesting = memo(function Backtesting({
 
   async function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!dataset || !strategy) return;
+    if (!selectedDataset || !strategy || mode !== "v1" || busy) return;
     setBusy(true);
     try {
       const result = await fetchOptional<{ run_id: string }>("/api/v1/backtests", {
@@ -829,6 +833,8 @@ const Backtesting = memo(function Backtesting({
           execution_model: "BAR_APPROXIMATION_MODEL",
         }),
       });
+      if (!result.run_id) throw new Error("The server did not return a run identifier.");
+      setQueuedRun(result.run_id);
       onMessage("Backtest queued: " + result.run_id);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "Backtest endpoint unavailable.", true);
@@ -847,14 +853,20 @@ const Backtesting = memo(function Backtesting({
           {datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
             <form className="ticket-form" onSubmit={(event) => void run(event)}>
               <label>Dataset<select value={dataset} onChange={(event) => setDataset(event.target.value)} required><option value="">Select dataset</option>{datasets.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.license}</option>)}</select></label>
+              {selectedDataset && <dl className="facts">
+                <dt>Source</dt><dd>{sourceLabel(selectedDataset.source)}</dd>
+                <dt>Coverage</dt><dd>{selectedDataset.range || "Unavailable"}</dd>
+                <dt>Dataset hash</dt><dd>{selectedDataset.hash || "Unavailable"}</dd>
+              </dl>}
               <label>Strategy<select value={strategy} onChange={(event) => setStrategy(event.target.value)} required><option value="">Select strategy</option>{strategies.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.version}</option>)}</select></label>
               <div className="model-note"><span className="eyebrow">EXECUTION MODEL</span><strong>Bar-based approximation</strong><small>Next-bar execution · only model supported by this backtest engine</small></div>
-              <button className="primary-button" type="submit" disabled={busy || !dataset || !strategy}>{busy ? "Queueing…" : "Run backtest"}</button>
+              <button className="primary-button" type="submit" disabled={busy || !selectedDataset || !strategy || mode !== "v1"}>{busy ? "Queueing…" : "Run backtest"}</button>
             </form>
           )}
         </section>
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">RUN HISTORY</div><h2>Results and manifests</h2></div></div>
+          {queuedRun && <p role="status">Queued run <strong>{queuedRun}</strong></p>}
           <EmptyState title="No completed backtests" detail="Metrics remain blank until a reproducible run is returned by the API." />
         </section>
       </div>
@@ -926,8 +938,15 @@ const Analytics = memo(function Analytics() {
     <>
       <PageHeader title="Analytics" subtitle="Performance metrics are calculated from completed paper or backtest ledgers." />
       <div className="inline-notice">No completed run is selected. BASALT does not show placeholder returns or synthetic performance figures.</div>
-      <div className="metric-grid analytics-grid">
-        {["Total return", "Benchmark-relative return", "CAGR", "Volatility", "Sharpe", "Sortino", "Maximum drawdown", "Calmar", "Win rate", "Profit factor", "Average win/loss", "Expectancy", "Turnover", "Exposure", "Trade count", "Fee impact", "Slippage impact", "Capacity"].map((name) => <Metric key={name} label={name} value="—" detail="Requires a completed run" />)}
+      <div className="bento">
+        {Object.entries({
+          "Return and risk": ["Total return", "Benchmark-relative return", "CAGR", "Volatility", "Sharpe", "Sortino", "Maximum drawdown", "Calmar"],
+          "Trade outcomes": ["Win rate", "Profit factor", "Average win/loss", "Expectancy", "Trade count"],
+          "Execution and exposure": ["Turnover", "Exposure", "Fee impact", "Slippage impact", "Capacity"],
+        }).map(([group, metrics]) => <section className="panel" key={group}>
+          <div className="section-heading"><h2>{group}</h2></div>
+          <dl className="facts">{metrics.map(name => <div className="fact-row" key={name}><dt>{name}</dt><dd>—</dd></div>)}</dl>
+        </section>)}
       </div>
     </>
   );
