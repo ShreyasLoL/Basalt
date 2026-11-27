@@ -1,5 +1,6 @@
 import { formatEventTime, formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { InstrumentDetails } from "./InstrumentDetails";
 import { RunResults } from "./RunResults";
 import { Benchmarks } from "./Benchmarks";
 import { ChartPanel } from "./ChartPanel";
@@ -652,6 +653,7 @@ const InstrumentWorkstation = memo(function InstrumentWorkstation({
         <div className="stack">
           <BookDepth book={book} />
           <OrderTicket mode={mode} instrumentId={selectedInstrumentId} onMessage={onMessage} />
+          {mode === "v1" && selectedInstrumentId && <InstrumentDetails key={selectedInstrumentId} id={selectedInstrumentId} />}
         </div>
       </div>
     </>

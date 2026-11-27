@@ -77,6 +77,9 @@ try {
         JSON.stringify(name) + '; select.dispatchEvent(new Event("change", { bubbles: true })); })()');
       await until('document.querySelector("h1")?.textContent === ' + JSON.stringify(name));
     };
+    await choose("Instrument Workstation");
+    await until('Array.from(document.querySelectorAll("dt")).some(dt => dt.textContent === "Price tick")');
+    console.log("Live instrument catalog loaded");
     await choose("Benchmarks");
     await evaluate(`(() => {
       const count = document.querySelector('input[type="number"]');
