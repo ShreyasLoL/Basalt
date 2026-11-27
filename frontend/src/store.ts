@@ -163,10 +163,14 @@ interface WorkstationStore extends DashboardState {
   setSelectedInstrument: (instrumentId: string) => void;
 }
 
+let refreshing = false;
+
 export const useWorkstation = create<WorkstationStore>((set, get) => ({
   ...EMPTY_DASHBOARD,
   optionalStatus: {},
   refresh: async (options) => {
+    if (refreshing) return;
+    refreshing = true;
     const initialState = get();
     const now = Date.now();
     const skipV1Probe =
@@ -178,8 +182,9 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
     set({ mode: initialState.mode === "connecting" ? "connecting" : initialState.mode, error: null });
     try {
       const probeTimestamp = Date.now();
-      const snapshot = await getDashboardSnapshot({ skipV1Probe });
+      const snapshot = await getDashboardSnapshot({ skipV1Probe, instrumentId: initialState.selectedInstrumentId });
       const current = get();
+      if (current.selectedInstrumentId !== initialState.selectedInstrumentId) return;
       const snapshotMaxSeq = Math.max(0, ...snapshot.data.activity.map((item) => item.eventSeq));
       const nextLastEventSeq = Math.max(current.lastEventSeq, snapshotMaxSeq);
       const preserveStreamState =
@@ -201,7 +206,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
           : snapshot.data.selectedInstrumentId,
         book: snapshot.data.book,
         trades: preserveStreamState
-          ? mergeTradesBySequence(current.trades, snapshot.data.trades)
+          ? mergeTradesBySequence(current.trades.filter(trade => trade.instrumentId === snapshot.data.selectedInstrumentId), snapshot.data.trades)
           : snapshot.data.trades,
         activity: preserveStreamState
           ? mergeActivityBySequence(current.activity, snapshot.data.activity)
@@ -225,6 +230,8 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
         error: error instanceof Error ? error.message : "Could not load BASALT state",
         health: { state: "ERROR", version: null, storage: null, message: "API unavailable" },
       });
+    } finally {
+      refreshing = false;
     }
   },
   refreshOptional: async () => {
@@ -370,5 +377,10 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       eventTimeNs: null,
     }].slice(-ACTIVITY_CAPACITY),
   })),
-  setSelectedInstrument: (selectedInstrumentId) => set({ selectedInstrumentId }),
+  setSelectedInstrument: (selectedInstrumentId) => {
+    if (selectedInstrumentId !== get().selectedInstrumentId) {
+      set({ selectedInstrumentId, book: null, trades: [] });
+      void get().refresh();
+    }
+  },
 }));

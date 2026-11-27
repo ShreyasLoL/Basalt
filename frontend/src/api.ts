@@ -198,6 +198,7 @@ export const V1_REPROBE_INTERVAL_MS = 30_000;
 
 export interface SnapshotOptions {
   skipV1Probe?: boolean;
+  instrumentId?: string | null;
 }
 
 export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promise<{
@@ -231,7 +232,8 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
   try {
     const health = await fetchV1Health();
     const watch = await request<{ instruments: MarketRow[] }>("/api/v1/market/watch");
-    const instrumentId = watch.instruments[0]?.instrumentId ?? null;
+    const instrumentId = watch.instruments.find(row => row.instrumentId === options.instrumentId)?.instrumentId
+      ?? watch.instruments[0]?.instrumentId ?? null;
     const snapshot = instrumentId
       ? await request<{
           book: BookSnapshot;

@@ -403,8 +403,13 @@ const Overview = memo(function Overview({
   const book = useWorkstation((state) => state.book);
   const trades = useWorkstation((state) => state.trades);
   const health = useWorkstation((state) => state.health);
-  const recentTrades = useMemo(() => trades.slice(0, 8), [trades]);
-  const row = rows[0];
+  const recentTrades = useMemo(() => [...trades].sort((a, b) => b.tradeId - a.tradeId).slice(0, 8), [trades]);
+  const selectedId = useWorkstation(state => state.selectedInstrumentId);
+  const row = rows.find(item => item.instrumentId === selectedId);
+  const portfolio = useWorkstation(state => state.portfolio);
+  const strategies = useWorkstation(state => state.strategies);
+  const activity = useWorkstation(state => state.activity);
+  const latestEvents = useMemo(() => [...activity].sort((a, b) => b.eventSeq - a.eventSeq).slice(0, 4), [activity]);
   return (
     <>
       <PageHeader title="Overview" subtitle="Local market state, paper activity, and system health in one view." />
@@ -447,6 +452,23 @@ const Overview = memo(function Overview({
         </div>
         <TradeTable trades={recentTrades} unit={book?.priceUnit ?? "TICKS"} />
       </section>
+      <div className="bento overview-detail">
+        <section className="panel">
+          <div className="section-heading"><h2>Recent activity</h2></div>
+          <ActivityList records={latestEvents} />
+        </section>
+        <section className="panel">
+          <div className="section-heading"><h2>Paper account</h2></div>
+          <div className="quote-summary">
+            <div><span>Equity</span><strong>{formatMoney(portfolio?.equityMicro)}</strong></div>
+            <div><span>Account</span><strong>{portfolio?.accountId ?? "Unavailable"}</strong></div>
+          </div>
+          <div className="button-row">
+            <button className="text-button" onClick={() => onNavigate("Portfolio & Risk")}>Portfolio &amp; Risk →</button>
+            <button className="text-button" onClick={() => onNavigate("Strategy Lab")}>Strategies{strategies.length ? " (" + strategies.length + ")" : ""} →</button>
+          </div>
+        </section>
+      </div>
     </>
   );
 });
@@ -557,7 +579,7 @@ const InstrumentWorkstation = memo(function InstrumentWorkstation({
   const book = useWorkstation((state) => state.book);
   const mode = useWorkstation((state) => state.mode);
   const trades = useWorkstation((state) => state.trades);
-  const recentTrades = useMemo(() => trades.slice(0, 20), [trades]);
+  const recentTrades = useMemo(() => [...trades].sort((a, b) => b.tradeId - a.tradeId).slice(0, 20), [trades]);
 
   return (
     <>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { connectWebSocket } from "./api";
+import { connectWebSocket, getDashboardSnapshot } from "./api";
 
 class FakeWebSocket extends EventTarget {
   static instances: FakeWebSocket[] = [];
@@ -66,4 +66,21 @@ describe("WebSocket v1 stream client", () => {
     expect(onStatus).toHaveBeenCalledWith(true);
     dispose();
   });
+});
+
+it("loads depth and fills for the selected instrument", async () => {
+  const fetch = vi.fn(async (url: string) => {
+    const body = url.endsWith("/health") ? { state: "OK" }
+      : url.endsWith("/watch") ? { instruments: [{ instrumentId: "1" }, { instrumentId: "2" }] }
+      : { book: { instrumentId: "2" }, trades: [], activity: [] };
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const snapshot = await getDashboardSnapshot({ instrumentId: "2" });
+    expect(snapshot.data.selectedInstrumentId).toBe("2");
+    expect(fetch.mock.calls.map(([url]) => url)).toContain("/api/v1/instruments/2/snapshot?depth=20");
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

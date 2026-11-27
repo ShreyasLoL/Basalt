@@ -4,17 +4,17 @@ const integer = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const currency = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
 export function formatNumber(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "â€”";
   return integer.format(value);
 }
 
 export function formatMoney(micro: number | null | undefined): string {
-  if (micro === null || micro === undefined || !Number.isFinite(micro)) return "—";
+  if (micro === null || micro === undefined || !Number.isFinite(micro)) return "â€”";
   const rupees = micro / 10_000;
   return currency.format(rupees);
 }
 
 export function formatPrice(value: number | null, unit: PriceUnit): string {
-  if (value === null) return "—";
+  if (value === null) return "â€”";
   return unit === "MICRO_INR" ? formatMoney(value) : formatNumber(value) + " ticks";
 }

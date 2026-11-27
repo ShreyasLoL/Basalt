@@ -404,6 +404,7 @@ td small { font-size: 10px; }
 
 .page-header h1 { font-family: var(--display); font-weight: 500; font-size: clamp(30px, 3vw, 46px); }
 .panel, .metric-card { border-radius: var(--radius); }
+.overview-detail { margin-top: var(--layout-gap); }
 .quote-hero { padding: clamp(18px, 3vw, 36px); background: var(--panel-raised); }
 .quote-hero h2 { font-size: 24px; }
 .quote-summary div:first-child strong { font-size: clamp(20px, 2.4vw, 32px); line-height: 1.1; }
