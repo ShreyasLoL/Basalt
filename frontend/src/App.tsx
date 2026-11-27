@@ -1,5 +1,6 @@
 import { formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Benchmarks } from "./Benchmarks";
 import { ChartPanel } from "./ChartPanel";
 import {
   cancelOrder,
@@ -25,7 +26,7 @@ import type {
 const NAV = [
   { group: "WORKSPACE", items: ["Overview", "Market Watch", "Instrument Workstation", "Charts", "Order Book"] },
   { group: "PAPER", items: ["Strategy Lab", "Paper Trading", "Orders", "Executions", "Portfolio & Risk"] },
-  { group: "RESEARCH", items: ["Backtesting", "Market Replay", "Analytics"] },
+  { group: "RESEARCH", items: ["Backtesting", "Market Replay", "Analytics", "Benchmarks"] },
   { group: "SYSTEM", items: ["Data Sources", "System Monitor", "Settings"] },
 ] as const;
 
@@ -1115,6 +1116,8 @@ export default function App() {
         return <Backtesting onMessage={notify} />;
       case "Market Replay":
         return <Replay />;
+      case "Benchmarks":
+        return <><PageHeader title="Benchmarks" subtitle="Measure matching-engine workloads on the local gateway." /><Benchmarks connected={connected} /></>;
       case "Analytics":
         return <Analytics />;
       case "Data Sources":

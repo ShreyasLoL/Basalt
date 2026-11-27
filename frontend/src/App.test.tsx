@@ -124,6 +124,22 @@ describe("BASALT workstation", () => {
     expect(screen.getByRole("heading", { name: "Instrument Workstation" })).toBeInTheDocument();
   });
 
+  it("submits a bounded benchmark and displays the returned measurement", async () => {
+    const api = v1ApiFetch();
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => String(url) === "/api/benchmark"
+      ? Promise.resolve(jsonResponse({ results: [{ profile_name: "Balanced", implementation: "Engine", orders_processed: 37,
+        throughput_ops_per_sec: 731, p95_latency_ns: 43, p99_latency_ns: 49 }] })) : api(url, init));
+    vi.stubGlobal("fetch", fetch);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Benchmarks" }));
+    await waitFor(() => expect(useWorkstation.getState().connected).toBe(true));
+    fireEvent.change(screen.getByLabelText("Order count"), { target: { value: "37" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run benchmark" }));
+    expect(await screen.findByText("731")).toBeInTheDocument();
+    const call = fetch.mock.calls.find(([url]) => url === "/api/benchmark");
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ profile: "BALANCED", order_count: 37, compare_baseline: true });
+  });
+
   it("submits the selected dataset and strategy with the supported backtest model", async () => {
     const fetchSpy = v1ApiFetch();
     vi.stubGlobal("fetch", fetchSpy);
