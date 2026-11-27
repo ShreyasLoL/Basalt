@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const [gateway, debuggerPort, screenshotDirectory] = process.argv.slice(2);
+const [gateway, debuggerPort, screenshotDirectory, integrationFlag] = process.argv.slice(2);
 assert.equal(new URL(gateway).hostname, "127.0.0.1");
 const targets = await fetch("http://127.0.0.1:" + Number(debuggerPort) + "/json/list").then(r => r.json());
 const target = targets.find(t => t.type === "page" && (t.url === "about:blank" || t.url.startsWith(gateway + "/")));
@@ -69,6 +69,43 @@ try {
       }
     }
     console.log(width + "px: " + names.length + " workspaces");
+  }
+  if (integrationFlag === "--integration") {
+    // Use only with a disposable gateway. The benchmark submits a bounded job.
+    const choose = async name => {
+      await evaluate('(() => { const select = document.querySelector(".workspace-picker select"); select.value = ' +
+        JSON.stringify(name) + '; select.dispatchEvent(new Event("change", { bubbles: true })); })()');
+      await until('document.querySelector("h1")?.textContent === ' + JSON.stringify(name));
+    };
+    await choose("Benchmarks");
+    await evaluate(`(() => {
+      const count = document.querySelector('input[type="number"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(count, "37");
+      count.dispatchEvent(new Event("input", {bubbles:true}));
+    })()`);
+    await evaluate('document.querySelector(".benchmark-form").requestSubmit()');
+    await until('document.querySelectorAll(".table-scroll tbody tr").length > 0');
+    console.log("Live benchmark rows:", await evaluate('document.querySelectorAll(".table-scroll tbody tr").length'));
+
+    // This gateway has no positive bars route. Supply chart data only inside the QA tab.
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*/bars?*" }] });
+    const onRequest = async ({ data }) => {
+      const { method, params } = JSON.parse(data);
+      if (method !== "Fetch.requestPaused") return;
+      const bars = [0,1,2].map(i => ({ open_time_ns: (1700000000 + 60 * i) * 1e9,
+        open_micro: 10010+i, low_micro: 10001+i, high_micro: 10015+i, close_micro: 10013+i }));
+      await send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: 200,
+        responseHeaders: [{ name: "Content-Type", value: "application/json" }], body: Buffer.from(JSON.stringify({ bars })).toString("base64") });
+    };
+    socket.addEventListener("message", onRequest);
+    try {
+      await choose("Charts");
+      await until('document.querySelector(".chart-panel")?.textContent.includes("3 bars") && document.querySelector(".chart-canvas canvas")');
+      console.log("Fixture chart rendered three bars on canvas");
+    } finally {
+      await send("Fetch.disable");
+      socket.removeEventListener("message", onRequest);
+    }
   }
   await send("Page.navigate", { url: gateway });
   await until('document.querySelector(".skip-link")');

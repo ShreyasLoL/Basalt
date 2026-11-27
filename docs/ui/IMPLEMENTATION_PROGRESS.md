@@ -21,5 +21,5 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | O | Refine table access and keyboard focus on workspace changes | Implemented | 13ad644 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | P | Sort market quotes by symbol, price, spread and volume with missing values last | Implemented | 48be739 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | Q | Compare both depth ladders on the same scale and contextualize resting queues | Implemented | 27c4290 | TypeScript, production build, Vitest | Browser pass tracked in J |
-| R | Filter execution history by aggressor and show latest fills first | Not started | — | — | Verify filtering and counts |
+| R | Filter execution history by aggressor and show latest fills first | Implemented | 8b75e33 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | S | Verify positive chart rendering and benchmark measurements in Chrome | Not started | — | — | Keep fixture and gateway evidence distinct |
