@@ -196,7 +196,7 @@ td small { display: block; margin-top: 3px; color: var(--quiet); font-size: 8px;
 .event-list { display: flex; flex-direction: column; }
 .event-row { display: grid; grid-template-columns: 50px 100px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 6px; border-bottom: 1px solid var(--line-soft); font-size: 9px; }
 .event-row:last-child { border-bottom: 0; }
-.event-type { color: #9caec3; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.event-type { overflow-wrap: anywhere; color: #9caec3; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .event-type.trade { color: var(--blue); }
 .event-type.cancel { color: var(--amber); }
 .event-type.reject { color: var(--red); }
@@ -396,8 +396,9 @@ td small { font-size: 10px; }
 @media (max-width: 820px) {
   .sidebar nav { display: none; }
   .workspace-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 8px; color: var(--muted); }
-  .workspace-picker select { min-height: 44px; padding-inline: 12px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--panel-raised); color: var(--text); font-size: 16px; }
-  .topbar-actions { flex-wrap: wrap; }
+  .workspace-picker select { min-width: 0; max-width: 100%; flex: 0 1 auto; min-height: 44px; padding-inline: 12px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--panel-raised); color: var(--text); font-size: 16px; }
+  .breadcrumb { display: none; }
+  .topbar-actions { flex-wrap: wrap; width: 100%; justify-content: space-between; }
   .search-box { flex: 1 1 170px; min-width: 0; }
   .ticket-form :is(input,select), .replay-panel :is(input,select), .search-box input { font-size: 16px; }
 }

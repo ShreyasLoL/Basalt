@@ -782,7 +782,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
       {!portfolio && portfolioStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/portfolio/1" />}
       {!risk && riskStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/risk/1" />}
       <div className="metric-grid">
-        <Metric label="Cash balance" value={portfolio ? formatMoney(portfolio.cashMicro) : "—"} detail={portfolio?.accountId ?? "No account data"} />
+        <Metric label="Cash balance" value={portfolio ? formatMoney(portfolio.cashMicro) : "—"} detail={portfolio ? "Account " + portfolio.accountId : "No account data"} />
         <Metric label="Equity" value={portfolio ? formatMoney(portfolio.equityMicro) : "—"} detail="Mark source is reported by the API" />
         <Metric label="Realized P&L" value={portfolio ? formatMoney(portfolio.realizedPnlMicro) : "—"} tone={pnlTone(portfolio?.realizedPnlMicro)} />
         <Metric label="Unrealized P&L" tone={pnlTone(portfolio?.unrealizedPnlMicro)} value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Conservative quote marks" : "No ledger snapshot"} />
@@ -801,7 +801,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
           {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{formatNumber(limit.used)} / {formatNumber(limit.limit)} {limit.unit}</span></div>{limit.used !== null && limit.limit !== null && limit.limit > 0 && <div className="limit-track"><span style={{ width: Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" }} /></div>}</div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
         </section>
       </div>
-      {risk?.rejections.length ? <section className="panel"><div className="section-heading"><div><div className="eyebrow">RISK EVENTS</div><h2>Recent rejections</h2></div></div><div className="event-list">{risk.rejections.map((entry, index) => <div className="event-row" key={entry.eventSeq + ":" + index}><span className="mono quiet">#{entry.eventSeq}</span><span className="event-type reject">{entry.code}</span><div className="event-copy"><span>{entry.message}</span></div></div>)}</div></section> : null}
+      {risk?.rejections.length ? <section className="panel"><div className="section-heading"><div><div className="eyebrow">RISK EVENTS</div><h2>Recent rejections</h2></div></div><div className="event-list">{risk.rejections.map((entry, index) => <div className="event-row" key={entry.eventSeq + ":" + index}><span className="mono quiet">#{entry.eventSeq}</span><span className="event-type reject">{entry.code}</span>{entry.message !== entry.code && <div className="event-copy"><span>{entry.message}</span></div>}</div>)}</div></section> : null}
     </>
   );
 });
