@@ -1,4 +1,4 @@
-import { formatNumber, formatPrice, formatMoney } from "./format";
+import { formatEventTime, formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Benchmarks } from "./Benchmarks";
 import { ChartPanel } from "./ChartPanel";
@@ -172,7 +172,7 @@ const TradeTable = memo(function TradeTable({
   return (
     <div className="table-scroll">
       <table>
-        <thead><tr><th>Trade</th><th>Instrument</th><th>Price</th><th>Qty</th><th>Buy ID</th><th>Sell ID</th><th>Aggressor</th><th>Model</th></tr></thead>
+        <thead><tr><th>Trade</th><th>Instrument</th><th>Price</th><th>Qty</th><th>Buy ID</th><th>Sell ID</th><th>Aggressor</th><th>Model</th><th>Event time (ms)</th></tr></thead>
         <tbody>
           {trades.map((trade) => (
             <tr key={trade.tradeId}>
@@ -180,10 +180,11 @@ const TradeTable = memo(function TradeTable({
               <td>{trade.instrumentId}</td>
               <td>{formatPrice(trade.price, trade.priceUnit ?? unit)}</td>
               <td className="mono">{formatNumber(trade.quantity)}</td>
-              <td className="mono">{trade.buyOrderId}</td>
-              <td className="mono">{trade.sellOrderId}</td>
+              <td className="mono">{trade.buyOrderId || "—"}</td>
+              <td className="mono">{trade.sellOrderId || "—"}</td>
               <td><span className={"side-label " + trade.aggressorSide.toLowerCase()}>{trade.aggressorSide}</span></td>
               <td>{trade.model}</td>
+              <td className="mono">{formatEventTime(trade.eventTimeNs)}</td>
             </tr>
           ))}
         </tbody>
@@ -231,7 +232,7 @@ const MarketWatch = memo(function MarketWatch({
       ) : (
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Instrument</th><th>Exchange</th><th>LTP</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Feed</th></tr></thead>
+            <thead><tr><th>Instrument</th><th>Exchange</th><th>LTP</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Feed</th><th>Event time (ms)</th></tr></thead>
             <tbody>
               {rows.map((row) => (
                 <tr
@@ -247,6 +248,7 @@ const MarketWatch = memo(function MarketWatch({
                   <td className="mono">{formatNumber(row.volume)}</td>
                   <td><span className="source-label">{sourceLabel(row.source)}</span></td>
                   <td><QualityBadge quality={row.quality} /></td>
+                  <td className="mono">{formatEventTime(row.eventTimeNs)}</td>
                 </tr>
               ))}
             </tbody>
@@ -410,6 +412,9 @@ const Overview = memo(function Overview({
   const recentTrades = useMemo(() => [...trades].sort((a, b) => b.tradeId - a.tradeId).slice(0, 8), [trades]);
   const selectedId = useWorkstation(state => state.selectedInstrumentId);
   const row = rows.find(item => item.instrumentId === selectedId);
+  const mode = useWorkstation(state => state.mode);
+  const [showHistory, setShowHistory] = useState(false);
+  const quoteOrigin = mode === "legacy" ? "Internal simulated book" : sourceLabel(row?.source ?? null);
   const portfolio = useWorkstation(state => state.portfolio);
   const strategies = useWorkstation(state => state.strategies);
   const activity = useWorkstation(state => state.activity);
@@ -428,10 +433,14 @@ const Overview = memo(function Overview({
               <div><span>Last price</span><strong>{row.lastPrice === null ? "—" : formatPrice(row.lastPrice, row.priceUnit)}</strong></div>
               <div><span>Source</span><strong>{sourceLabel(row.source)}</strong></div>
               <div><span>Exchange</span><strong>{row.exchange}</strong></div>
-              <div><span>Feed quality</span><strong>{row.quality}</strong></div>
+              <div><span>Volume</span><strong>{formatNumber(row.volume)}</strong></div>
             </div>
           ) : <EmptyState title="Waiting for instrument data" detail="The market watch endpoint returned no instruments." />}
-          <button className="text-button" onClick={() => onNavigate("Market Watch")}>Open Market Watch →</button>
+          <div className="button-row">
+            <button className="text-button" onClick={() => onNavigate("Market Watch")}>Open Market Watch →</button>
+            <button className="text-button" onClick={() => onNavigate("Order Book")}>Inspect depth →</button>
+            {mode === "v1" && row && <button className="text-button" aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)}>{showHistory ? "Hide history" : "Show price history"}</button>}
+          </div>
         </section>
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">SYSTEM</div><h2>Service status</h2></div><StatusDot state={health?.state ?? "UNKNOWN"} /></div>
@@ -443,16 +452,17 @@ const Overview = memo(function Overview({
           <button className="text-button" onClick={() => onNavigate("System Monitor")}>Inspect system →</button>
         </section>
       </div>
+      {showHistory && mode === "v1" && row && <ChartPanel instrumentId={row.instrumentId} mode={mode} />}
       <div className="metric-grid">
-        <Metric label="Best bid" value={book?.bestBid === null || book?.bestBid === undefined ? "—" : formatPrice(book.bestBid, book.priceUnit)} tone="positive" detail="Internal simulated book" />
-        <Metric label="Best ask" value={book?.bestAsk === null || book?.bestAsk === undefined ? "—" : formatPrice(book.bestAsk, book.priceUnit)} tone="negative" detail="Internal simulated book" />
-        <Metric label="Spread" value={book?.spread === null || book?.spread === undefined ? "—" : formatPrice(book.spread, book.priceUnit)} detail="No implicit currency conversion" />
+        <Metric label="Best bid" value={book?.bestBid === null || book?.bestBid === undefined ? "—" : formatPrice(book.bestBid, book.priceUnit)} tone="positive" detail={quoteOrigin} />
+        <Metric label="Best ask" value={book?.bestAsk === null || book?.bestAsk === undefined ? "—" : formatPrice(book.bestAsk, book.priceUnit)} tone="negative" detail={quoteOrigin} />
+        <Metric label="Spread" value={book?.spread === null || book?.spread === undefined ? "—" : formatPrice(book.spread, book.priceUnit)} detail={book?.priceUnit === "TICKS" ? "Price ticks" : "Quoted price difference"} />
         <Metric label="Recent executions" value={formatNumber(trades.length)} detail="Bounded recent history" />
       </div>
       <section className="panel">
         <div className="section-heading">
           <div><div className="eyebrow">RECENT PAPER EXECUTIONS</div><h2>Time and sales</h2></div>
-          <button className="text-button" onClick={() => onNavigate("Paper Trading")}>Paper trading →</button>
+          <button className="text-button" onClick={() => onNavigate("Executions")}>All executions →</button>
         </div>
         <TradeTable trades={recentTrades} unit={book?.priceUnit ?? "TICKS"} />
       </section>
@@ -467,6 +477,8 @@ const Overview = memo(function Overview({
             <div><span>Equity</span><strong>{formatMoney(portfolio?.equityMicro)}</strong></div>
             <div><span>Account</span><strong>{portfolio?.accountId ?? "Unavailable"}</strong></div>
           </div>
+          {strategies.length > 0 && <ul className="strategy-summary">{strategies.slice(0, 4).map(strategy =>
+            <li key={strategy.id}><span>{strategy.name}</span><strong>{strategy.state}</strong></li>)}</ul>}
           <div className="button-row">
             <button className="text-button" onClick={() => onNavigate("Portfolio & Risk")}>Portfolio &amp; Risk →</button>
             <button className="text-button" onClick={() => onNavigate("Strategy Lab")}>Strategies{strategies.length ? " (" + strategies.length + ")" : ""} →</button>

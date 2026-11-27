@@ -415,6 +415,9 @@ td small { font-size: 10px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 .fact-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid var(--line-soft); padding-block: 6px; }
+.strategy-summary { list-style: none; padding: 0; }
+.strategy-summary li { display: flex; justify-content: space-between; gap: 12px; padding-block: 6px; border-bottom: 1px solid var(--line-soft); }
+.chart-panel + .metric-grid { margin-top: var(--layout-gap); }
 .overview-detail { margin-top: var(--layout-gap); }
 .quote-hero { padding: clamp(18px, 3vw, 36px); background: var(--panel-raised); }
 .quote-hero h2 { font-size: 24px; }

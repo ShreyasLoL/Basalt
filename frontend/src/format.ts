@@ -18,3 +18,7 @@ export function formatPrice(value: number | null, unit: PriceUnit): string {
   if (value === null) return "—";
   return unit === "MICRO_INR" ? formatMoney(value) : formatNumber(value) + " ticks";
 }
+
+export function formatEventTime(nanoseconds: number | null): string {
+  return formatNumber(nanoseconds === null ? null : Math.floor(nanoseconds / 1_000_000));
+}
