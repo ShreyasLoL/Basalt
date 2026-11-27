@@ -91,6 +91,19 @@ describe("BASALT workstation", () => {
     expect(screen.getByRole("option", { name: "FOK" })).toBeDisabled();
   });
 
+  it("filters executions without losing the underlying fills", async () => {
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL) => String(url).includes("/api/state")
+      ? jsonResponse({ ...legacyFixture, trades: [{ trade_id: 13, price: 9990, quantity: 2,
+        buy_order_id: 7, sell_order_id: 8, aggressor_side: "BUY" }] }) : jsonResponse({}, 404));
+    render(<App />);
+    await screen.findByText("BASALT-SIM");
+    fireEvent.click(screen.getByRole("button", { name: "Executions" }));
+    fireEvent.change(screen.getByLabelText("Aggressor"), { target: { value: "SELL" } });
+    expect(screen.getByText("No matching executions")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all sides" }));
+    expect(screen.getByText("#13")).toBeInTheDocument();
+  });
+
   it("compares bid and ask quantities on a common depth scale", async () => {
     render(<App />);
     await screen.findByText("BASALT-SIM");

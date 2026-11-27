@@ -635,7 +635,7 @@ const InstrumentWorkstation = memo(function InstrumentWorkstation({
   const book = useWorkstation((state) => state.book);
   const mode = useWorkstation((state) => state.mode);
   const trades = useWorkstation((state) => state.trades);
-  const recentTrades = useMemo(() => [...trades].sort((a, b) => b.tradeId - a.tradeId).slice(0, 20), [trades]);
+  const recentTrades = useMemo(() => trades.filter(trade => trade.instrumentId === selectedInstrumentId).sort((a, b) => b.tradeId - a.tradeId).slice(0, 20), [trades, selectedInstrumentId]);
 
   return (
     <>
@@ -771,6 +771,24 @@ const PaperTrading = memo(function PaperTrading({
   );
 });
 
+function ExecutionHistory({ trades, unit }: { trades: TradeRecord[]; unit: PriceUnit }) {
+  const [side, setSide] = useState("ALL");
+  const filtered = useMemo(() => trades
+    .filter(trade => side === "ALL" || trade.aggressorSide === side)
+    .sort((a, b) => b.tradeId - a.tradeId), [trades, side]);
+  return <>
+    <div className="blotter-toolbar">
+      <label>Aggressor <select value={side} onChange={event => setSide(event.target.value)}>
+        <option value="ALL">All sides</option><option value="BUY">Buy</option><option value="SELL">Sell</option>
+      </select></label>
+      <span>{formatNumber(filtered.length)} of {formatNumber(trades.length)} fills</span>
+    </div>
+    {trades.length > 0 && !filtered.length ? <EmptyState title="No matching executions" detail="There are no recorded fills for this side."
+      action={<button className="text-button" onClick={() => setSide("ALL")}>Show all sides</button>} />
+      : <TradeTable trades={filtered} unit={unit} />}
+  </>;
+}
+
 function TradingRecords({ workspace, onMessage }: {
   workspace: "Orders" | "Executions" | "Charts";
   onMessage: (message: string, error?: boolean) => void;
@@ -783,7 +801,7 @@ function TradingRecords({ workspace, onMessage }: {
     <PageHeader title={workspace} subtitle={selectedId ?? "Select an instrument in Market Watch."} />
     {workspace === "Charts" ? <ChartPanel instrumentId={selectedId} mode={mode} /> : <section className="panel">
       <div className="section-heading"><h2>{workspace === "Orders" ? "Working orders" : "Paper fills"}</h2></div>
-      {workspace === "Executions" ? <TradeTable trades={trades} unit={book?.priceUnit ?? "TICKS"} />
+      {workspace === "Executions" ? <ExecutionHistory trades={trades.filter(trade => trade.instrumentId === selectedId)} unit={book?.priceUnit ?? "TICKS"} />
         : book ? <ActiveOrders orders={book.restingOrders} mode={mode} unit={book.priceUnit} onMessage={onMessage} />
         : <EmptyState title="Awaiting order snapshot" detail="Working orders appear when the book is available." />}
     </section>}
