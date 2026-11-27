@@ -46,6 +46,7 @@ describe("WebSocket v1 stream client", () => {
     expect(JSON.parse(first.sent[0])).toMatchObject({ type: "subscribe", last_event_seq: 42 });
     first.message({ schema_version: 1, type: "quote", event_seq: 43, instrument_id: 1, payload: { last_price_micro: 100 } });
     first.message({ schema_version: 1, type: "quote", event_seq: 44, instrument_id: 1, payload: { last_price_micro: 101 } });
+    first.message({ schema_version: 1, type: "quote", event_seq: 43, instrument_id: 1, payload: { last_price_micro: 100 } });
     first.message({ schema_version: 1, type: "execution", event_seq: 45, instrument_id: 1, payload: { quantity: 2 } });
     await vi.advanceTimersByTimeAsync(50);
 
@@ -64,7 +65,13 @@ describe("WebSocket v1 stream client", () => {
     second.open();
     expect(JSON.parse(second.sent[0])).toMatchObject({ type: "subscribe", last_event_seq: 46 });
     expect(onStatus).toHaveBeenCalledWith(true);
+    expect(onGap).toHaveBeenCalledTimes(2);
     dispose();
+    onFrames.mockClear();
+    second.message({ schema_version: 1, type: "quote", event_seq: 47, instrument_id: 1 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onFrames).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(2);
   });
 });
 

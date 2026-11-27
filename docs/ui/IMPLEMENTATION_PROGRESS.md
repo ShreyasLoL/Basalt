@@ -13,4 +13,9 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | G | Implement measured benchmark workflow | Implemented | b04692b | TypeScript, production build, Vitest | Browser pass tracked in J |
 | H | Distinguish flat portfolio, missing risk and provider loading states | Implemented | 98b07ee | TypeScript, production build, Vitest | Browser pass tracked in J |
 | I | Scope replay feedback and distinguish REST-only monitoring | Implemented | 9269382 | TypeScript, production build, Vitest | Browser pass tracked in J |
-| J | Run browser, responsive, keyboard and integration checks and record findings | Not started | — | — | Production build and all destinations |
+| J | Run browser, responsive, keyboard and integration checks and record findings | Implemented | 1a37854 | TypeScript, production build, Vitest | Browser pass tracked in J |
+| K | Ignore callbacks from retired sockets and reconcile reconnects | In progress | — | — | Check disposal and out-of-order quotes |
+| L | Identify every v1 mutation and bind paper orders to the selected instrument | Not started | — | — | Check request headers and reset confirmation |
+| M | Complete quote provenance, chart and depth navigation, instrument freshness and execution timestamps | Not started | — | — | Verify synthetic and legacy units |
+| N | Consolidate loading and recovery states for optional research data | Not started | — | — | Exercise initial requests and retry |
+| O | Refine table access and keyboard focus on workspace changes | Not started | — | — | Repeat browser checks |

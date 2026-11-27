@@ -367,6 +367,7 @@ export function connectWebSocket(
   let flushTimer: number | null = null;
   let retryCount = 0;
   let overflowed = false;
+  let previouslyConnected = false;
   const pendingDurable: Record<string, unknown>[] = [];
   const pendingQuotes = new Map<string, Record<string, unknown>>();
 
@@ -410,6 +411,8 @@ export function connectWebSocket(
     socket.addEventListener("open", () => {
       if (closedByClient || activeSocket !== socket) return;
       onStatus(true);
+      if (previouslyConnected) onGap();
+      previouslyConnected = true;
       const sequence = lastEventSequence();
       socket.send(JSON.stringify({
         schema_version: 1,
@@ -421,6 +424,7 @@ export function connectWebSocket(
       }));
     });
     socket.addEventListener("message", (event: MessageEvent<string>) => {
+      if (closedByClient || activeSocket !== socket) return;
       let frame: Record<string, unknown> | null = null;
       try {
         frame = validateStreamFrame(JSON.parse(event.data) as unknown);
@@ -440,7 +444,10 @@ export function connectWebSocket(
         if (!pendingQuotes.has(key) && pendingQuotes.size >= QUOTE_BUFFER_LIMIT) {
           overflowed = true;
         } else {
-          pendingQuotes.set(key, frame);
+          const previous = pendingQuotes.get(key);
+          if (!previous || Number(frame.event_seq ?? 0) >= Number(previous.event_seq ?? 0)) {
+            pendingQuotes.set(key, frame);
+          }
         }
       } else {
         if (pendingDurable.length >= DURABLE_BUFFER_LIMIT) {
@@ -457,7 +464,9 @@ export function connectWebSocket(
       onStatus(false);
       scheduleReconnect();
     });
-    socket.addEventListener("error", () => onStatus(false));
+    socket.addEventListener("error", () => {
+      if (activeSocket === socket) onStatus(false);
+    });
   }
 
   openSocket();
