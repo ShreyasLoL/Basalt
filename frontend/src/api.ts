@@ -21,9 +21,16 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+  if (path.startsWith("/api/v1/") && init.method && !["GET", "HEAD"].includes(init.method.toUpperCase())) {
+    const requestId = headers.get("X-Request-ID") ?? crypto.randomUUID();
+    headers.set("X-Request-ID", requestId);
+    headers.set("Idempotency-Key", requestId);
+  }
   const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
+    headers,
   });
   const body = (await response.json().catch(() => ({}))) as {
     message?: string;
@@ -285,23 +292,27 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
 
 export async function submitOrder(command: OrderCommand, mode: ApiMode): Promise<{ message: string }> {
   if (mode === "v1") {
+    if (!command.instrumentId) throw new Error("Select an instrument before submitting a paper order.");
+    const requestId = crypto.randomUUID();
     const result = await request<{ order_id: number; status: string; message?: string }>("/api/v1/orders", {
       method: "POST",
+      headers: { "X-Request-ID": requestId },
       body: JSON.stringify({
-        request_id: crypto.randomUUID(),
+        request_id: requestId,
         side: command.side,
         type: command.type,
         limit_price_micro: command.price,
         stop_price_micro: command.stopPrice,
         quantity: command.quantity,
         account_id: command.accountId ?? "1",
-        instrument_id: command.instrumentId ?? "1",
+        instrument_id: command.instrumentId,
         time_in_force: command.timeInForce ?? "GTC",
         execution_model: command.executionModel ?? "INTERNAL_CLOB_MODEL",
       }),
     });
     return { message: result.message ?? ("Order " + result.order_id + ": " + result.status) };
   }
+  if (mode !== "legacy") throw new Error("Connect to the paper gateway before submitting an order.");
   if (command.type !== "LIMIT" && command.type !== "MARKET") {
     throw new Error("Advanced order types require the BASALT REST v1 gateway.");
   }
@@ -322,6 +333,7 @@ export async function submitOrder(command: OrderCommand, mode: ApiMode): Promise
 }
 
 export async function cancelOrder(orderId: number, mode: ApiMode): Promise<void> {
+  if (mode !== "legacy" && mode !== "v1") throw new Error("Connect to the paper gateway before cancelling an order.");
   const path = mode === "v1" ? "/api/v1/orders/" + orderId : "/api/orders/" + orderId;
   await request(path, { method: "DELETE" });
 }

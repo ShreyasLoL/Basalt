@@ -294,8 +294,8 @@ const OrderTicket = memo(function OrderTicket({
     let priceValue: number | undefined;
     if (type !== "MARKET" && type !== "STOP_MARKET") {
       if (legacy) {
-        if (!/^\d{1,12}$/.test(price)) {
-          onMessage("Enter an integer price in ticks for the legacy CLOB.", true);
+        if (!/^\d{1,13}$/.test(price) || Number(price) < 1 || Number(price) > 1_000_000_000_000) {
+          onMessage("Enter a limit price from 1 to 1,000,000,000,000 ticks.", true);
           return;
         }
         priceValue = Number(price);
@@ -347,6 +347,7 @@ const OrderTicket = memo(function OrderTicket({
         <span className="sim-tag">SIMULATION ONLY</span>
       </div>
       {mode === "legacy" && <div className="inline-notice">Legacy gateway active · LIMIT and MARKET only · price entered in integer ticks</div>}
+      {mode === "v1" && <p className="body-copy">{instrumentId ? "Instrument " + instrumentId : "Select an instrument in Market Watch to place a paper order."}</p>}
       <form className="ticket-form" onSubmit={(event) => void handleSubmit(event)}>
         <div className="segmented" role="group" aria-label="Order side">
           <button type="button" className={side === "BUY" ? "active-buy" : ""} aria-pressed={side === "BUY"} onClick={() => setSide("BUY")}>BUY</button>
@@ -389,7 +390,7 @@ const OrderTicket = memo(function OrderTicket({
             <option value="DEPTH_REPLAY_MODEL" disabled={legacy}>Depth replay</option>
           </select>
         </label>
-        <button className="primary-button" type="submit" disabled={busy || (mode !== "v1" && mode !== "legacy")}>
+        <button className="primary-button" type="submit" disabled={busy || (mode === "v1" ? !instrumentId : mode !== "legacy")}>
           {busy ? "Submitting…" : "Submit paper order"}
         </button>
       </form>
@@ -682,9 +683,9 @@ const PaperTrading = memo(function PaperTrading({
   const trades = useWorkstation((state) => state.trades);
   const [busy, setBusy] = useState(false);
   async function reset(seed: boolean) {
+    if (mode !== "legacy" || !window.confirm(seed ? "Replace the current simulation book with demo orders?" : "Clear the current simulation book and execution history?")) return;
     setBusy(true);
     try {
-      if (mode !== "legacy") throw new Error("Paper account controls require the REST v1 gateway.");
       await resetSimulation(seed);
       await useWorkstation.getState().refresh();
       onMessage(seed ? "Seeded the synthetic demo book." : "Cleared the legacy simulation book.");

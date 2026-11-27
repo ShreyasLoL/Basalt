@@ -182,6 +182,9 @@ describe("BASALT workstation", () => {
     const commands = fetchSpy.mock.calls
       .filter(([url, init]) => String(url).startsWith("/api/v1/replay/") && init?.method === "POST")
       .map(([url, init]) => ({ url: String(url), body: JSON.parse(String(init?.body)) }));
+    const replayHeaders = new Headers(fetchSpy.mock.calls.find(([url]) => String(url).includes("/replay/"))?.[1]?.headers);
+    expect(replayHeaders.get("X-Request-ID")).toBeTruthy();
+    expect(replayHeaders.get("Idempotency-Key")).toBe(replayHeaders.get("X-Request-ID"));
     expect(commands[0]).toMatchObject({ url: "/api/v1/replay/session%2Fa/commands", body: { action: "play" } });
     expect(commands[1]).toMatchObject({ body: { action: "speed", speed: "5x" } });
     expect(commands[2]).toMatchObject({ body: { action: "seek", position: 42 } });
