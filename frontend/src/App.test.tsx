@@ -200,6 +200,7 @@ describe("BASALT workstation", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Portfolio & Risk" }));
     expect(await screen.findByText("KILL SWITCH OFF")).toBeInTheDocument();
+    expect(screen.getByText("No open positions")).toBeInTheDocument();
   });
 
   it("keeps analytics empty until a completed run exists", () => {

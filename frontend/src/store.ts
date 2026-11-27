@@ -163,6 +163,7 @@ interface WorkstationStore extends DashboardState {
   setSelectedInstrument: (instrumentId: string) => void;
 }
 
+const emptyOptional = { strategies: [], datasets: [], portfolio: null, risk: null, systemMetrics: null };
 let refreshing = false;
 
 export const useWorkstation = create<WorkstationStore>((set, get) => ({
@@ -212,6 +213,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
           ? mergeActivityBySequence(current.activity, snapshot.data.activity)
           : snapshot.data.activity,
         lastEventSeq: snapshot.mode === "v1" ? nextLastEventSeq : current.lastEventSeq,
+        ...(snapshot.mode === "legacy" ? { ...emptyOptional, optionalStatus: {} } : {}),
         mode: snapshot.mode,
         connected: true,
         streamConnected: snapshot.mode === "v1" ? current.streamConnected : false,
@@ -224,6 +226,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       if (snapshot.mode === "v1") await get().refreshOptional();
     } catch (error) {
       set({
+        ...emptyOptional, optionalStatus: {},
         mode: "disconnected",
         connected: false,
         streamConnected: false,
@@ -260,6 +263,7 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
           set({ systemMetrics: value as WorkstationStore["systemMetrics"] });
         }
       } catch {
+        set({ [key]: emptyOptional[key] });
         statuses[key] = "unavailable";
       }
     }

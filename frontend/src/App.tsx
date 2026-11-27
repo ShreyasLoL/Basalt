@@ -740,8 +740,13 @@ function TradingRecords({ workspace, onMessage }: {
   </>;
 }
 
+function pnlTone(value?: number | null) {
+  if (!value) return "neutral";
+  return value < 0 ? "negative" : "positive";
+}
+
 function EndpointNotice({ endpoint }: { endpoint: string }) {
-  return <div className="inline-notice">This server build does not provide {endpoint}; BASALT will show an empty state until the corresponding phase is available.</div>;
+  return <div className="inline-notice">Data unavailable from <code>{endpoint}</code>.</div>;
 }
 
 const PortfolioRisk = memo(function PortfolioRisk({
@@ -779,8 +784,8 @@ const PortfolioRisk = memo(function PortfolioRisk({
       <div className="metric-grid">
         <Metric label="Cash balance" value={portfolio ? formatMoney(portfolio.cashMicro) : "—"} detail={portfolio?.accountId ?? "No account data"} />
         <Metric label="Equity" value={portfolio ? formatMoney(portfolio.equityMicro) : "—"} detail="Mark source is reported by the API" />
-        <Metric label="Realized P&L" value={portfolio ? formatMoney(portfolio.realizedPnlMicro) : "—"} tone={portfolio?.realizedPnlMicro && portfolio.realizedPnlMicro < 0 ? "negative" : "positive"} />
-        <Metric label="Unrealized P&L" value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Conservative quote marks" : "No ledger snapshot"} />
+        <Metric label="Realized P&L" value={portfolio ? formatMoney(portfolio.realizedPnlMicro) : "—"} tone={pnlTone(portfolio?.realizedPnlMicro)} />
+        <Metric label="Unrealized P&L" tone={pnlTone(portfolio?.unrealizedPnlMicro)} value={portfolio ? formatMoney(portfolio.unrealizedPnlMicro) : "—"} detail={portfolio ? "Conservative quote marks" : "No ledger snapshot"} />
       </div>
       <div className="bento">
         <section className="panel">
@@ -789,11 +794,11 @@ const PortfolioRisk = memo(function PortfolioRisk({
             <div className="table-scroll"><table><thead><tr><th>Instrument</th><th>Qty</th><th>Average cost</th><th>Mark</th></tr></thead><tbody>
               {portfolio.positions.map((position) => <tr key={position.instrumentId}><td>{position.instrumentId}</td><td className="mono">{formatNumber(position.quantity)}</td><td>{formatMoney(position.averageCostMicro)}</td><td>{formatMoney(position.markMicro)}</td></tr>)}
             </tbody></table></div>
-          ) : <EmptyState title="No position snapshot" detail="Positions will appear after the portfolio ledger endpoint is available." />}
+          ) : <EmptyState title={portfolio ? "No open positions" : "No position snapshot"} detail={portfolio ? "The account ledger reports no open exposure." : "Positions appear when the ledger is available."} />}
         </section>
         <section className="panel">
-          <div className="section-heading"><div><div className="eyebrow">RISK GATES</div><h2>Limit utilization</h2></div><span className={risk?.killSwitch ? "quality-badge stale" : risk ? "quality-badge ok" : "quality-badge"}>{risk?.killSwitch ? "KILL SWITCH ON" : risk ? "KILL SWITCH OFF" : "STATUS UNKNOWN"}</span></div>
-          {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{formatNumber(limit.used)} / {formatNumber(limit.limit)} {limit.unit}</span></div><div className="limit-track"><span style={{ width: limit.used !== null && limit.limit ? Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" : "0%" }} /></div></div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
+          <div className="section-heading"><div><div className="eyebrow">RISK GATES</div><h2>Limit utilization</h2></div><span className={risk?.killSwitch ? "quality-badge stale" : risk?.killSwitch === false ? "quality-badge ok" : "quality-badge"}>{risk?.killSwitch ? "KILL SWITCH ON" : risk?.killSwitch === false ? "KILL SWITCH OFF" : "STATUS UNKNOWN"}</span></div>
+          {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{formatNumber(limit.used)} / {formatNumber(limit.limit)} {limit.unit}</span></div>{limit.used !== null && limit.limit !== null && limit.limit > 0 && <div className="limit-track"><span style={{ width: Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" }} /></div>}</div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
         </section>
       </div>
       {risk?.rejections.length ? <section className="panel"><div className="section-heading"><div><div className="eyebrow">RISK EVENTS</div><h2>Recent rejections</h2></div></div><div className="event-list">{risk.rejections.map((entry, index) => <div className="event-row" key={entry.eventSeq + ":" + index}><span className="mono quiet">#{entry.eventSeq}</span><span className="event-type reject">{entry.code}</span><div className="event-copy"><span>{entry.message}</span></div></div>)}</div></section> : null}
@@ -956,29 +961,33 @@ const Analytics = memo(function Analytics() {
 const DataSources = memo(function DataSources() {
   const mode = useWorkstation((state) => state.mode);
   const [sources, setSources] = useState<Array<{ id: string; name: string; state: string; source: string; quality: string; subscriptions?: number }>>([]);
-  const [available, setAvailable] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (mode !== "v1") {
       setSources([]);
-      setAvailable(false);
+      setStatus("unavailable");
       return;
     }
+    setStatus("loading");
     let active = true;
     void fetchOptional<{ providers: typeof sources }>("/api/v1/data-sources").then((response) => {
       if (active) {
         setSources(response.providers ?? []);
-        setAvailable(true);
+        setStatus("ready");
       }
     }).catch(() => {
-      if (active) setAvailable(false);
+      if (active) setStatus("unavailable");
     });
     return () => { active = false; };
-  }, [mode]);
+  }, [mode, attempt]);
   return (
     <>
       <PageHeader title="Data Sources" subtitle="Provider connectivity is separate from internal simulated liquidity." />
-      {!available && <EndpointNotice endpoint="/api/v1/data-sources" />}
-      {sources.length === 0 ? <EmptyState title="No provider adapters connected" detail="Synthetic and recorded data remain available offline; provider credentials are never displayed." /> : (
+      {mode === "connecting" || (mode === "v1" && status === "loading") ? <p className="panel" role="status">Loading provider inventory…</p>
+        : status === "unavailable" ? <section className="panel"><EndpointNotice endpoint="/api/v1/data-sources" />
+          {mode === "v1" && <button className="subtle-button" onClick={() => setAttempt(value => value + 1)}>Retry providers</button>}</section>
+        : sources.length === 0 ? <EmptyState title="No provider adapters connected" detail="Synthetic and recorded data remain available offline; provider credentials are never displayed." /> : (
         <section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Provider</th><th>State</th><th>Source type</th><th>Quality</th><th>Subscriptions</th></tr></thead><tbody>{sources.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.state}</td><td>{source.source}</td><td><QualityBadge quality={source.quality as FeedQualityState} /></td><td>{formatNumber(source.subscriptions)}</td></tr>)}</tbody></table></div></section>
       )}
       <section className="panel info-panel"><div className="eyebrow">PROVENANCE</div><p>Every canonical event records its source, quality, event time, receive time, and instrument mapping.</p></section>

@@ -10,7 +10,7 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | D | Label book columns, distinguish missing depth, identify executions and improve ticket gating | Implemented | 1a2f460 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | E | Handle chart loading, renderer failure and retry | Implemented | c456ef4 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | F | Improve strategy lifecycle, dataset selection and analytics grouping | Implemented | 4b64cb7 | TypeScript, production build, Vitest | Browser pass tracked in J |
-| G | Implement measured benchmark workflow | Not started | — | — | Verify gateway request and result |
+| G | Implement measured benchmark workflow | Implemented | b04692b | TypeScript, production build, Vitest | Browser pass tracked in J |
 | H | Distinguish flat portfolio, missing risk and provider loading states | Not started | — | — | Verify partial responses |
 | I | Scope replay feedback and distinguish REST-only monitoring | Not started | — | — | Exercise commands and stream cleanup |
 | J | Run browser, responsive, keyboard and integration checks and record findings | Not started | — | — | Production build and all destinations |
