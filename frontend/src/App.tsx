@@ -57,7 +57,7 @@ function PageHeader({
   return (
     <div className="page-header">
       <div>
-        <div className="eyebrow">BASALT / LOCAL RESEARCH</div>
+
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
@@ -1078,6 +1078,13 @@ export default function App() {
           <div className="status-line"><StatusDot state={sidebarStatusDot} /><span>{sidebarStatusText}</span></div>
           <div className="status-meta">PAPER TRADING · NO LIVE ORDERS</div>
         </div>
+        <label className="workspace-picker">Workspace
+          <select value={workspace} onChange={event => setWorkspace(event.target.value as WorkspaceName)}>
+            {NAV.map(group => <optgroup label={group.group} key={group.group}>
+              {group.items.map(item => <option key={item}>{item}</option>)}
+            </optgroup>)}
+          </select>
+        </label>
         <nav aria-label="Workspaces">
           {NAV.map((group) => (
             <div className="nav-group" key={group.group}>

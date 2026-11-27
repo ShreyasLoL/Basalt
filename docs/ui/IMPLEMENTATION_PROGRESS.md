@@ -4,7 +4,7 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 
 | ID | Implementation task | Status | Commit | Checks | Outstanding |
 | --- | --- | --- | --- | --- | --- |
-| A | Share responsive grid, surface and control tokens | In progress | — | — | Consolidate competing grid rules |
+| A | Share responsive grid, surface and control tokens | Implemented | e11687c | TypeScript, production build, Vitest | Browser pass tracked in J |
 | B | Make all workspace destinations accessible on small screens | Not started | — | — | Replace horizontal mobile navigation |
 | C | Tie Overview to instrument selection and expose account and activity context | Not started | — | — | First quote currently wins |
 | D | Label book columns, distinguish missing depth, identify executions and improve ticket gating | Not started | — | — | Check legacy and v1 |
