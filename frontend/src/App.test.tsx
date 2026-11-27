@@ -118,6 +118,8 @@ describe("BASALT workstation", () => {
     await waitFor(() => expect(screen.getByText("BASALT-SIM")).toBeInTheDocument());
     expect(screen.getByRole("link", { name: "Skip to workspace content" })).toHaveAttribute("href", "#main-content");
     fireEvent.click(screen.getByRole("button", { name: "Market Watch" }));
+    expect(screen.getByRole("region", { name: "Market Watch" })).toHaveFocus();
+    expect(screen.getByRole("region", { name: "Instrument quotes" })).toHaveAttribute("tabindex", "0");
     const instrument = screen.getByRole("button", { name: /BASALT-SIM/ });
     expect(instrument).toHaveAttribute("aria-pressed");
     fireEvent.click(instrument);

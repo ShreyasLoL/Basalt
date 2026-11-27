@@ -36,8 +36,8 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas); }
 button, input, select { font: inherit; }
 button { color: inherit; }
-button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
-  outline: 2px solid var(--accent);
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, .table-scroll:focus-visible, .workspace-content:focus-visible {
+  outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
 
@@ -111,7 +111,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .text-button:hover { color: #bfdbfe; }
 
 .table-panel { padding-bottom: 8px; }
-.table-scroll { width: 100%; overflow-x: auto; }
+.table-scroll { overscroll-behavior-inline: contain; width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: 10px; }
 thead { color: var(--quiet); font-size: 9px; text-transform: uppercase; letter-spacing: .055em; }
 th { padding: 9px 10px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); font-weight: 600; white-space: nowrap; }

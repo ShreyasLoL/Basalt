@@ -56,7 +56,7 @@ export function Benchmarks({ connected }: { connected: boolean }) {
     </section>
     <section className="panel" aria-busy={busy}>
       <div className="section-heading"><h2>Measured results</h2></div>
-      {error ? <p role="alert">{error}</p> : results?.length ? <div className="table-scroll">
+      {error ? <p role="alert">{error}</p> : results?.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Benchmark measurements">
         <table><thead><tr><th>Workload</th><th>Implementation</th><th>Orders</th><th>Ops/s</th><th>p95 ns</th><th>p99 ns</th></tr></thead>
           <tbody>{results.map(row => <tr key={row.profile_name + row.implementation}>
             <td>{row.profile_name}</td><td>{row.implementation}</td><td>{formatNumber(row.orders_processed)}</td>

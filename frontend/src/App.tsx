@@ -1,5 +1,5 @@
 import { formatEventTime, formatNumber, formatPrice, formatMoney } from "./format";
-import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Benchmarks } from "./Benchmarks";
 import { ChartPanel } from "./ChartPanel";
 import {
@@ -154,7 +154,7 @@ const BookPane = memo(function BookPane({
         </div>
         <span className="quiet-label">{book?.instrumentId}</span>
       </div>
-      {book ? <div className="table-scroll"><BookLadder levels={levels} unit={book.priceUnit} best={best} /></div> : <p className="table-empty">Awaiting a book snapshot.</p>}
+      {book ? <div className="table-scroll" role="region" aria-label={side === "BUY" ? "Bid depth" : "Ask depth"} tabIndex={0}><BookLadder levels={levels} unit={book.priceUnit} best={best} /></div> : <p className="table-empty">Awaiting a book snapshot.</p>}
     </section>
   );
 });
@@ -170,7 +170,7 @@ const TradeTable = memo(function TradeTable({
     return <EmptyState title="No executions recorded" detail="Paper fills will appear here with their execution model and source." />;
   }
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Execution history" tabIndex={0}>
       <table>
         <thead><tr><th>Trade</th><th>Instrument</th><th>Price</th><th>Qty</th><th>Buy ID</th><th>Sell ID</th><th>Aggressor</th><th>Model</th><th>Event time (ms)</th></tr></thead>
         <tbody>
@@ -230,7 +230,7 @@ const MarketWatch = memo(function MarketWatch({
       {rows.length === 0 ? (
         emptyState ?? <EmptyState title="No instruments available" detail="The instrument catalog or market watch endpoint has not returned data." />
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll" role="region" aria-label="Instrument quotes" tabIndex={0}>
           <table>
             <thead><tr><th>Instrument</th><th>Exchange</th><th>LTP</th><th>Bid</th><th>Ask</th><th>Spread</th><th>Volume</th><th>Source</th><th>Feed</th><th>Event time (ms)</th></tr></thead>
             <tbody>
@@ -504,7 +504,7 @@ const ActiveOrders = memo(function ActiveOrders({
     return <EmptyState title="No open paper orders" detail="Working internal CLOB orders appear with their FIFO sequence and cancel control." />;
   }
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Working orders" tabIndex={0}>
       <table>
         <thead><tr><th>Order ID</th><th>Side</th><th>Type</th><th>Price</th><th>Remaining</th><th>FIFO seq</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
@@ -547,7 +547,7 @@ function CancelOrderButton({
       setBusy(false);
     }
   }
-  return <button className="subtle-button danger-button" type="button" onClick={() => void cancel()} disabled={busy || (mode !== "v1" && mode !== "legacy")} aria-busy={busy}>{busy ? "Cancelling…" : "Cancel"}</button>;
+  return <button className="subtle-button danger-button" type="button" aria-label={"Cancel order " + orderId} onClick={() => void cancel()} disabled={busy || (mode !== "v1" && mode !== "legacy")} aria-busy={busy}>{busy ? "Cancelling…" : "Cancel"}</button>;
 }
 
 const MarketWatchWorkspace = memo(function MarketWatchWorkspace({
@@ -652,7 +652,7 @@ const StrategyLab = memo(function StrategyLab() {
       {mode === "connecting" || (mode === "v1" && !status && !strategies.length) ? <LoadingState label="Loading strategies…" /> : status === "unavailable" ? null : strategies.length === 0 ? (
         <EmptyState title="No strategies reported" detail="Strategy controls appear when the server reports a strategy definition." />
       ) : (
-        <div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Strategy</th><th>Version</th><th>Lifecycle</th><th>Last signal</th><th>Last error</th><th>Controls</th></tr></thead><tbody>
+        <div className="panel table-panel"><div className="table-scroll" role="region" aria-label="Strategy lifecycle" tabIndex={0}><table><thead><tr><th>Strategy</th><th>Version</th><th>Lifecycle</th><th>Last signal</th><th>Last error</th><th>Controls</th></tr></thead><tbody>
           {strategies.map((strategy) => <tr key={strategy.id}><td>{strategy.name}</td><td>{strategy.version}</td><td>{strategy.state}</td><td>{strategy.lastSignal ?? "—"}</td><td>{strategy.error ?? "—"}</td><td><StrategyControls id={strategy.id} /></td></tr>)}
         </tbody></table></div></div>
       )}
@@ -811,7 +811,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">POSITIONS</div><h2>Open exposure</h2></div></div>
           {portfolio?.positions.length ? (
-            <div className="table-scroll"><table><thead><tr><th>Instrument</th><th>Qty</th><th>Average cost</th><th>Mark</th></tr></thead><tbody>
+            <div className="table-scroll" role="region" aria-label="Positions" tabIndex={0}><table><thead><tr><th>Instrument</th><th>Qty</th><th>Average cost</th><th>Mark</th></tr></thead><tbody>
               {portfolio.positions.map((position) => <tr key={position.instrumentId}><td>{position.instrumentId}</td><td className="mono">{formatNumber(position.quantity)}</td><td>{formatMoney(position.averageCostMicro)}</td><td>{formatMoney(position.markMicro)}</td></tr>)}
             </tbody></table></div>
           ) : <EmptyState title={portfolio ? "No open positions" : "No position snapshot"} detail={portfolio ? "The account ledger reports no open exposure." : "Positions appear when the ledger is available."} />}
@@ -1009,7 +1009,7 @@ const DataSources = memo(function DataSources() {
         : status === "unavailable" ? <section className="panel"><EndpointNotice endpoint="/api/v1/data-sources" />
           {mode === "v1" && <button className="subtle-button" onClick={() => setAttempt(value => value + 1)}>Retry providers</button>}</section>
         : sources.length === 0 ? <EmptyState title="No provider adapters connected" detail="Synthetic and recorded data remain available offline; provider credentials are never displayed." /> : (
-        <section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Provider</th><th>State</th><th>Source type</th><th>Quality</th><th>Subscriptions</th></tr></thead><tbody>{sources.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.state}</td><td>{source.source}</td><td><QualityBadge quality={source.quality as FeedQualityState} /></td><td>{formatNumber(source.subscriptions)}</td></tr>)}</tbody></table></div></section>
+        <section className="panel table-panel"><div className="table-scroll" role="region" aria-label="Provider inventory" tabIndex={0}><table><thead><tr><th>Provider</th><th>State</th><th>Source type</th><th>Quality</th><th>Subscriptions</th></tr></thead><tbody>{sources.map((source) => <tr key={source.id}><td>{source.name}</td><td>{source.state}</td><td>{source.source}</td><td><QualityBadge quality={source.quality as FeedQualityState} /></td><td>{formatNumber(source.subscriptions)}</td></tr>)}</tbody></table></div></section>
       )}
       <section className="panel info-panel"><div className="eyebrow">PROVENANCE</div><p>Every canonical event records its source, quality, event time, receive time, and instrument mapping.</p></section>
     </>
@@ -1045,7 +1045,7 @@ const SystemMonitor = memo(function SystemMonitor() {
       {metrics ? (
         <>
           <div className="metric-grid"><Metric label="Event rate" value={metrics.eventRate === null ? "—" : formatNumber(metrics.eventRate) + " / s"} /><Metric label="Queue depth" value={formatNumber(metrics.queueDepth)} /><Metric label="Replacements" value={formatNumber(metrics.replacements)} /><Metric label="Dropped durable events" value={formatNumber(metrics.dropped)} tone={metrics.dropped ? "warning" : "neutral"} /></div>
-          <section className="panel table-panel"><div className="section-heading"><div><div className="eyebrow">T0–T10 PIPELINE</div><h2>Stage latency</h2></div><span className="quiet-label">Nanoseconds · monotonic clock</span></div>{metrics.stages.length ? <div className="table-scroll"><table><thead><tr><th>Stage</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead><tbody>{metrics.stages.map((stage) => <tr key={stage.name}><td>{stage.name}</td><td className="mono">{formatNumber(stage.p50Ns)}</td><td className="mono">{formatNumber(stage.p95Ns)}</td><td className="mono">{formatNumber(stage.p99Ns)}</td></tr>)}</tbody></table></div> : <p className="table-empty">No stage timings reported.</p>}</section>
+          <section className="panel table-panel"><div className="section-heading"><div><div className="eyebrow">T0–T10 PIPELINE</div><h2>Stage latency</h2></div><span className="quiet-label">Nanoseconds · monotonic clock</span></div>{metrics.stages.length ? <div className="table-scroll" role="region" aria-label="Pipeline latency" tabIndex={0}><table><thead><tr><th>Stage</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead><tbody>{metrics.stages.map((stage) => <tr key={stage.name}><td>{stage.name}</td><td className="mono">{formatNumber(stage.p50Ns)}</td><td className="mono">{formatNumber(stage.p95Ns)}</td><td className="mono">{formatNumber(stage.p99Ns)}</td></tr>)}</tbody></table></div> : <p className="table-empty">No stage timings reported.</p>}</section>
         </>
       ) : <EmptyState title="No runtime telemetry" detail="Latency, queue, duplicate and ordering metrics remain unavailable until the system metrics endpoint responds." />}
       <section className="panel"><div className="section-heading"><div><div className="eyebrow">AUDIT TRAIL</div><h2>Recent system events</h2></div></div><ActivityList records={activity} /></section>
@@ -1085,6 +1085,15 @@ export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceName>("Overview");
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [filter, setFilter] = useState("");
+  const content = useRef<HTMLDivElement>(null);
+  const previousWorkspace = useRef(workspace);
+  useEffect(() => {
+    document.title = workspace + " · BASALT";
+    if (previousWorkspace.current !== workspace) {
+      content.current?.focus();
+      previousWorkspace.current = workspace;
+    }
+  }, [workspace]);
 
   useEffect(() => {
     void refresh();
@@ -1230,7 +1239,7 @@ export default function App() {
         ) : null}
         {toast && <div className={"toast " + (toast.error ? "error" : "success")} role={toast.error ? "alert" : "status"} aria-live={toast.error ? "assertive" : "polite"}>{toast.message}<button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification">×</button></div>}
 
-        <div className="workspace-content" id="main-content" tabIndex={-1}>{renderWorkspace()}</div>
+        <div className="workspace-content" id="main-content" ref={content} role="region" aria-label={workspace} tabIndex={-1}>{renderWorkspace()}</div>
         <footer className="app-footer">
           <span>BASALT · LOCAL-FIRST MARKET RESEARCH</span>
           <span>{lastUpdated ? "Updated " + new Date(lastUpdated).toLocaleTimeString() : "Awaiting data"} · {mode.toUpperCase()}</span>

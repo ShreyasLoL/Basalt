@@ -17,5 +17,5 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | K | Ignore callbacks from retired sockets and reconcile reconnects | Implemented | 99bdfd4 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | L | Identify every v1 mutation and bind paper orders to the selected instrument | Implemented | cd48204 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | M | Complete quote provenance, chart and depth navigation, instrument freshness and execution timestamps | Implemented | 9c0e13a | TypeScript, production build, Vitest | Browser pass tracked in J |
-| N | Consolidate loading and recovery states for optional research data | Not started | — | — | Exercise initial requests and retry |
+| N | Consolidate loading and recovery states for optional research data | Implemented | aed1350 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | O | Refine table access and keyboard focus on workspace changes | Not started | — | — | Repeat browser checks |
