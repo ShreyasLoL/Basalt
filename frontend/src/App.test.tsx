@@ -238,10 +238,26 @@ describe("BASALT workstation", () => {
     expect(screen.getByText("No open positions")).toBeInTheDocument();
   });
 
+  it("reads run metrics by encoded ID and preserves missing values", async () => {
+    const api = v1ApiFetch();
+    vi.stubGlobal("fetch", (url: RequestInfo | URL) => String(url) === "/api/v1/backtests/run%2F42"
+      ? Promise.resolve(jsonResponse({ status: "COMPLETED", metrics: [
+        { name: "Sharpe", units: "ratio", value: null, status: "INSUFFICIENT_RETURN_SAMPLES" },
+        { name: "Total Return", units: "fraction", value: 0.0321, status: "OK" }] })) : api(url));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Analytics" }));
+    fireEvent.change(screen.getByLabelText("Run ID"), { target: { value: "run/42" } });
+    const load = screen.getByRole("button", { name: "Load results" });
+    await waitFor(() => expect(load).toBeEnabled());
+    fireEvent.click(load);
+    expect(await screen.findByText("INSUFFICIENT_RETURN_SAMPLES")).toBeInTheDocument();
+    expect(screen.getByText("0.0321")).toBeInTheDocument();
+  });
+
   it("keeps analytics empty until a completed run exists", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Analytics" }));
-    expect(screen.getByText("No completed run is selected. BASALT does not show placeholder returns or synthetic performance figures.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Run ID")).toHaveValue("");
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 

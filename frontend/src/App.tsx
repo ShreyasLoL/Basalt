@@ -1,5 +1,6 @@
 import { formatEventTime, formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { RunResults } from "./RunResults";
 import { Benchmarks } from "./Benchmarks";
 import { ChartPanel } from "./ChartPanel";
 import {
@@ -881,8 +882,11 @@ const PortfolioRisk = memo(function PortfolioRisk({
 });
 
 const Backtesting = memo(function Backtesting({
-  onMessage,
+  onMessage, queuedRun, setQueuedRun, onInspect,
 }: {
+  queuedRun: string;
+  setQueuedRun: (id: string) => void;
+  onInspect: () => void;
   onMessage: (message: string, error?: boolean) => void;
 }) {
   const datasets = useWorkstation((state) => state.datasets);
@@ -892,7 +896,6 @@ const Backtesting = memo(function Backtesting({
   const [dataset, setDataset] = useState("");
   const selectedDataset = datasets.find(item => item.id === dataset);
   const mode = useWorkstation(state => state.mode);
-  const [queuedRun, setQueuedRun] = useState("");
   const [strategy, setStrategy] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -946,8 +949,9 @@ const Backtesting = memo(function Backtesting({
         </section>
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">RUN HISTORY</div><h2>Results and manifests</h2></div></div>
-          {queuedRun && <p role="status">Queued run <strong>{queuedRun}</strong></p>}
-          <EmptyState title="No completed backtests" detail="Metrics remain blank until a reproducible run is returned by the API." />
+          {queuedRun ? <><p role="status">Queued run <strong>{queuedRun}</strong></p>
+            <button className="text-button" onClick={onInspect}>Inspect run results →</button></>
+            : <EmptyState title="No run queued in this session" detail="Queue a run here or inspect a stored run by ID in Analytics." />}
         </section>
       </div>
     </>
@@ -1014,12 +1018,13 @@ const Replay = memo(function Replay() {
   );
 });
 
-const Analytics = memo(function Analytics() {
+const Analytics = memo(function Analytics({ queuedRun }: { queuedRun: string }) {
+  const mode = useWorkstation(state => state.mode);
   return (
     <>
       <PageHeader title="Analytics" subtitle="Performance metrics are calculated from completed paper or backtest ledgers." />
-      <div className="inline-notice">No completed run is selected. BASALT does not show placeholder returns or synthetic performance figures.</div>
-      <div className="bento">
+      <RunResults initialId={queuedRun} connected={mode === "v1"} />
+      <details className="metric-reference"><summary>Metric definitions</summary><div className="bento">
         {Object.entries({
           "Return and risk": ["Total return", "Benchmark-relative return", "CAGR", "Volatility", "Sharpe", "Sortino", "Maximum drawdown", "Calmar"],
           "Trade outcomes": ["Win rate", "Profit factor", "Average win/loss", "Expectancy", "Trade count"],
@@ -1028,7 +1033,7 @@ const Analytics = memo(function Analytics() {
           <div className="section-heading"><h2>{group}</h2></div>
           <dl className="facts">{metrics.map(name => <div className="fact-row" key={name}><dt>{name}</dt><dd>—</dd></div>)}</dl>
         </section>)}
-      </div>
+      </div></details>
     </>
   );
 });
@@ -1136,6 +1141,7 @@ export default function App() {
   const setSelected = useWorkstation((state) => state.setSelectedInstrument);
   const applyFrames = useWorkstation((state) => state.applyStreamFrames);
   const setStreamConnected = useWorkstation((state) => state.setStreamConnected);
+  const [queuedRun, setQueuedRun] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceName>("Overview");
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [filter, setFilter] = useState("");
@@ -1207,13 +1213,13 @@ export default function App() {
       case "Portfolio & Risk":
         return <PortfolioRisk onMessage={notify} />;
       case "Backtesting":
-        return <Backtesting onMessage={notify} />;
+        return <Backtesting onMessage={notify} queuedRun={queuedRun} setQueuedRun={setQueuedRun} onInspect={() => setWorkspace("Analytics")} />;
       case "Market Replay":
         return <Replay />;
       case "Benchmarks":
         return <><PageHeader title="Benchmarks" subtitle="Measure matching-engine workloads on the local gateway." /><Benchmarks connected={connected} /></>;
       case "Analytics":
-        return <Analytics />;
+        return <Analytics queuedRun={queuedRun} />;
       case "Data Sources":
         return <DataSources />;
       case "System Monitor":

@@ -22,4 +22,8 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | P | Sort market quotes by symbol, price, spread and volume with missing values last | Implemented | 48be739 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | Q | Compare both depth ladders on the same scale and contextualize resting queues | Implemented | 27c4290 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | R | Filter execution history by aggressor and show latest fills first | Implemented | 8b75e33 | TypeScript, production build, Vitest | Browser pass tracked in J |
-| S | Verify positive chart rendering and benchmark measurements in Chrome | Not started | — | — | Keep fixture and gateway evidence distinct |
+| S | Verify positive chart rendering and benchmark measurements in Chrome | Implemented | 2492332 | TypeScript, production build, Vitest | Browser pass tracked in J |
+| T | Read run status, measured analytics and reproducibility metadata by run ID | In progress | — | — | Live run endpoint unavailable |
+| U | Expose instrument catalog metadata in the workstation | Not started | — | — | Verify live catalog without displaying provider keys |
+| V | Expose mark provenance, fees and measured event ordering counters | Not started | — | — | Verify live portfolio and monitor |
+| W | Consolidate style overrides and verify final bundle | Not started | — | — | Repeat responsive checks |
