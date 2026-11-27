@@ -91,6 +91,16 @@ describe("BASALT workstation", () => {
     expect(screen.getByRole("option", { name: "FOK" })).toBeDisabled();
   });
 
+  it("compares bid and ask quantities on a common depth scale", async () => {
+    render(<App />);
+    await screen.findByText("BASALT-SIM");
+    fireEvent.click(screen.getByRole("button", { name: "Order Book" }));
+    const bids = screen.getByRole("region", { name: "Bid depth" });
+    const asks = screen.getByRole("region", { name: "Ask depth" });
+    expect(parseFloat(bids.querySelector<HTMLElement>(".depth-track")!.style.width)).toBeCloseTo(100 * 10 / 12);
+    expect(asks.querySelector<HTMLElement>(".depth-track")!.style.width).toBe("100%");
+  });
+
   it("shows the selected workspace and empty-data language", async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText("BASALT-SIM")).toBeInTheDocument());

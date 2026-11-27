@@ -110,12 +110,13 @@ const BookLadder = memo(function BookLadder({
   levels,
   unit,
   best,
+  maxVolume,
 }: {
   levels: PriceLevel[];
   unit: PriceUnit;
   best: number | null;
+  maxVolume: number;
 }) {
-  const max = Math.max(1, ...levels.map((level) => level.totalVolume));
   if (levels.length === 0) {
     return <div className="table-empty">No depth levels reported.</div>;
   }
@@ -125,7 +126,7 @@ const BookLadder = memo(function BookLadder({
       {levels.map((level) => (
         <tr className={level.price === best ? "best-level" : ""} key={level.price}>
           <th scope="row">{formatPrice(level.price, unit)}</th>
-          <td className="depth-volume"><span aria-hidden="true" className={"depth-track " + level.side.toLowerCase()} style={{ width: (level.totalVolume / max * 100) + "%" }} />{formatNumber(level.totalVolume)}</td>
+          <td className="depth-volume"><span aria-hidden="true" className={"depth-track " + level.side.toLowerCase()} style={{ width: (level.totalVolume / maxVolume * 100) + "%" }} />{formatNumber(level.totalVolume)}</td>
           <td>{formatNumber(level.orderCount)}</td>
         </tr>
       ))}
@@ -137,9 +138,11 @@ const BookLadder = memo(function BookLadder({
 const BookPane = memo(function BookPane({
   book,
   side,
+  maxVolume,
 }: {
   book: BookSnapshot | null;
   side: "BUY" | "SELL";
+  maxVolume: number;
 }) {
   const levels = side === "BUY" ? book?.bids ?? [] : book?.asks ?? [];
   const best = side === "BUY" ? book?.bestBid ?? null : book?.bestAsk ?? null;
@@ -154,10 +157,21 @@ const BookPane = memo(function BookPane({
         </div>
         <span className="quiet-label">{book?.instrumentId}</span>
       </div>
-      {book ? <div className="table-scroll" role="region" aria-label={side === "BUY" ? "Bid depth" : "Ask depth"} tabIndex={0}><BookLadder levels={levels} unit={book.priceUnit} best={best} /></div> : <p className="table-empty">Awaiting a book snapshot.</p>}
+      {book ? <div className="table-scroll" role="region" aria-label={side === "BUY" ? "Bid depth" : "Ask depth"} tabIndex={0}><BookLadder levels={levels} unit={book.priceUnit} best={best} maxVolume={maxVolume} /></div> : <p className="table-empty">Awaiting a book snapshot.</p>}
     </section>
   );
 });
+
+function BookDepth({ book }: { book: BookSnapshot | null }) {
+  const maxVolume = useMemo(() => {
+    if (!book) return 1;
+    return [...book.bids, ...book.asks].reduce((max, level) => Math.max(max, level.totalVolume), 1);
+  }, [book]);
+  return <div className="book-grid">
+    <BookPane book={book} side="BUY" maxVolume={maxVolume} />
+    <BookPane book={book} side="SELL" maxVolume={maxVolume} />
+  </div>;
+}
 
 const TradeTable = memo(function TradeTable({
   trades,
@@ -635,7 +649,7 @@ const InstrumentWorkstation = memo(function InstrumentWorkstation({
           </section>
         </div>
         <div className="stack">
-          <div className="book-grid"><BookPane book={book} side="BUY" /><BookPane book={book} side="SELL" /></div>
+          <BookDepth book={book} />
           <OrderTicket mode={mode} instrumentId={selectedInstrumentId} onMessage={onMessage} />
         </div>
       </div>
@@ -654,13 +668,10 @@ const OrdersScreen = memo(function OrdersScreen({
     <>
       <PageHeader title="Order Book" subtitle="External observed liquidity and internal simulated liquidity are kept separate." />
       <div className="inline-notice">This gateway reports internal resting orders separately from observed quotes. External depth levels are unavailable.</div>
-      <div className="book-grid large-book">
-        <BookPane book={book} side="BUY" />
-        <BookPane book={book} side="SELL" />
-      </div>
+      <div className="large-book"><BookDepth book={book} /></div>
       <section className="panel">
-        <div className="section-heading"><div><div className="eyebrow">INTERNAL CLOB</div><h2>Active resting queue</h2></div><span className="quiet-label">Price time priority · cancel by order ID</span></div>
-        <ActiveOrders orders={book?.restingOrders ?? []} unit={book?.priceUnit ?? "TICKS"} mode={mode} onMessage={onMessage} />
+        <div className="section-heading"><div><div className="eyebrow">INTERNAL CLOB</div><h2>Active resting queue</h2></div><span className="quiet-label">{book ? formatNumber(book.restingOrders.length) + " resting orders" : "Awaiting snapshot"}</span></div>
+        {book ? <ActiveOrders orders={book.restingOrders} unit={book.priceUnit} mode={mode} onMessage={onMessage} /> : <p className="table-empty">Working orders require a book snapshot.</p>}
       </section>
     </>
   );
@@ -750,7 +761,7 @@ const PaperTrading = memo(function PaperTrading({
       </div>
       <section className="panel">
         <div className="section-heading"><div><div className="eyebrow">OPEN ORDERS</div><h2>Working order blotter</h2></div><span className="quiet-label">FIFO sequence is preserved by the C++ engine</span></div>
-        <ActiveOrders orders={book?.restingOrders ?? []} unit={book?.priceUnit ?? "TICKS"} mode={mode} onMessage={onMessage} />
+        {book ? <ActiveOrders orders={book.restingOrders} unit={book.priceUnit} mode={mode} onMessage={onMessage} /> : <p className="table-empty">Working orders require a book snapshot.</p>}
       </section>
       <section className="panel">
         <div className="section-heading"><div><div className="eyebrow">EXECUTION BLOTTER</div><h2>Paper fills</h2></div></div>
