@@ -1182,7 +1182,7 @@ export default function App() {
       () => useWorkstation.getState().lastEventSeq,
       () => {
         useWorkstation.getState().markReplayGap();
-        void refresh();
+        void refresh({ reconcile: true });
       },
     );
   }, [mode, health?.websocketAvailable, applyFrames, setStreamConnected, refresh]);

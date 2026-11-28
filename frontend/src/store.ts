@@ -151,6 +151,7 @@ function mergeActivityBySequence(
 
 export interface RefreshOptions {
   forceV1Probe?: boolean;
+  reconcile?: boolean;
 }
 
 interface WorkstationStore extends DashboardState {
@@ -165,13 +166,21 @@ interface WorkstationStore extends DashboardState {
 
 const emptyOptional = { strategies: [], datasets: [], portfolio: null, risk: null, systemMetrics: null };
 let refreshing = false;
+let followUp: RefreshOptions | undefined;
+let gapGeneration = 0;
 let lastOptionalProbe = 0;
 
 export const useWorkstation = create<WorkstationStore>((set, get) => ({
   ...EMPTY_DASHBOARD,
   optionalStatus: {},
   refresh: async (options) => {
-    if (refreshing) return;
+    if (refreshing) {
+      if (options?.forceV1Probe || options?.reconcile) {
+        followUp = { reconcile: true, forceV1Probe: Boolean(followUp?.forceV1Probe || options.forceV1Probe) };
+      }
+      return;
+    }
+    const startingGap = gapGeneration;
     refreshing = true;
     const initialState = get();
     const now = Date.now();
@@ -181,7 +190,6 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       initialState.lastV1ProbeAt !== null &&
       now - initialState.lastV1ProbeAt < V1_REPROBE_INTERVAL_MS;
 
-    set({ mode: initialState.mode === "connecting" ? "connecting" : initialState.mode, error: null });
     try {
       const probeTimestamp = Date.now();
       const snapshot = await getDashboardSnapshot({ skipV1Probe, instrumentId: initialState.selectedInstrumentId });
@@ -221,13 +229,14 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
         health: snapshot.health,
         lastUpdated: Date.now(),
         lastV1ProbeAt: snapshot.probedV1 ? probeTimestamp : current.lastV1ProbeAt,
-        replayGapDetected: false,
+        replayGapDetected: startingGap !== gapGeneration,
         error: null,
       });
       if (snapshot.mode === "v1") await get().refreshOptional(options?.forceV1Probe);
     } catch (error) {
       set({
         ...emptyOptional, optionalStatus: {},
+        marketWatch: get().marketWatch.map(row => ({ ...row, quality: "DISCONNECTED" })),
         mode: "disconnected",
         connected: false,
         streamConnected: false,
@@ -236,6 +245,9 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       });
     } finally {
       refreshing = false;
+      const next = followUp;
+      followUp = undefined;
+      if (next) await get().refresh(next);
     }
   },
   refreshOptional: async (force = false) => {
@@ -375,7 +387,9 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       lastUpdated: Date.now(),
     };
   }),
-  markReplayGap: () => set((state) => ({
+  markReplayGap: () => {
+    gapGeneration++;
+    set((state) => ({
     replayGapDetected: true,
     activity: [...state.activity, {
       eventSeq: state.lastEventSeq,
@@ -384,11 +398,12 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
       message: "The stream buffer overflowed or contained an invalid frame; a REST snapshot is being requested.",
       eventTimeNs: null,
     }].slice(-ACTIVITY_CAPACITY),
-  })),
+    }));
+  },
   setSelectedInstrument: (selectedInstrumentId) => {
     if (selectedInstrumentId !== get().selectedInstrumentId) {
       set({ selectedInstrumentId, book: null, trades: [] });
-      void get().refresh();
+      void get().refresh({ reconcile: true });
     }
   },
 }));

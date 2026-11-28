@@ -27,6 +27,6 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | U | Expose instrument catalog metadata in the workstation | Implemented | f696fca | TypeScript, production build, Vitest | Browser pass tracked in J |
 | V | Expose mark provenance, fees and measured event ordering counters | Implemented | 233795e | TypeScript, production build, Vitest | Browser pass tracked in J |
 | W | Consolidate style overrides and verify final bundle | Verified | 098338b | TypeScript, build, 23 tests, 68 Chrome layouts | — |
-| X | Expose historical candle values to keyboard and screen-reader users | In progress | — | — | Exercise chart fixture |
+| X | Expose historical candle values to keyboard and screen-reader users | Verified | 7a04e99 | Chrome canvas and source table, 23 tests | Live bars unavailable |
 | Y | Keep recovery requests and stale quote indicators consistent across failed refreshes | Not started | — | — | Test recovery during an outstanding poll |
 | Z | Final verification and handoff | Not started | — | — | Record live and fixture coverage |

@@ -74,6 +74,27 @@ describe("bounded WebSocket event store", () => {
     vi.unstubAllGlobals();
   });
 
+  it("reconciles a gap reported while a snapshot request is in flight", async () => {
+    let release!: (response: Response) => void;
+    const first = new Promise<Response>(resolve => { release = resolve; });
+    let probes = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/health")) {
+        if (++probes === 1) return first;
+        return Response.json({ state: "OK" });
+      }
+      if (url.endsWith("/watch")) return Response.json({ instruments: [] });
+      return Response.json({}, { status: 404 });
+    });
+    const pending = useWorkstation.getState().refresh();
+    useWorkstation.getState().markReplayGap();
+    await useWorkstation.getState().refresh({ reconcile: true });
+    release(Response.json({ state: "OK" }));
+    await pending;
+    expect(probes).toBe(2);
+    expect(useWorkstation.getState().replayGapDetected).toBe(false);
+  });
+
   it("merges REST refresh by sequence without regressing lastEventSeq or overwriting newer stream state", async () => {
     useWorkstation.setState({
       ...EMPTY_DASHBOARD,
