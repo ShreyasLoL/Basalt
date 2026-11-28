@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { connectWebSocket, getDashboardSnapshot } from "./api";
+import { connectWebSocket, fetchOptional, getDashboardSnapshot } from "./api";
 
 class FakeWebSocket extends EventTarget {
   static instances: FakeWebSocket[] = [];
@@ -87,6 +87,20 @@ it("loads depth and fills for the selected instrument", async () => {
     const snapshot = await getDashboardSnapshot({ instrumentId: "2" });
     expect(snapshot.data.selectedInstrumentId).toBe("2");
     expect(fetch.mock.calls.map(([url]) => url)).toContain("/api/v1/instruments/2/snapshot?depth=20");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("distinguishes empty acknowledgments from unreadable and rejected commands", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }))
+    .mockResolvedValueOnce(new Response("<html>Gateway unavailable</html>"))
+    .mockResolvedValueOnce(Response.json({ accepted: false, message: "Session is closed" })));
+  try {
+    const command = () => fetchOptional("/api/v1/replay/session/commands", { method: "POST" });
+    await expect(command()).resolves.toBeUndefined();
+    await expect(command()).rejects.toThrow("unreadable response");
+    await expect(command()).rejects.toThrow("Session is closed");
   } finally {
     vi.unstubAllGlobals();
   }

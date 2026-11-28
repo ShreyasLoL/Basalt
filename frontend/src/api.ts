@@ -32,12 +32,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers,
   });
-  const body = (await response.json().catch(() => ({}))) as {
-    message?: string;
-    error?: string;
-  };
-  if (!response.ok) {
-    throw new ApiError(body.message ?? body.error ?? "BASALT API request failed", response.status);
+  if (response.status === 204) return undefined as T;
+  const body: unknown = await response.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    throw new ApiError("The gateway returned an unreadable response (" + response.status + ").", response.status);
+  }
+  const rejected = init.method && init.method !== "GET" && "accepted" in body && body.accepted === false;
+  if (!response.ok || rejected) {
+    const message = "message" in body && typeof body.message === "string" ? body.message
+      : "error" in body && typeof body.error === "string" ? body.error : "BASALT API request failed";
+    throw new ApiError(message, response.status);
   }
   return body as T;
 }

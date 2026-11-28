@@ -31,5 +31,5 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | Y | Keep recovery requests and stale quote indicators consistent across failed refreshes | Verified | b8c3def | In-flight gap regression, 24 tests, build | — |
 | Z | Final verification and handoff | Not started | — | — | Record live and fixture coverage |
 | AA | Resume paused strategies using the v1 lifecycle command | Verified | 990ee00 | Paused-strategy component test, typecheck, build | Positive lifecycle responses exercised with fixture |
-| AB | Keep ticket drafts scoped to gateway units and instrument | Not started | — | — | Verify inline validation |
+| AB | Keep ticket drafts scoped to gateway units and instrument | Verified | 8e68fff | Invalid legacy price, keyboard focus, accessible description, build | — |
 | AC | Reject malformed successful responses before displaying command acknowledgments | Not started | — | — | Check empty responses |
