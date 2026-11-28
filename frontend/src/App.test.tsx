@@ -76,6 +76,7 @@ describe("BASALT workstation", () => {
     expect(screen.getAllByText("DEGRADED").length).toBeGreaterThan(0);
     expect(screen.getByText("9,990 ticks")).toBeInTheDocument();
     expect(screen.getByText("10,000 ticks")).toBeInTheDocument();
+    expect(screen.getByText("0 of 1 feeds OK")).toBeInTheDocument();
     expect(screen.queryByText("12,500")).not.toBeInTheDocument();
   });
 

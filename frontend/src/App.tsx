@@ -479,6 +479,16 @@ const Overview = memo(function Overview({
   const portfolio = useWorkstation(state => state.portfolio);
   const strategies = useWorkstation(state => state.strategies);
   const activity = useWorkstation(state => state.activity);
+  const exchanges = useMemo(() => {
+    const counts = new Map<string, { total: number; ok: number }>();
+    for (const quote of rows) {
+      const summary = counts.get(quote.exchange) ?? { total: 0, ok: 0 };
+      summary.total++;
+      if (quote.quality === "OK") summary.ok++;
+      counts.set(quote.exchange, summary);
+    }
+    return [...counts];
+  }, [rows]);
   const latestEvents = useMemo(() => [...activity].sort((a, b) => b.eventSeq - a.eventSeq).slice(0, 4), [activity]);
   return (
     <>
@@ -510,6 +520,9 @@ const Overview = memo(function Overview({
             <span>{health?.message ?? "Waiting for the local service."}</span>
             <span>Storage: {health?.storage ?? "not reported"}</span>
           </div>
+          {exchanges.length > 0 && <dl className="facts feed-health">{exchanges.map(([exchange, counts]) =>
+            <div key={exchange} className="fact-row"><dt>{exchange} quotes</dt><dd>{counts.ok} of {counts.total} feeds OK</dd></div>
+          )}</dl>}
           <button className="text-button" onClick={() => onNavigate("System Monitor")}>Inspect system →</button>
         </section>
       </div>
@@ -1281,12 +1294,12 @@ export default function App() {
     }
   }
 
-  const sidebarStatusDot = !connected ? "ERROR" : mode === "legacy" ? "DEGRADED" : "OK";
+  const sidebarStatusDot = !connected ? "ERROR" : health?.state ?? "UNKNOWN";
   const sidebarStatusText = !connected
     ? "Waiting for local service"
     : mode === "legacy"
       ? "Legacy CLOB compatibility"
-      : "Local service online";
+      : health?.state === "OK" ? "Local service online" : "Service health · " + (health?.state ?? "UNKNOWN");
 
   return (
     <div className="app-shell">

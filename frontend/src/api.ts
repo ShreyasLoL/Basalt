@@ -255,7 +255,7 @@ export async function getDashboardSnapshot(options: SnapshotOptions = {}): Promi
     return {
       mode: "v1",
       health: {
-        state: health.state === "OK" ? "OK" : health.state === "DEGRADED" ? "DEGRADED" : "UNKNOWN",
+        state: health.state === "OK" ? "OK" : health.state === "DEGRADED" || health.state === "ERROR" ? health.state : "UNKNOWN",
         version: health.version ?? null,
         storage: health.storage ?? null,
         message: health.message ?? "REST v1 connected",
