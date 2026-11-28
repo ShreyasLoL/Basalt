@@ -1104,16 +1104,20 @@ const DataSources = memo(function DataSources() {
       return;
     }
     setStatus("loading");
-    let active = true;
-    void fetchOptional<{ providers: typeof sources }>("/api/v1/data-sources").then((response) => {
-      if (active) {
-        setSources(response.providers ?? []);
+    const controller = new AbortController();
+    void fetchOptional<{ providers: typeof sources }>("/api/v1/data-sources", { signal: controller.signal }).then((response) => {
+      if (!Array.isArray(response?.providers) || !response.providers.every(provider =>
+        typeof provider?.id === "string" && typeof provider.name === "string" && typeof provider.quality === "string")) {
+        throw new Error("Provider inventory unavailable");
+      }
+      if (!controller.signal.aborted) {
+        setSources(response.providers);
         setStatus("ready");
       }
     }).catch(() => {
-      if (active) setStatus("unavailable");
+      if (!controller.signal.aborted) setStatus("unavailable");
     });
-    return () => { active = false; };
+    return () => controller.abort();
   }, [mode, attempt]);
   return (
     <>

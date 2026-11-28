@@ -359,6 +359,19 @@ describe("BASALT workstation", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("retries an unreadable inventory without exposing provider credentials", async () => {
+    const api = v1ApiFetch();
+    let lookups = 0;
+    vi.stubGlobal("fetch", (url: RequestInfo | URL) => String(url).endsWith("/data-sources")
+      ? Promise.resolve(jsonResponse(++lookups === 1 ? {} : { providers: [{ id: "p", name: "Adapter", state: "READY",
+        quality: "OK", source: "CACHED", subscriptions: 7, token: "private-fixture-token" }] })) : api(url));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Data Sources" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry providers" }));
+    expect(await screen.findByText("Adapter")).toBeInTheDocument();
+    expect(screen.queryByText("private-fixture-token")).not.toBeInTheDocument();
+  });
+
   it("distinguishes loading providers from a confirmed empty inventory", async () => {
     let release!: (response: Response) => void;
     const providers = new Promise<Response>(resolve => { release = resolve; });

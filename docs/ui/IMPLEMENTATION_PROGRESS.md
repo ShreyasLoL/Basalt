@@ -38,4 +38,8 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | AF | Exercise disconnected and legacy states in the production browser | Verified | 673223e | Chrome forced v1 absence, offline commands and recovered v1 | Failure modes simulated |
 | AG | Preserve service severity and display reported feed health by exchange | Verified | 30de8ca | Legacy feed quality test, typecheck, build | Exchange summaries reflect watched instruments |
 | AH | Search the resting queue by order ID without disturbing FIFO order | Verified | a6905a3 | Filtered queue cancellation regression, build | — |
-| AI | Preserve sub-unit measurements in benchmark and risk displays | Not started | — | — | Check currency and time precision |
+| AI | Preserve sub-unit measurements in benchmark and risk displays | Verified | d6046ac | Fractional elapsed-time regression, build | — |
+| AJ | Recover malformed provider inventories and keep source metadata scoped | In progress | — | — | Retry fixture |
+| AK | Distinguish unavailable research prerequisites from an indexed empty catalog | Not started | — | — | Check unavailable and ready states |
+| AL | Keep queued backtest identifiers available for run inspection across workspace changes | Not started | — | — | Multiple run fixture |
+| AM | Check narrow layouts with long identifiers and large monetary values | Not started | — | — | Browser stress fixture |
