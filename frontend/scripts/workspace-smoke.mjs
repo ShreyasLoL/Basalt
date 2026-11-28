@@ -50,6 +50,17 @@ try {
   await send("Runtime.enable");
   await send("Page.navigate", { url: gateway });
   await until('document.querySelector(".workspace-picker select")');
+  const palette = await evaluate('Object.fromEntries(["--quiet","--panel-raised","--text","--amber","--warning-surface","--accent","--accent-hover"].map(k => [k,getComputedStyle(document.documentElement).getPropertyValue(k).trim()]))');
+  function luminance(hex) {
+    const rgb = hex.slice(1).match(/../g).map(channel => parseInt(channel, 16) / 255)
+      .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  }
+  for (const [fg, bg] of [["--quiet","--panel-raised"],["--amber","--warning-surface"],["#ffffff","--accent"],["#ffffff","--accent-hover"]]) {
+    const light = [luminance(palette[fg] ?? fg), luminance(palette[bg])].sort((a,b) => b-a);
+    assert.ok((light[0]+0.05)/(light[1]+0.05) >= 4.5, fg + " on " + bg + " lacks text contrast");
+  }
+  console.log("Secondary text, warning text and primary button contrast passed");
   for (const width of [1440, 768, 390, 320]) {
     await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
     const names = await evaluate('Array.from(document.querySelector(".workspace-picker select").options, o => o.value)');
