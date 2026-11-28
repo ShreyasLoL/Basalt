@@ -89,6 +89,11 @@ describe("BASALT workstation", () => {
     expect(price).toHaveValue("");
     expect(screen.getByRole("option", { name: "POST ONLY" })).toBeDisabled();
     expect(screen.getByRole("option", { name: "FOK" })).toBeDisabled();
+    fireEvent.change(price, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit paper order" }));
+    expect(price).toHaveFocus();
+    expect(price).toHaveAccessibleDescription("Enter a limit price from 1 to 1,000,000,000,000 ticks.");
+    expect(price).toHaveAttribute("aria-invalid", "true");
   });
 
   it("filters executions without losing the underlying fills", async () => {

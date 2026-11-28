@@ -326,26 +326,33 @@ const OrderTicket = memo(function OrderTicket({
   const [quantity, setQuantity] = useState("1");
   const [busy, setBusy] = useState(false);
   const legacy = mode !== "v1";
+  const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
+    function reject(field: string, message: string) {
+      setFieldError({ field, message });
+      const input = form.elements.namedItem(field);
+      if (input instanceof HTMLInputElement) input.focus();
+    }
     const amount = Number(quantity);
     if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1_000_000_000) {
-      onMessage("Quantity must be a whole number between 1 and 1,000,000,000.", true);
+      reject("quantity", "Quantity must be a whole number between 1 and 1,000,000,000.");
       return;
     }
     let priceValue: number | undefined;
     if (type !== "MARKET" && type !== "STOP_MARKET") {
       if (legacy) {
         if (!/^\d{1,13}$/.test(price) || Number(price) < 1 || Number(price) > 1_000_000_000_000) {
-          onMessage("Enter a limit price from 1 to 1,000,000,000,000 ticks.", true);
+          reject("price", "Enter a limit price from 1 to 1,000,000,000,000 ticks.");
           return;
         }
         priceValue = Number(price);
       } else {
         const parsed = parseDecimalMicro(price);
         if (parsed === null) {
-          onMessage("Enter a positive INR price with up to four decimal places.", true);
+          reject("price", "Enter a positive INR price with up to four decimal places.");
           return;
         }
         priceValue = parsed;
@@ -359,7 +366,7 @@ const OrderTicket = memo(function OrderTicket({
     if (type === "STOP_MARKET" || type === "STOP_LIMIT") {
       stopPriceValue = legacy ? Number(stopPrice) : parseDecimalMicro(stopPrice) ?? undefined;
       if (stopPriceValue === undefined || !Number.isSafeInteger(stopPriceValue) || stopPriceValue <= 0) {
-        onMessage("Enter a valid stop trigger price.", true);
+        reject("stopPrice", "Enter a valid stop trigger price.");
         return;
       }
     }
@@ -391,7 +398,7 @@ const OrderTicket = memo(function OrderTicket({
       </div>
       {mode === "legacy" && <div className="inline-notice">Legacy gateway active · LIMIT and MARKET only · price entered in integer ticks</div>}
       {mode === "v1" && <p className="body-copy">{instrumentId ? "Instrument " + instrumentId : "Select an instrument in Market Watch to place a paper order."}</p>}
-      <form className="ticket-form" onSubmit={(event) => void handleSubmit(event)}>
+      <form className="ticket-form" onChange={() => setFieldError(null)} onSubmit={(event) => void handleSubmit(event)}>
         <div className="segmented" role="group" aria-label="Order side">
           <button type="button" className={side === "BUY" ? "active-buy" : ""} aria-pressed={side === "BUY"} onClick={() => setSide("BUY")}>BUY</button>
           <button type="button" className={side === "SELL" ? "active-sell" : ""} aria-pressed={side === "SELL"} onClick={() => setSide("SELL")}>SELL</button>
@@ -414,16 +421,16 @@ const OrderTicket = memo(function OrderTicket({
         </label>
         {type !== "MARKET" && type !== "STOP_MARKET" && (
           <label>Limit price {legacy ? "(ticks)" : "(INR)"}
-            <input inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} placeholder={legacy ? "Integer ticks" : "INR price"} required />
+            <input inputMode="decimal" name="price" aria-invalid={fieldError?.field === "price"} aria-describedby={fieldError?.field === "price" ? "order-field-error" : undefined} value={price} onChange={(event) => setPrice(event.target.value)} placeholder={legacy ? "Integer ticks" : "INR price"} required />
           </label>
         )}
         {(type === "STOP_MARKET" || type === "STOP_LIMIT") && (
           <label>Stop trigger (INR)
-            <input inputMode="decimal" value={stopPrice} onChange={(event) => setStopPrice(event.target.value)} placeholder="Trigger price" />
+            <input inputMode="decimal" name="stopPrice" aria-invalid={fieldError?.field === "stopPrice"} aria-describedby={fieldError?.field === "stopPrice" ? "order-field-error" : undefined} value={stopPrice} onChange={(event) => setStopPrice(event.target.value)} placeholder="Trigger price" />
           </label>
         )}
         <label>Quantity
-          <input inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
+          <input inputMode="numeric" name="quantity" aria-invalid={fieldError?.field === "quantity"} aria-describedby={fieldError?.field === "quantity" ? "order-field-error" : undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
         </label>
         <label>Execution model
           <select value={executionModel} onChange={(event) => setExecutionModel(event.target.value as OrderCommand["executionModel"])}>
@@ -433,6 +440,7 @@ const OrderTicket = memo(function OrderTicket({
             <option value="DEPTH_REPLAY_MODEL" disabled={legacy}>Depth replay</option>
           </select>
         </label>
+        {fieldError && <p id="order-field-error" role="alert">{fieldError.message}</p>}
         <button className="primary-button" type="submit" disabled={busy || (mode === "v1" ? !instrumentId : mode !== "legacy")}>
           {busy ? "Submitting…" : "Submit paper order"}
         </button>
@@ -652,7 +660,7 @@ const InstrumentWorkstation = memo(function InstrumentWorkstation({
         </div>
         <div className="stack">
           <BookDepth book={book} />
-          <OrderTicket mode={mode} instrumentId={selectedInstrumentId} onMessage={onMessage} />
+          <OrderTicket key={mode + ":" + selectedInstrumentId} mode={mode} instrumentId={selectedInstrumentId} onMessage={onMessage} />
           {mode === "v1" && selectedInstrumentId && <InstrumentDetails key={selectedInstrumentId} id={selectedInstrumentId} />}
         </div>
       </div>
@@ -759,7 +767,7 @@ const PaperTrading = memo(function PaperTrading({
     <>
       <PageHeader title="Paper Trading" subtitle="Every order and fill in this workspace is simulated; no broker order path is present." />
       <div className="paper-grid">
-        <OrderTicket mode={mode} instrumentId={book?.instrumentId ?? null} onMessage={onMessage} />
+        <OrderTicket key={mode + ":" + book?.instrumentId} mode={mode} instrumentId={book?.instrumentId ?? null} onMessage={onMessage} />
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">SIMULATION CONTROLS</div><h2>Internal CLOB session</h2></div><span className="sim-tag">PAPER ONLY</span></div>
           <p className="body-copy">The live market-data gateway and paper account ledger are separate from this compatibility CLOB.</p>
