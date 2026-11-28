@@ -25,5 +25,5 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | S | Verify positive chart rendering and benchmark measurements in Chrome | Implemented | 2492332 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | T | Read run status, measured analytics and reproducibility metadata by run ID | Implemented | d8b8bd2 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | U | Expose instrument catalog metadata in the workstation | Implemented | f696fca | TypeScript, production build, Vitest | Browser pass tracked in J |
-| V | Expose mark provenance, fees and measured event ordering counters | Not started | — | — | Verify live portfolio and monitor |
+| V | Expose mark provenance, fees and measured event ordering counters | Implemented | 233795e | TypeScript, production build, Vitest | Browser pass tracked in J |
 | W | Consolidate style overrides and verify final bundle | Not started | — | — | Repeat responsive checks |
