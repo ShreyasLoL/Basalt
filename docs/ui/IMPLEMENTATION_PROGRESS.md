@@ -33,6 +33,6 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | AA | Resume paused strategies using the v1 lifecycle command | Verified | 990ee00 | Paused-strategy component test, typecheck, build | Positive lifecycle responses exercised with fixture |
 | AB | Keep ticket drafts scoped to gateway units and instrument | Verified | 8e68fff | Invalid legacy price, keyboard focus, accessible description, build | — |
 | AC | Reject malformed successful responses before displaying command acknowledgments | Verified | e36d8dd | 204, unreadable success and rejected-command regressions | — |
-| AD | Reject partial optional snapshots before rendering ledger, strategies or telemetry | In progress | — | — | Check malformed inventories |
+| AD | Reject partial optional snapshots before rendering ledger, strategies or telemetry | Verified | e5ae448 | Malformed optional resource regression, build | — |
 | AE | Navigate workspaces using local URLs and browser history | Not started | — | — | Check back and invalid hash |
 | AF | Exercise disconnected and legacy states in the production browser | Not started | — | — | Distinguish fixtures from live gateway |

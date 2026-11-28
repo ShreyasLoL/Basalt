@@ -53,6 +53,7 @@ function v1ApiFetch() {
 
 describe("BASALT workstation", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     useWorkstation.setState({ ...EMPTY_DASHBOARD, optionalStatus: {} });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -144,6 +145,16 @@ describe("BASALT workstation", () => {
     expect(screen.getByText("No instruments match this filter")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
     expect(screen.getByRole("button", { name: /BASALT-SIM/ })).toBeInTheDocument();
+  });
+
+  it("opens a workspace URL and restores the previous destination", async () => {
+    window.history.replaceState(null, "", "/?workspace=portfolio-risk");
+    render(<App />);
+    expect(screen.getByRole("heading", { name: "Portfolio & Risk" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Executions" }));
+    expect(window.location.search).toBe("?workspace=executions");
+    window.history.back();
+    expect(await screen.findByRole("heading", { name: "Portfolio & Risk" })).toBeInTheDocument();
   });
 
   it("provides a skip link and native keyboard-operable instrument selection", async () => {

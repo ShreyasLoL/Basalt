@@ -34,6 +34,18 @@ const NAV = [
 
 type WorkspaceName = (typeof NAV)[number]["items"][number];
 
+function workspaceSlug(name: WorkspaceName) {
+  return name.toLowerCase().replaceAll(" & ", "-").replaceAll(" ", "-");
+}
+
+function workspaceFromUrl(): WorkspaceName {
+  const slug = new URLSearchParams(window.location.search).get("workspace");
+  for (const group of NAV) {
+    for (const item of group.items) if (workspaceSlug(item) === slug) return item;
+  }
+  return "Overview";
+}
+
 function sourceLabel(source: string | null): string {
   if (!source) return "SOURCE UNAVAILABLE";
   return source.replaceAll("_", " ");
@@ -1168,7 +1180,21 @@ export default function App() {
   const applyFrames = useWorkstation((state) => state.applyStreamFrames);
   const setStreamConnected = useWorkstation((state) => state.setStreamConnected);
   const [queuedRun, setQueuedRun] = useState("");
-  const [workspace, setWorkspace] = useState<WorkspaceName>("Overview");
+  const [workspace, showWorkspace] = useState<WorkspaceName>(workspaceFromUrl);
+  const setWorkspace = useCallback((next: WorkspaceName) => {
+    if (workspaceFromUrl() !== next) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("workspace", workspaceSlug(next));
+      if (url.hash === "#main-content") url.hash = "";
+      window.history.pushState(null, "", url);
+    }
+    showWorkspace(next);
+  }, []);
+  useEffect(() => {
+    const restore = () => showWorkspace(workspaceFromUrl());
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [filter, setFilter] = useState("");
   const content = useRef<HTMLDivElement>(null);
@@ -1216,7 +1242,7 @@ export default function App() {
   const selectInstrument = useCallback((instrumentId: string) => {
     setSelected(instrumentId);
     setWorkspace("Instrument Workstation");
-  }, [setSelected]);
+  }, [setSelected, setWorkspace]);
 
   function renderWorkspace() {
     switch (workspace) {
