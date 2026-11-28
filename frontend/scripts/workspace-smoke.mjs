@@ -104,7 +104,9 @@ try {
     try {
       await choose("Charts");
       await until('document.querySelector(".chart-panel")?.textContent.includes("3 bars") && document.querySelector(".chart-canvas canvas")');
-      console.log("Fixture chart rendered three bars on canvas");
+      await evaluate('document.querySelector(".chart-panel summary").click()');
+      await until('document.querySelectorAll(".candle-history tbody tr").length === 3');
+      console.log("Fixture chart rendered three bars on canvas and in the accessible data table");
     } finally {
       await send("Fetch.disable");
       socket.removeEventListener("message", onRequest);

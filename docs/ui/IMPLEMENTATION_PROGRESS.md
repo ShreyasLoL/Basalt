@@ -26,4 +26,7 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | T | Read run status, measured analytics and reproducibility metadata by run ID | Implemented | d8b8bd2 | TypeScript, production build, Vitest | Browser pass tracked in J |
 | U | Expose instrument catalog metadata in the workstation | Implemented | f696fca | TypeScript, production build, Vitest | Browser pass tracked in J |
 | V | Expose mark provenance, fees and measured event ordering counters | Implemented | 233795e | TypeScript, production build, Vitest | Browser pass tracked in J |
-| W | Consolidate style overrides and verify final bundle | Not started | — | — | Repeat responsive checks |
+| W | Consolidate style overrides and verify final bundle | Verified | 098338b | TypeScript, build, 23 tests, 68 Chrome layouts | — |
+| X | Expose historical candle values to keyboard and screen-reader users | In progress | — | — | Exercise chart fixture |
+| Y | Keep recovery requests and stale quote indicators consistent across failed refreshes | Not started | — | — | Test recovery during an outstanding poll |
+| Z | Final verification and handoff | Not started | — | — | Record live and fixture coverage |

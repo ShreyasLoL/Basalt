@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { IChartApi, UTCTimestamp } from "lightweight-charts";
+import { formatEventTime, formatMoney } from "./format";
 import { ApiError, fetchOptional } from "./api";
 import { useWorkstation } from "./store";
 import type { ApiMode } from "./types";
@@ -27,7 +28,8 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
   const effectiveMode = mode ?? storeMode;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [count, setCount] = useState(0);
+  const [history, setHistory] = useState<NonNullable<BarResponse["bars"]>>([]);
+  const count = history.length;
   const [feedback, setFeedback] = useState("");
   const [failed, setFailed] = useState(false);
   const available = effectiveMode === "v1" && !!instrumentId && instrumentId !== "SIM:LEGACY";
@@ -39,7 +41,7 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
     const controller = new AbortController();
     const container = containerRef.current;
     let chart: IChartApi | undefined;
-    setCount(0);
+    setHistory([]);
     setFailed(false);
     setFeedback("Loading historical bars…");
     if (!available || !container) return;
@@ -50,7 +52,9 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
         { signal: controller.signal },
       );
       if (controller.signal.aborted) return;
-      const bars = (response.bars ?? []).map(bar => ({
+      const history = response.bars ?? [];
+      setHistory(history);
+      const bars = history.map(bar => ({
         time: Math.floor(bar.open_time_ns / 1_000_000_000) as UTCTimestamp,
         open: bar.open_micro / 10_000, high: bar.high_micro / 10_000,
         low: bar.low_micro / 10_000, close: bar.close_micro / 10_000,
@@ -78,7 +82,6 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
         wickUpColor: up, wickDownColor: down, priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
       }).setData(bars);
       chart.timeScale().fitContent();
-      setCount(bars.length);
       setFeedback("");
     }
     void loadChart(container).catch((error: unknown) => {
@@ -102,8 +105,19 @@ export const ChartPanel = memo(function ChartPanel({ instrumentId, mode }: Chart
       </div>
       <div className="chart-wrap">
         <div className="chart-canvas" ref={containerRef} role="img" aria-label={"Candlestick price chart for " + (instrumentId ?? "no selected instrument")} />
-        {count === 0 && <div className="chart-empty"><div role="status">{message}</div>{available && failed && <button className="subtle-button" onClick={() => setAttempt(value => value + 1)}>Retry history</button>}</div>}
+        {(count === 0 || failed) && <div className="chart-empty"><div role="status">{message}</div>{available && failed && <button className="subtle-button" onClick={() => setAttempt(value => value + 1)}>Retry history</button>}</div>}
       </div>
+      {count > 0 && <details className="metric-reference">
+        <summary>Historical bars ({count})</summary>
+        <div className="table-scroll candle-history" role="region" aria-label="Historical candle values" tabIndex={0}>
+          <table><thead><tr><th>Open time (ms)</th><th>Open</th><th>High</th><th>Low</th><th>Close</th></tr></thead>
+            <tbody>{history.map(bar => <tr key={bar.open_time_ns}><th scope="row">{formatEventTime(bar.open_time_ns)}</th>
+              <td>{formatMoney(bar.open_micro)}</td><td>{formatMoney(bar.high_micro)}</td>
+              <td>{formatMoney(bar.low_micro)}</td><td>{formatMoney(bar.close_micro)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </details>}
     </section>
   );
 });
