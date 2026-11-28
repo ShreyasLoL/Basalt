@@ -102,7 +102,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .quote-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; padding: 8px 0 12px; }
 .quote-summary div { display: flex; flex-direction: column; gap: 5px; }
 .quote-summary span { color: var(--quiet); text-transform: uppercase; letter-spacing: .08em; }
-.quote-summary strong { font-weight: 600; }
+.quote-summary strong { font-weight: 600; overflow-wrap: anywhere; }
+.section-heading > div, .quote-summary > div { min-width: 0; }
+.section-heading h2, .health-copy span { overflow-wrap: anywhere; }
 .health-copy { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 13px; color: var(--muted); }
 .health-copy strong { color: var(--text); }
 .text-button { padding: 3px 0; border: 0; background: none; cursor: pointer; }

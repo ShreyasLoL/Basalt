@@ -111,6 +111,31 @@ try {
       await send("Fetch.disable");
       socket.removeEventListener("message", onRequest);
     }
+    const watch = await fetch(gateway + "/api/v1/market/watch").then(response => response.json());
+    assert.ok(watch.instruments.length);
+    const longSymbol = "LONGIDENTIFIER".repeat(12);
+    const stressWatch = { ...watch, instruments: watch.instruments.map((row, index) => index === 0
+      ? { ...row, symbol: longSymbol, lastPrice: Number.MAX_SAFE_INTEGER } : row) };
+    const stressQuote = async ({ data }) => {
+      const { method, params } = JSON.parse(data);
+      if (method === "Fetch.requestPaused") await send("Fetch.fulfillRequest", {
+        requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+        body: Buffer.from(JSON.stringify(stressWatch)).toString("base64"),
+      });
+    };
+    socket.addEventListener("message", stressQuote);
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/v1/market/watch" }] });
+    try {
+      await choose("Overview");
+      await until('document.querySelector(".quote-hero h2")?.textContent === ' + JSON.stringify(longSymbol));
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"), true, "Long quote identifier overflows viewport");
+      assert.equal(await evaluate('Array.from(document.querySelectorAll(".quote-summary strong")).every(e => e.scrollWidth <= e.clientWidth)'), true, "Quote values clipped");
+    } finally {
+      await send("Fetch.disable");
+      socket.removeEventListener("message", stressQuote);
+    }
+    console.log("Long symbol and large monetary quote fit at 320px");
+
     let offline = false;
     const simulateAvailability = async ({ data }) => {
       const { method, params } = JSON.parse(data);
