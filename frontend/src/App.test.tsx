@@ -234,7 +234,10 @@ describe("BASALT workstation", () => {
   });
 
   it("submits the selected dataset and strategy with the supported backtest model", async () => {
-    const fetchSpy = v1ApiFetch();
+    const api = v1ApiFetch();
+    let run = 0;
+    const fetchSpy = vi.fn((url: RequestInfo | URL, init?: RequestInit) => url === "/api/v1/backtests"
+      ? Promise.resolve(jsonResponse({ run_id: "run-" + ++run }, 202)) : api(url, init));
     vi.stubGlobal("fetch", fetchSpy);
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Backtesting" }));
@@ -252,6 +255,12 @@ describe("BASALT workstation", () => {
       split: "chronological",
       execution_model: "BAR_APPROXIMATION_MODEL",
     });
+    await screen.findByRole("button", { name: "Inspect run run-1" });
+    fireEvent.click(screen.getByRole("button", { name: "Run backtest" }));
+    await screen.findByRole("button", { name: "Inspect run run-2" });
+    fireEvent.click(screen.getByRole("button", { name: "Inspect run run-1" }));
+    expect(await screen.findByLabelText("Run ID")).toHaveValue("run-1");
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([url]) => url === "/api/v1/backtests/run-1")).toBe(true));
   });
 
   it("requires an available v1 session and applies replay speed and event sequence on demand", async () => {

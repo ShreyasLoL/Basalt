@@ -9,7 +9,7 @@ interface RunReport {
 
 export function RunResults({ initialId, connected }: { initialId: string; connected: boolean }) {
   const [input, setInput] = useState(initialId);
-  const [request, setRequest] = useState<{ id: string } | null>(null);
+  const [request, setRequest] = useState<{ id: string } | null>(() => initialId ? { id: initialId } : null);
   const [report, setReport] = useState<RunReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

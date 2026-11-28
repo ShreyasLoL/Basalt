@@ -935,12 +935,14 @@ const PortfolioRisk = memo(function PortfolioRisk({
   );
 });
 
+interface QueuedRun { id: string; dataset: string; strategy: string }
+
 const Backtesting = memo(function Backtesting({
-  onMessage, queuedRun, setQueuedRun, onInspect,
+  onMessage, runs, onQueued, onInspect,
 }: {
-  queuedRun: string;
-  setQueuedRun: (id: string) => void;
-  onInspect: () => void;
+  runs: QueuedRun[];
+  onQueued: (run: QueuedRun) => void;
+  onInspect: (id: string) => void;
   onMessage: (message: string, error?: boolean) => void;
 }) {
   const datasets = useWorkstation((state) => state.datasets);
@@ -971,7 +973,7 @@ const Backtesting = memo(function Backtesting({
         }),
       });
       if (!result.run_id) throw new Error("The server did not return a run identifier.");
-      setQueuedRun(result.run_id);
+      onQueued({ id: result.run_id, dataset: selectedDataset.label, strategy: strategies.find(item => item.id === strategy)?.name ?? strategy });
       onMessage("Backtest queued: " + result.run_id);
     } catch (error) {
       onMessage(error instanceof Error ? error.message : "Backtest endpoint unavailable.", true);
@@ -1007,8 +1009,10 @@ const Backtesting = memo(function Backtesting({
         </section>
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">RUN HISTORY</div><h2>Results and manifests</h2></div></div>
-          {queuedRun ? <><p role="status">Queued run <strong>{queuedRun}</strong></p>
-            <button className="text-button" onClick={onInspect}>Inspect run results →</button></>
+          {runs.length ? <ul className="queued-runs">{runs.map(run => <li key={run.id}>
+            <strong>{run.id}</strong><span>{run.dataset} · {run.strategy}</span>
+            <button className="text-button" aria-label={"Inspect run " + run.id} onClick={() => onInspect(run.id)}>Inspect results →</button>
+          </li>)}</ul>
             : <EmptyState title="No run queued in this session" detail="Queue a run here or inspect a stored run by ID in Analytics." />}
         </section>
       </div>
@@ -1210,7 +1214,11 @@ export default function App() {
   const setSelected = useWorkstation((state) => state.setSelectedInstrument);
   const applyFrames = useWorkstation((state) => state.applyStreamFrames);
   const setStreamConnected = useWorkstation((state) => state.setStreamConnected);
-  const [queuedRun, setQueuedRun] = useState("");
+  const [runs, setRuns] = useState<QueuedRun[]>([]);
+  const [inspectedRun, setInspectedRun] = useState("");
+  const rememberRun = useCallback((run: QueuedRun) => {
+    setRuns(current => [run, ...current.filter(item => item.id !== run.id)].slice(0, 50));
+  }, []);
   const [workspace, showWorkspace] = useState<WorkspaceName>(workspaceFromUrl);
   const setWorkspace = useCallback((next: WorkspaceName) => {
     if (workspaceFromUrl() !== next) {
@@ -1296,13 +1304,13 @@ export default function App() {
       case "Portfolio & Risk":
         return <PortfolioRisk onMessage={notify} />;
       case "Backtesting":
-        return <Backtesting onMessage={notify} queuedRun={queuedRun} setQueuedRun={setQueuedRun} onInspect={() => setWorkspace("Analytics")} />;
+        return <Backtesting onMessage={notify} runs={runs} onQueued={rememberRun} onInspect={id => { setInspectedRun(id); setWorkspace("Analytics"); }} />;
       case "Market Replay":
         return <Replay />;
       case "Benchmarks":
         return <><PageHeader title="Benchmarks" subtitle="Measure matching-engine workloads on the local gateway." /><Benchmarks connected={connected} /></>;
       case "Analytics":
-        return <Analytics queuedRun={queuedRun} />;
+        return <Analytics queuedRun={inspectedRun} />;
       case "Data Sources":
         return <DataSources />;
       case "System Monitor":

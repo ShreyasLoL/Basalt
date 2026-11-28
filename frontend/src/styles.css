@@ -390,6 +390,9 @@ td small { font-size: 10px; }
 @media (min-width: 821px) { .ticket-form.benchmark-form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; align-items: end; } }
 .blotter-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-block: 12px; color: var(--muted); }
 .blotter-toolbar select { padding: 6px 10px; min-height: 40px; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--panel-raised); color: var(--text); }
+.queued-runs { list-style: none; padding: 0; }
+.queued-runs li { display: grid; justify-items: start; padding-block: 8px; border-bottom: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.queued-runs li span { color: var(--muted); }
 .metric-reference { margin-block: var(--layout-gap); }
 .candle-history { max-height: 24rem; overflow: auto; }
 .candle-history thead { position: sticky; top: 0; background: var(--panel-raised); }
