@@ -2,7 +2,7 @@
 
 ## Stack and boundary
 
-Target is React + TypeScript + Vite + Tailwind, Zustand for normalized UI state, and Lightweight Charts for licensed local chart presentation. Static assets are served by the local C++ gateway with the legacy web/index.html as fallback. The frontend calls only schema-versioned REST v1 and WebSocket v1. It contains no matching, risk, portfolio accounting or synthetic quote logic. Empty, stale, disconnected and unavailable values are shown as such; there are no fake charts, trades, benchmark outputs or success states.
+Target is React + TypeScript + Vite + Tailwind, Zustand for normalized UI state, and Lightweight Charts for licensed local chart presentation. Static assets are served by the local C++ gateway with the legacy web/index.html as fallback. The frontend uses same-origin REST v1, optional WebSocket v1, and the documented local compatibility routes for legacy sessions and measured benchmarks. It contains no matching, risk, portfolio accounting or synthetic quote logic. Empty, stale, disconnected and unavailable values are shown as such; there are no fake charts, trades, benchmark outputs or success states.
 
 The current bundled HTTP gateway reports `websocket_available: false` because cpp-httplib has no upgrade hook. The client skips stream connection and reconnect attempts when that flag is false; REST v1 remains available.
 
@@ -17,10 +17,17 @@ The current bundled HTTP gateway reports `websocket_available: false` because cp
 7. **Portfolio & Risk:** API-provided cash, equity, P&L, positions, risk utilization, rejection log and v1 kill-switch control. Unknown risk state is distinct from an explicitly inactive kill switch.
 8. **Backtesting:** dataset and strategy values come from the local API; the only displayed execution model is bar-based approximation. Empty API data stays empty and unsupported requests return the server error rather than fabricated runs or metrics.
 9. **Market Replay:** session ID entry, play/pause/step, explicit speed application and event-sequence seek. Commands require REST v1 and are serialized while pending; the current server reports unimplemented routes with 501.
-10. **Analytics:** metric labels with blank values until a completed run is available.
+10. **Analytics:** inspect a stored run by ID, including reported metric values, units, statuses and manifest hashes. Backtesting links directly to runs queued in the current page session.
 11. **Data Sources:** API-reported provider status when available; credentials are never rendered.
 12. **System Monitor:** API-reported system metrics and audit events, with empty states when the service does not provide them.
 13. **Settings:** current API mode, bind default, simulation boundary, health and credential-handling guidance. This is a posture view, not an editable settings form.
+
+14. **Charts:** selected-instrument one-minute candles, lazy-loaded renderer, accessible OHLC table and retry for failed history requests.
+15. **Orders:** searchable resting-order queue, remaining quantity, FIFO sequence and per-order cancellation.
+16. **Executions:** selected-instrument paper fills, newest first, with aggressor filtering, event times and execution models.
+17. **Benchmarks:** bounded gateway workloads, optional baseline comparison and measured throughput, elapsed time and latency percentiles.
+
+Workspace URLs use the `workspace` query parameter and support browser Back and Forward. Desktop has grouped sidebar navigation. The compact shell uses a grouped native selector. Market Watch supports sorting and instrument ID search. Overview follows the selected instrument and shows exchange quote quality, account and activity context.
 
 ## Visual and interaction rules
 
@@ -40,4 +47,6 @@ Frontend package lock is committed; scripts provide dev, typecheck, build and te
 
 ## Current verification
 
-On 2026-11-27, `npm test -- --reporter=dot` passed 16/16 Vitest tests across 3 files (`api.test.ts`, `App.test.tsx`, and `store.test.ts`). Typecheck and production build passed. Tests cover Market Watch filtering and selection, accurate risk status, API-bound backtest payloads, replay gating and explicit commands. No browser visual or end-to-end run is claimed: the local preview was unreachable through the available host path, and the user requested no computer UI access during this implementation.
+On 2026-11-28, TypeScript, all 31 Vitest tests and the production build passed. Chrome exercised 17 destinations at four viewport widths against the bundled gateway. The optional-resource client retries unavailable endpoints on a 30-second probe or a forced refresh. Chart code loads after historical bars arrive.
+
+See [the implementation report](UI_REDESIGN_IMPLEMENTATION.md) for browser reproduction steps, service dependencies and fixture coverage. The [milestone tracker](ui/IMPLEMENTATION_PROGRESS.md) records the corresponding commits.
