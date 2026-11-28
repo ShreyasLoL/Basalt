@@ -81,7 +81,7 @@ function parseSystemMetrics(payload: Record<string, unknown>): SystemMetrics | n
     replacements: numberValue(payload.replacements ?? payload.queue_replacements),
     dropped: numberValue(payload.dropped ?? payload.dropped_events),
     duplicates: numberValue(payload.duplicates ?? payload.duplicate_events),
-    outOfOrder: numberValue(payload.out_of_order ?? payload.out_of_order_events),
+    outOfOrder: numberValue(payload.out_of_order ?? payload.out_of_order_events ?? payload.outOfOrder),
   };
 }
 
@@ -265,19 +265,31 @@ export const useWorkstation = create<WorkstationStore>((set, get) => ({
     await Promise.all(endpoints.map(async ([key, path]) => {
       if (statuses[key] === "unavailable" && !probeMissing) return;
       try {
-        const value: unknown = await fetchOptional(path);
-        statuses[key] = "ready";
-        if (key === "strategies" && value && typeof value === "object" && "strategies" in value) {
-          set({ strategies: (value as { strategies: WorkstationStore["strategies"] }).strategies });
+        const value = objectValue(await fetchOptional(path));
+        if (!value) throw new Error("Missing response object");
+        if (key === "strategies" || key === "datasets") {
+          const rows = value[key];
+          if (!Array.isArray(rows) || !rows.every(row => typeof row?.id === "string")) {
+            throw new Error("Missing inventory rows");
+          }
+          set({ [key]: rows });
         } else if (key === "portfolio") {
-          set({ portfolio: value as WorkstationStore["portfolio"] });
+          if (!Array.isArray(value.positions) || !value.positions.every(row => typeof row?.instrumentId === "string")) {
+            throw new Error("Missing portfolio positions");
+          }
+          set({ portfolio: value as unknown as WorkstationStore["portfolio"] });
         } else if (key === "risk") {
-          set({ risk: value as WorkstationStore["risk"] });
-        } else if (key === "datasets" && value && typeof value === "object" && "datasets" in value) {
-          set({ datasets: (value as { datasets: WorkstationStore["datasets"] }).datasets });
-        } else if (key === "systemMetrics") {
-          set({ systemMetrics: value as WorkstationStore["systemMetrics"] });
+          if (!Array.isArray(value.limits) || !value.limits.every(row => typeof row?.name === "string") ||
+              !Array.isArray(value.rejections) || !value.rejections.every(row => typeof row?.code === "string")) {
+            throw new Error("Missing risk snapshot");
+          }
+          set({ risk: value as unknown as WorkstationStore["risk"] });
+        } else {
+          const systemMetrics = parseSystemMetrics(value);
+          if (!systemMetrics) throw new Error("Missing telemetry");
+          set({ systemMetrics });
         }
+        statuses[key] = "ready";
       } catch {
         set({ [key]: emptyOptional[key] });
         statuses[key] = "unavailable";

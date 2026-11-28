@@ -74,6 +74,17 @@ describe("bounded WebSocket event store", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps malformed optional resources out of workspace state", async () => {
+    useWorkstation.setState({ mode: "v1", optionalStatus: {} });
+    vi.stubGlobal("fetch", async () => Response.json({ schema_version: 1 }));
+    await useWorkstation.getState().refreshOptional(true);
+    const state = useWorkstation.getState();
+    expect(state.portfolio).toBeNull();
+    expect(state.risk).toBeNull();
+    expect(state.systemMetrics).toBeNull();
+    expect(Object.values(state.optionalStatus)).toEqual(Array(5).fill("unavailable"));
+  });
+
   it("reconciles a gap reported while a snapshot request is in flight", async () => {
     let release!: (response: Response) => void;
     const first = new Promise<Response>(resolve => { release = resolve; });
