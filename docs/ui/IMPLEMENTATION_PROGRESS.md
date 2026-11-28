@@ -34,5 +34,5 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | AB | Keep ticket drafts scoped to gateway units and instrument | Verified | 8e68fff | Invalid legacy price, keyboard focus, accessible description, build | — |
 | AC | Reject malformed successful responses before displaying command acknowledgments | Verified | e36d8dd | 204, unreadable success and rejected-command regressions | — |
 | AD | Reject partial optional snapshots before rendering ledger, strategies or telemetry | Verified | e5ae448 | Malformed optional resource regression, build | — |
-| AE | Navigate workspaces using local URLs and browser history | Not started | — | — | Check back and invalid hash |
+| AE | Navigate workspaces using local URLs and browser history | Verified | 50331ef | Direct URL and Back regression, Chrome sweep | Unknown destinations open Overview |
 | AF | Exercise disconnected and legacy states in the production browser | Not started | — | — | Distinguish fixtures from live gateway |

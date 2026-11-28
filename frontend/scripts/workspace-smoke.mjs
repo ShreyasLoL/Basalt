@@ -111,6 +111,36 @@ try {
       await send("Fetch.disable");
       socket.removeEventListener("message", onRequest);
     }
+    let offline = false;
+    const simulateAvailability = async ({ data }) => {
+      const { method, params } = JSON.parse(data);
+      if (method !== "Fetch.requestPaused") return;
+      const unavailable = offline || new URL(params.request.url).pathname === "/api/v1/health";
+      if (unavailable) {
+        await send("Fetch.fulfillRequest", { requestId: params.requestId, responseCode: offline ? 503 : 404,
+          responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+          body: Buffer.from(JSON.stringify({ message: "Unavailable in browser test" })).toString("base64") });
+      } else {
+        await send("Fetch.continueRequest", { requestId: params.requestId });
+      }
+    };
+    socket.addEventListener("message", simulateAvailability);
+    await send("Fetch.enable", { patterns: [{ urlPattern: "*/api/*" }] });
+    try {
+      await until('document.querySelector(".degraded-banner")');
+      await choose("Market Replay");
+      assert.equal(await evaluate('Array.from(document.querySelectorAll(".transport-controls button")).every(b => b.disabled)'), true);
+      offline = true;
+      await until('document.querySelector(".connection-banner[role=alert]")');
+      await choose("Paper Trading");
+      assert.equal(await evaluate('document.querySelector(".order-ticket button[type=submit]").disabled'), true);
+    } finally {
+      await send("Fetch.disable");
+      socket.removeEventListener("message", simulateAvailability);
+    }
+    await evaluate('document.querySelector(".icon-button").click()');
+    await until('document.querySelector(".app-footer")?.textContent.includes("V1")');
+    console.log("Legacy replay gating, disconnected ticket and live v1 recovery passed");
   }
   await send("Page.navigate", { url: gateway });
   await until('document.querySelector(".skip-link")');
