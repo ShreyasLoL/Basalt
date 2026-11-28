@@ -170,6 +170,22 @@ describe("BASALT workstation", () => {
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ profile: "BALANCED", order_count: 37, compare_baseline: true });
   });
 
+  it("resumes a paused strategy with its server ID", async () => {
+    const api = v1ApiFetch();
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => String(url) === "/api/v1/strategies"
+      ? Promise.resolve(jsonResponse({ strategies: [{ id: "s/42", name: "RSI", version: "1", state: "PAUSED" }] }))
+      : String(url).endsWith("/commands") ? Promise.resolve(jsonResponse({ accepted: true })) : api(url, init));
+    vi.stubGlobal("fetch", fetch);
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Strategy Lab" }));
+    const resume = await screen.findByRole("button", { name: "Resume" });
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
+    fireEvent.click(resume);
+    await screen.findByText("Command accepted");
+    const call = fetch.mock.calls.find(([url]) => url === "/api/v1/strategies/s%2F42/commands");
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ action: "resume" });
+  });
+
   it("submits the selected dataset and strategy with the supported backtest model", async () => {
     const fetchSpy = v1ApiFetch();
     vi.stubGlobal("fetch", fetchSpy);

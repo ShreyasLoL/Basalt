@@ -692,7 +692,7 @@ const StrategyLab = memo(function StrategyLab() {
         <EmptyState title="No strategies reported" detail="Strategy controls appear when the server reports a strategy definition." />
       ) : (
         <div className="panel table-panel"><div className="table-scroll" role="region" aria-label="Strategy lifecycle" tabIndex={0}><table><thead><tr><th>Strategy</th><th>Version</th><th>Lifecycle</th><th>Last signal</th><th>Last error</th><th>Controls</th></tr></thead><tbody>
-          {strategies.map((strategy) => <tr key={strategy.id}><td>{strategy.name}</td><td>{strategy.version}</td><td>{strategy.state}</td><td>{strategy.lastSignal ?? "—"}</td><td>{strategy.error ?? "—"}</td><td><StrategyControls id={strategy.id} /></td></tr>)}
+          {strategies.map((strategy) => <tr key={strategy.id}><td>{strategy.name}</td><td>{strategy.version}</td><td>{strategy.state}</td><td>{strategy.lastSignal ?? "—"}</td><td>{strategy.error ?? "—"}</td><td><StrategyControls id={strategy.id} state={strategy.state} /></td></tr>)}
         </tbody></table></div></div>
       )}
       <section className="panel info-panel">
@@ -704,7 +704,7 @@ const StrategyLab = memo(function StrategyLab() {
   );
 });
 
-function StrategyControls({ id }: { id: string }) {
+function StrategyControls({ id, state }: { id: string; state: string }) {
   const mode = useWorkstation(state => state.mode);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -722,7 +722,15 @@ function StrategyControls({ id }: { id: string }) {
       setBusy(false);
     }
   }
-  return <div className="button-row"><button className="subtle-button" disabled={busy || mode !== "v1"} onClick={() => void command("start")}>Start</button><button className="subtle-button" disabled={busy || mode !== "v1"} onClick={() => void command("pause")}>Pause</button><span role="status" className="quiet-label">{message}</span></div>;
+  const paused = state === "PAUSED";
+  const canStart = ["CREATED", "CONFIGURED", "VALIDATED", "STOPPED"].includes(state);
+  return <div className="button-row">
+    <button className="subtle-button" disabled={busy || mode !== "v1" || !(paused || canStart)}
+      onClick={() => void command(paused ? "resume" : "start")}>{paused ? "Resume" : "Start"}</button>
+    <button className="subtle-button" disabled={busy || mode !== "v1" || state !== "RUNNING"}
+      onClick={() => void command("pause")}>Pause</button>
+    <span role="status" className="quiet-label">{message}</span>
+  </div>;
 }
 
 const PaperTrading = memo(function PaperTrading({
