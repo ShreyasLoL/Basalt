@@ -982,12 +982,16 @@ const Backtesting = memo(function Backtesting({
   return (
     <>
       <PageHeader title="Backtesting" subtitle="Chronological runs enforce next-bar execution and preserve a reproducibility manifest." />
-      {datasetStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/datasets" />}
-      {strategyStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
       <div className="bento">
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">NEW RUN</div><h2>Backtest configuration</h2></div></div>
-          {mode === "connecting" || (mode === "v1" && (!datasetStatus || !strategyStatus)) ? <LoadingState label="Loading backtest inputs…" /> : datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
+          {mode === "connecting" || (mode === "v1" && (!datasetStatus || !strategyStatus)) ? <LoadingState label="Loading backtest inputs…" />
+            : mode !== "v1" ? <EmptyState title="Backtesting requires REST v1" detail="Connect the research gateway to load licensed datasets and strategy definitions." />
+            : datasetStatus === "unavailable" || strategyStatus === "unavailable" ? <div>
+              {datasetStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/datasets" />}
+              {strategyStatus === "unavailable" && <EndpointNotice endpoint="/api/v1/strategies" />}
+              <button className="subtle-button" onClick={() => void useWorkstation.getState().refresh({ forceV1Probe: true })}>Retry research inputs</button>
+            </div> : datasets.length === 0 ? <EmptyState title="No licensed dataset is indexed" detail="Import a permitted local dataset before starting a run." /> : strategies.length === 0 ? <EmptyState title="No strategy is available" detail="A strategy definition from the local strategy API is required before a backtest can be queued." /> : (
             <form className="ticket-form" onSubmit={(event) => void run(event)}>
               <label>Dataset<select value={dataset} onChange={(event) => setDataset(event.target.value)} required><option value="">Select dataset</option>{datasets.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.license}</option>)}</select></label>
               {selectedDataset && <dl className="facts">

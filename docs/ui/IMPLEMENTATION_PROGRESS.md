@@ -39,7 +39,7 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | AG | Preserve service severity and display reported feed health by exchange | Verified | 30de8ca | Legacy feed quality test, typecheck, build | Exchange summaries reflect watched instruments |
 | AH | Search the resting queue by order ID without disturbing FIFO order | Verified | a6905a3 | Filtered queue cancellation regression, build | — |
 | AI | Preserve sub-unit measurements in benchmark and risk displays | Verified | d6046ac | Fractional elapsed-time regression, build | — |
-| AJ | Recover malformed provider inventories and keep source metadata scoped | In progress | — | — | Retry fixture |
+| AJ | Recover malformed provider inventories and keep source metadata scoped | Verified | 7442a59 | Malformed-to-ready retry and credential visibility test | Live provider inventory unavailable |
 | AK | Distinguish unavailable research prerequisites from an indexed empty catalog | Not started | — | — | Check unavailable and ready states |
 | AL | Keep queued backtest identifiers available for run inspection across workspace changes | Not started | — | — | Multiple run fixture |
 | AM | Check narrow layouts with long identifiers and large monetary values | Not started | — | — | Browser stress fixture |

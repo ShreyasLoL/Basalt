@@ -220,6 +220,19 @@ describe("BASALT workstation", () => {
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ action: "resume" });
   });
 
+  it("recovers unavailable backtest inputs without reporting an empty catalog", async () => {
+    const api = v1ApiFetch();
+    let reads = 0;
+    vi.stubGlobal("fetch", (url: RequestInfo | URL) => String(url).endsWith("/datasets") && ++reads === 1
+      ? Promise.resolve(jsonResponse({ message: "Offline" }, 503)) : api(url));
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Backtesting" }));
+    const retry = await screen.findByRole("button", { name: "Retry research inputs" });
+    expect(screen.queryByText("No licensed dataset is indexed")).not.toBeInTheDocument();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("option", { name: /Licensed sample/ })).toBeInTheDocument();
+  });
+
   it("submits the selected dataset and strategy with the supported backtest model", async () => {
     const fetchSpy = v1ApiFetch();
     vi.stubGlobal("fetch", fetchSpy);
