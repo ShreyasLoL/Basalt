@@ -574,15 +574,24 @@ const ActiveOrders = memo(function ActiveOrders({
   mode: ApiMode;
   onMessage: (message: string, error?: boolean) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => orders.filter(order => String(order.id).includes(query.trim())), [orders, query]);
   if (orders.length === 0) {
     return <EmptyState title="No open paper orders" detail="Working internal CLOB orders appear with their FIFO sequence and cancel control." />;
   }
   return (
+    <>
+    <div className="blotter-toolbar">
+      <label className="search-box"><input type="search" inputMode="numeric" aria-label="Find order ID" placeholder="Find order ID" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <span>{filtered.length} of {orders.length} orders</span>
+    </div>
+    {filtered.length === 0 ? <EmptyState title="No matching orders" detail="Try a different order ID."
+      action={<button className="text-button" onClick={() => setQuery("")}>Clear search</button>} /> :
     <div className="table-scroll" role="region" aria-label="Working orders" tabIndex={0}>
       <table>
         <thead><tr><th>Order ID</th><th>Side</th><th>Type</th><th>Price</th><th>Remaining</th><th>FIFO seq</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
-          {orders.map((order) => (
+          {filtered.map((order) => (
             <tr key={order.id}>
               <td className="mono">{order.id}</td>
               <td><span className={"side-label " + order.side.toLowerCase()}>{order.side}</span></td>
@@ -596,7 +605,8 @@ const ActiveOrders = memo(function ActiveOrders({
           ))}
         </tbody>
       </table>
-    </div>
+    </div>}
+    </>
   );
 });
 

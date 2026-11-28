@@ -36,6 +36,6 @@ Baseline `70c7bcd` introduced quote hierarchy, skip-link positioning and formatt
 | AD | Reject partial optional snapshots before rendering ledger, strategies or telemetry | Verified | e5ae448 | Malformed optional resource regression, build | — |
 | AE | Navigate workspaces using local URLs and browser history | Verified | 50331ef | Direct URL and Back regression, Chrome sweep | Unknown destinations open Overview |
 | AF | Exercise disconnected and legacy states in the production browser | Verified | 673223e | Chrome forced v1 absence, offline commands and recovered v1 | Failure modes simulated |
-| AG | Preserve service severity and display reported feed health by exchange | In progress | — | — | Verify degraded quotes and explicit errors |
+| AG | Preserve service severity and display reported feed health by exchange | Verified | 30de8ca | Legacy feed quality test, typecheck, build | Exchange summaries reflect watched instruments |
 | AH | Search the resting queue by order ID without disturbing FIFO order | Not started | — | — | Verify cancellation target |
 | AI | Preserve sub-unit measurements in benchmark and risk displays | Not started | — | — | Check currency and time precision |

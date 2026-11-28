@@ -98,6 +98,22 @@ describe("BASALT workstation", () => {
     expect(price).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("cancels the matching resting order from a filtered queue", async () => {
+    const orders = [34, 37].map(id => ({ id, side: "BUY", type: "LIMIT", price: 123, remaining_quantity: 2, sequence: id }));
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) =>
+      String(url).includes("/api/state") ? jsonResponse({ ...legacyFixture, book: { ...legacyFixture.book, resting_orders: orders } })
+        : init?.method === "DELETE" ? new Response(null, { status: 204 }) : jsonResponse({}, 404));
+    vi.stubGlobal("fetch", fetch);
+    render(<App />);
+    await screen.findByText("BASALT-SIM");
+    fireEvent.click(screen.getByRole("button", { name: "Orders" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find order ID" }), { target: { value: "37" } });
+    expect(screen.queryByRole("button", { name: "Cancel order 34" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel order 37" }));
+    await screen.findByText("Order 37 cancelled.");
+    expect(fetch.mock.calls.some(([url, init]) => url === "/api/orders/37" && init?.method === "DELETE")).toBe(true);
+  });
+
   it("filters executions without losing the underlying fills", async () => {
     vi.stubGlobal("fetch", async (url: RequestInfo | URL) => String(url).includes("/api/state")
       ? jsonResponse({ ...legacyFixture, trades: [{ trade_id: 13, price: 9990, quantity: 2,
