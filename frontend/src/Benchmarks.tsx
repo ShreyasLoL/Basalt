@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { fetchOptional } from "./api";
-import { formatNumber } from "./format";
+import { formatMeasurement, formatNumber } from "./format";
 
 const workloads = ["BALANCED", "BUY_HEAVY", "SELL_HEAVY", "AGGRESSIVE_MATCHING", "CANCEL_HEAVY",
   "CONCENTRATED_LEVELS", "WIDE_DISTRIBUTION", "BURSTY_ARRIVALS", "HIGH_ACTIVE_ORDERS",
@@ -11,6 +11,8 @@ interface Measurement {
   implementation: string;
   orders_processed: number;
   throughput_ops_per_sec: number;
+  total_time_ms: number;
+  p50_latency_ns: number;
   p95_latency_ns: number;
   p99_latency_ns: number;
 }
@@ -57,10 +59,11 @@ export function Benchmarks({ connected }: { connected: boolean }) {
     <section className="panel" aria-busy={busy}>
       <div className="section-heading"><h2>Measured results</h2></div>
       {error ? <p role="alert">{error}</p> : results?.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Benchmark measurements">
-        <table><thead><tr><th>Workload</th><th>Implementation</th><th>Orders</th><th>Ops/s</th><th>p95 ns</th><th>p99 ns</th></tr></thead>
+        <table><thead><tr><th>Workload</th><th>Implementation</th><th>Orders</th><th>Ops/s</th><th>Elapsed ms</th><th>p50 ns</th><th>p95 ns</th><th>p99 ns</th></tr></thead>
           <tbody>{results.map(row => <tr key={row.profile_name + row.implementation}>
             <td>{row.profile_name}</td><td>{row.implementation}</td><td>{formatNumber(row.orders_processed)}</td>
-            <td>{formatNumber(row.throughput_ops_per_sec)}</td><td>{formatNumber(row.p95_latency_ns)}</td><td>{formatNumber(row.p99_latency_ns)}</td>
+            <td>{formatMeasurement(row.throughput_ops_per_sec)}</td><td>{formatMeasurement(row.total_time_ms)}</td>
+            <td>{formatMeasurement(row.p50_latency_ns)}</td><td>{formatMeasurement(row.p95_latency_ns)}</td><td>{formatMeasurement(row.p99_latency_ns)}</td>
           </tr>)}</tbody></table>
       </div> : <p role="status">{busy ? "Measuring workload…" : results ? "The gateway returned no measurements." : "Run a workload to measure throughput and latency."}</p>}
     </section>

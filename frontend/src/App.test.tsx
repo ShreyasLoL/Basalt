@@ -191,7 +191,7 @@ describe("BASALT workstation", () => {
     const api = v1ApiFetch();
     const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => String(url) === "/api/benchmark"
       ? Promise.resolve(jsonResponse({ results: [{ profile_name: "Balanced", implementation: "Engine", orders_processed: 37,
-        throughput_ops_per_sec: 731, p95_latency_ns: 43, p99_latency_ns: 49 }] })) : api(url, init));
+        total_time_ms: 0.037, p50_latency_ns: 21, throughput_ops_per_sec: 731, p95_latency_ns: 43, p99_latency_ns: 49 }] })) : api(url, init));
     vi.stubGlobal("fetch", fetch);
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Benchmarks" }));
@@ -199,6 +199,7 @@ describe("BASALT workstation", () => {
     fireEvent.change(screen.getByLabelText("Order count"), { target: { value: "37" } });
     fireEvent.click(screen.getByRole("button", { name: "Run benchmark" }));
     expect(await screen.findByText("731")).toBeInTheDocument();
+    expect(screen.getByText("0.037")).toBeInTheDocument();
     const call = fetch.mock.calls.find(([url]) => url === "/api/benchmark");
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ profile: "BALANCED", order_count: 37, compare_baseline: true });
   });

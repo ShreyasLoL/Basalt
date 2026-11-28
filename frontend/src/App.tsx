@@ -1,4 +1,4 @@
-import { formatEventTime, formatNumber, formatPrice, formatMoney } from "./format";
+import { formatEventTime, formatMeasurement, formatNumber, formatPrice, formatMoney } from "./format";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { InstrumentDetails } from "./InstrumentDetails";
 import { RunResults } from "./RunResults";
@@ -927,7 +927,7 @@ const PortfolioRisk = memo(function PortfolioRisk({
         </section>
         <section className="panel">
           <div className="section-heading"><div><div className="eyebrow">RISK GATES</div><h2>Limit utilization</h2></div><span className={risk?.killSwitch ? "quality-badge stale" : risk?.killSwitch === false ? "quality-badge ok" : "quality-badge"}>{risk?.killSwitch ? "KILL SWITCH ON" : risk?.killSwitch === false ? "KILL SWITCH OFF" : "STATUS UNKNOWN"}</span></div>
-          {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{formatNumber(limit.used)} / {formatNumber(limit.limit)} {limit.unit}</span></div>{limit.used !== null && limit.limit !== null && limit.limit > 0 && <div className="limit-track"><span style={{ width: Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" }} /></div>}</div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
+          {risk?.limits.length ? <div className="limit-list">{risk.limits.map((limit) => <div className="limit-row" key={limit.name}><div><strong>{limit.name}</strong><span>{limit.unit === "micro-INR" ? formatMoney(limit.used) : formatMeasurement(limit.used)} / {limit.unit === "micro-INR" ? formatMoney(limit.limit) : formatMeasurement(limit.limit) + " " + limit.unit}</span></div>{limit.used !== null && limit.limit !== null && limit.limit > 0 && <div className="limit-track"><span style={{ width: Math.min(100, Math.max(0, limit.used / limit.limit * 100)) + "%" }} /></div>}</div>)}</div> : <EmptyState title="Risk limits unavailable" detail="No utilization values are presented until the risk service responds." />}
         </section>
       </div>
       {risk?.rejections.length ? <section className="panel"><div className="section-heading"><div><div className="eyebrow">RISK EVENTS</div><h2>Recent rejections</h2></div></div><div className="event-list">{risk.rejections.map((entry, index) => <div className="event-row" key={entry.eventSeq + ":" + index}><span className="mono quiet">#{entry.eventSeq}</span><span className="event-type reject">{entry.code}</span>{entry.message !== entry.code && <div className="event-copy"><span>{entry.message}</span></div>}</div>)}</div></section> : null}
